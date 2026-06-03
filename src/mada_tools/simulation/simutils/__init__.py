@@ -10,6 +10,7 @@ adapted from mada-job-management jobkit.
 
 from .models import RunInstance, SampleOutputResult
 from .samples.generation.lhs_sample_generator import LHSampleGenerator
+from .samples.generation.parameter_samples_generator import ParameterSampleGenerator
 from .samples.output.folder_output_handler import FolderOutputHandler
 from .utils import get_run_instances
 
@@ -17,6 +18,7 @@ __all__ = [
     "RunInstance",
     "SampleOutputResult",
     "LHSampleGenerator",
+    "ParameterSampleGenerator",
     "FolderOutputHandler",
     "get_run_instances",
 ]
