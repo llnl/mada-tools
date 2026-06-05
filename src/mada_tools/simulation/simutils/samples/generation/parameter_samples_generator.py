@@ -154,17 +154,13 @@ class ParameterSampleGenerator:
             if self.allowed_types is not None and parameter_type not in self.allowed_types:
                 raise ValueError(f"parameters['{name}'] has unsupported parameter type: {parameter_spec[0]}")
             if selection in unsupported_modes or selection not in allowed_selections:
-                raise ValueError(
-                    f"parameters['{name}'] has unsupported parameter selection: {parameter_spec[1]}"
-                )
+                raise ValueError(f"parameters['{name}'] has unsupported parameter selection: {parameter_spec[1]}")
             if (
                 self.continuous_allowed_types is not None
                 and selection == "continuous"
                 and parameter_type not in self.continuous_allowed_types
             ):
-                raise ValueError(
-                    f"parameters['{name}'] type '{parameter_type}' does not support continuous selection"
-                )
+                raise ValueError(f"parameters['{name}'] type '{parameter_type}' does not support continuous selection")
             if not isinstance(values, list) or not values:
                 raise ValueError(f"parameters['{name}'] values must be a non-empty list")
             if parameter_type == "exe" and self.max_exe_parameters is not None:
@@ -179,9 +175,7 @@ class ParameterSampleGenerator:
                 if len(values) != 2 or not all(
                     isinstance(value, (int, float)) and not isinstance(value, bool) for value in values
                 ):
-                    raise ValueError(
-                        f"parameters['{name}'] continuous values must be exactly two numeric bounds"
-                    )
+                    raise ValueError(f"parameters['{name}'] continuous values must be exactly two numeric bounds")
             if selection == "discrete_random":
                 num_selections = fourth_value
                 if not isinstance(num_selections, int) or isinstance(num_selections, bool):
@@ -189,9 +183,7 @@ class ParameterSampleGenerator:
                 if num_selections <= 0:
                     raise ValueError(f"parameters['{name}'] discrete_random num_selections must be positive")
                 if num_selections > len(values):
-                    raise ValueError(
-                        f"parameters['{name}'] discrete_random num_selections cannot exceed value count"
-                    )
+                    raise ValueError(f"parameters['{name}'] discrete_random num_selections cannot exceed value count")
             if selection == "zip":
                 zip_group = fourth_value if fourth_value is not None else 1
                 if not isinstance(zip_group, int) or isinstance(zip_group, bool) or zip_group <= 0:
@@ -209,9 +201,10 @@ class ParameterSampleGenerator:
             )
 
         if self.max_exe_parameters is not None and len(exe_parameter_names) > self.max_exe_parameters:
-            raise ValueError(f"At most {self.max_exe_parameters} exe "+
-                    "parameter(s) supported. "+
-                    f"Found {len(exe_parameter_names)}: {exe_parameter_names}")
+            raise ValueError(
+                f"At most {self.max_exe_parameters} exe parameter(s) are supported. "
+                f"Found {len(exe_parameter_names)}: {exe_parameter_names}"
+            )
 
         return specs
 
@@ -295,9 +288,7 @@ class ParameterSampleGenerator:
         for zip_group, group_specs in sorted(grouped_specs.items()):
             value_counts = {len(spec.values) for spec in group_specs}
             if len(value_counts) != 1:
-                raise ValueError(
-                    f"All zip parameter value lists in group {zip_group} must have the same length"
-                )
+                raise ValueError(f"All zip parameter value lists in group {zip_group} must have the same length")
 
             grouped_rows.append(
                 [{spec.name: spec.values[index] for spec in group_specs} for index in range(next(iter(value_counts)))]

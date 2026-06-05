@@ -155,11 +155,28 @@ def test_rejects_continuous_cli_and_exe_parameters():
 
 
 def test_rejects_multiple_executable_parameters():
-    with pytest.raises(ValueError, match="At most one exe"):
+    with pytest.raises(ValueError, match="At most 1 exe parameter"):
         create_def_exe_cli_generator().generate(
             parameters={
                 "executable_a": ["exe", "discrete", ["a"]],
                 "executable_b": ["exe", "discrete", ["b"]],
+            },
+            seed=12345,
+        )
+
+
+def test_rejects_executable_parameters_above_configured_maximum():
+    generator = ParameterSampleGenerator(
+        allowed_types={"def", "exe", "cli"},
+        max_exe_parameters=2,
+    )
+
+    with pytest.raises(ValueError, match="At most 2 exe parameter"):
+        generator.generate(
+            parameters={
+                "executable_a": ["exe", "discrete", ["a"]],
+                "executable_b": ["exe", "discrete", ["b"]],
+                "executable_c": ["exe", "discrete", ["c"]],
             },
             seed=12345,
         )
