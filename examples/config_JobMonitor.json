@@ -1,0 +1,14 @@
+{
+  "model": {
+    "model": "o3",
+    "api_key": "${API_KEY}",
+    "base_url": "${API_BASE_URL:-https://livai-api.llnl.gov/v1}"
+  },
+  "mcp_servers": {
+    "job_monitor": {
+      "transport": "streamable-http",
+      "url": "http://localhost:8106/mcp",
+      "description": "Server that monitors job outputs, parses logs, and reports structured failure diagnostics"
+    }
+  }
+}

@@ -1,0 +1,93 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mada_tools"
+description = "Tooling for the MADA multi-agent ecosystem"
+version = "0.1.0"
+requires-python = ">=3.10"
+readme = "README.md"
+dependencies = [
+    "fastmcp>=3.0.0",
+    "openai",           # Used by Professor server for LLM calls
+    "pyyaml",           # Used by Merlin server for YAML handling
+    "sympy",
+    "numpy",
+    "scipy",
+    "pandas",
+    "matplotlib",
+    "rich",
+    "psutil",
+    "pyvista",          # Used by Vertex-CFD server for Mesh GIF creation
+    "vtk",              # Used by Vertex-CFD server for Mesh GIF creation
+    "imageio",          # Used by Vertex-CFD server for Mesh GIF creation
+    "maestrowf",        # Used by Maestro-Command-Executor server to run Maestro CLI commands in subprocesses
+]
+
+[project.optional-dependencies]
+docs = [
+    # Docs
+    "markdown-grid-tables",  # Support for grid tables in Markdown
+    "mkdocs",  # Static site generator for project documentation
+    "mkdocs-codeinclude-plugin",  # Include code snippets in MkDocs
+    "mkdocs-material",  # Material theme for MkDocs
+    "mkdocs-glightbox",  # Allows for image lightboxing in MkDocs
+
+    # API docs requirements
+    "mkdocs-literate-nav",  # Enhanced navigation for MkDocs (SUMMARY.md support)
+    "mkdocs-gen-files",  # Generate files for MkDocs at build time
+    "mkdocstrings",  # Automatic API documentation from docstrings
+    "mkdocstrings-python",  # Python handler for mkdocstrings
+]
+
+examples = [
+    "prompt_toolkit",  # Needed for input processing in simple_agent_loop.py
+]
+
+flux = ["flux-python==0.63.0"]
+
+tests = [
+    "pytest",
+    "pytest-mock",
+    "pre-commit",
+    "ruff"
+]
+
+all = ["mada_tools[docs, examples, flux, tests]"]
+
+[project.scripts]
+mada-tools = "mada_tools.main:main"
+mada-mcp-flux = "mada_tools.scheduler.flux.server:main"
+mada-mcp-slurm = "mada_tools.scheduler.slurm.server:main"
+mada-mcp-vertex-cfd = "mada_tools.simulation.vertex_cfd.server:main"
+mada-mcp-professor = "mada_tools.surrogate.professor.server:main"
+mada-mcp-monitor = "mada_tools.monitor.job_monitor.server:main"
+mada-mcp-maestro-command-executor = "mada_tools.workflow.weave.maestro.server:main"
+
+[project.entry-points."mada_tools.servers"]
+flux = "mada_tools.scheduler.flux.server"
+slurm = "mada_tools.scheduler.slurm.server"
+vertex_cfd = "mada_tools.simulation.vertex_cfd.server"
+professor = "mada_tools.surrogate.professor.server"
+job_monitor = "mada_tools.monitor.job_monitor.server"
+maestro_command_executor = "mada_tools.workflow.weave.maestro.server"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 120
+exclude = ["src/mada_tools/cli/ascii_art.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.pytest.ini_options]
+markers = [
+    "unit: marks tests as unit tests",
+    "integration: marks tests as integration tests",
+    "e2e: marks tests as end-to-end tests",
+    "allocation_required: marks tests that require an allocation",
+    "requires_env(var): skip test if the given env var is not set",
+]

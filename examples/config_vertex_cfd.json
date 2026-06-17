@@ -1,0 +1,20 @@
+{
+  "model": {
+    "model": "gpt-5",
+    "api_key": "${API_KEY}",
+    "base_url": "${API_BASE_URL:-https://livai-api.llnl.gov/v1}",
+    "context_file": "context.json"
+  },
+  "mcp_servers": {
+    "flux": {
+      "transport": "streamable-http",
+      "url": "http://localhost:8101/mcp",
+      "description": "Flux job scheduler for job execution"
+    },
+    "vertex_cfd": {
+      "transport": "streamable-http",
+      "url": "http://localhost:8107/mcp",
+      "description": "Vertex-CFD simulation"
+    }
+  }
+}

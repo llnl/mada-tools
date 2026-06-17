@@ -1,0 +1,57 @@
+{
+  "servers": {
+    "flux": {
+      "host": "localhost",
+      "port": 8101,
+      "transport": "streamable-http",
+      "env_vars": {
+        "FLUX_HANDLE": "default",
+        "FLUX_USE_PERSISTENT_EXECUTOR": "true",
+        "SPINDLE_FLUXOPT": "disable",
+        "LD_LIBRARY_PATH": "/opt/cray/pe/cce/20.0.0/cce/x86_64/lib:/opt/cray/pe/lib64:/opt/cray/lib64:/opt/cray/pe/papi/7.2.0.2/lib64"
+      }
+    },
+    "slurm": {
+      "host": "localhost",
+      "port": 8102,
+      "transport": "streamable-http"
+    },
+    "professor": {
+      "host": "localhost",
+      "port": 8105,
+      "transport": "streamable-http",
+      "env_vars": {
+        "API_KEY": "${API_KEY}",
+        "MODEL": "${MODEL:-gpt-5}",
+        "PROF_VIS_PATH": "/usr/workspace/prof/bin/prof-vis",
+        "API_BASE_URL": "${API_BASE_URL:-https://livai-api.llnl.gov}"
+      }
+    },
+    "job_monitor": {
+      "host": "localhost",
+      "port": 8106,
+      "transport": "streamable-http",
+      "_comment": {
+        "MONITOR_LOG_TAIL_BYTES": "number of bytes of each log file the monitoring tool should return",
+        "MONITOR_DEFAULT_STATUS_DEPTH": "how many status entries the monitor should inspect before summarizing"
+      },
+      "env_vars": {
+        "MONITOR_LOG_TAIL_BYTES": "50000",
+        "MONITOR_DEFAULT_STATUS_DEPTH": "20"
+      }
+    },
+    "vertex_cfd": {
+      "host": "localhost",
+      "port": 8107,
+      "transport": "streamable-http",
+      "env_vars": {
+        "VERTEX_CFD_PATH": "/usr/workspace/mada/vertex-cfd/tuo/vertexcfd-installation/",
+        "VERTEX_CFD_RESULTS_DIR": "/tmp/vertex_cfd_results"
+      }
+    }
+  },
+  "logging": {
+    "level": "INFO",
+    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  }
+}

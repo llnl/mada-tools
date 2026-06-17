@@ -1,0 +1,10 @@
+**/__pycache__
+.env
+*.egg-info/
+**/my_job_*.out
+**/*.core
+venv/
+logs/
+**simple_agent_loop_history_*
+.codex
+slirp.out

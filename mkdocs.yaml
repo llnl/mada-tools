@@ -1,0 +1,117 @@
+site_name: MADA Tools
+site_dir: public
+
+nav:
+  - MADA Tools: "index.md"
+  - User Guide:
+    - User Guide Overview: "user_guide/index.md"
+    - Installation: "user_guide/installation.md"
+    - Supported MCP Servers:
+        - Overview: "user_guide/supported_servers/index.md"
+        - Geometry Servers:
+            - Overview: "user_guide/supported_servers/geometry/index.md"
+        - Scheduler Servers:
+            - Overview: "user_guide/supported_servers/scheduler/index.md"
+            - Flux: "user_guide/supported_servers/scheduler/flux.md"
+            - Slurm: "user_guide/supported_servers/scheduler/slurm.md"
+        - Simulation Servers:
+            - Overview: "user_guide/supported_servers/simulation/index.md"
+            - Vertex-CFD: "user_guide/supported_servers/simulation/vertex_cfd.md"
+        - Surrogate Servers:
+            - Overview: "user_guide/supported_servers/surrogate/index.md"
+            - Professor: "user_guide/supported_servers/surrogate/professor.md"
+        - Workflow Servers:
+            - Overview: "user_guide/supported_servers/workflow/index.md"
+            - Maestro Command Execution: "user_guide/supported_servers/workflow/maestro.md"
+    - Command Line Interface: "user_guide/cli.md"
+    - Configuration: "user_guide/configuration.md"
+    - Server Management: "user_guide/server_management.md"
+    - Usage: "user_guide/usage.md"
+  - Developer Guide:
+    - MADA Tools Reference: "developer_guide/index.md"
+    - Codebase Architecture: "developer_guide/architecture.md"
+    - Creating MCP Servers:
+      - Overview: "developer_guide/server_creation/index.md"
+      - Adding New MCP Servers to MADA Tools: "developer_guide/server_creation/adding_new_servers.md"
+      - Creating Plugin MCP Servers: "developer_guide/server_creation/plugin_servers.md"
+      - Creating WEAVE Study Construction Servers: "developer_guide/server_creation/weave_study_servers.md"
+    - Testing Guide: "developer_guide/testing.md"
+    - API Reference: "developer_guide/"
+
+exclude_docs: |
+  "README.md"
+
+theme:
+  name: material
+  language: en
+  features:
+    - header.autohide
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.top
+    - navigation.instant
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.annotate
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/toggle-switch-off-outline
+        name: Switch to light mode
+      primary: black
+      accent: deep orange
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/toggle-switch
+        name: Switch to dark mode
+      primary: black
+      accent: deep orange
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - footnotes
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - markdown_grid_tables
+
+plugins:
+  - glightbox
+  - search
+  - codeinclude:
+      title_mode: pymdownx.tabbed
+  - gen-files:
+      scripts:
+      - docs/gen_ref_pages.py
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src/mada_tools]
+          options:
+            docstring_style: google
+  - literate-nav:
+      nav_file: SUMMARY.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/llnl/mada-tools
+      name: MADA Tools on GitHub
+
+copyright: Copyright &copy; 2025 | Lawrence Livermore National Security

@@ -1,0 +1,29 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+        exclude: ^mkdocs\.yaml$
+        args: [--allow-multiple-documents]
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: debug-statements
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+        exclude: ^src/mada_tools/cli/ascii_art\.py$
+      - id: name-tests-test
+        args: [--pytest-test-first]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.11
+    hooks:
+      - id: ruff
+        args: [--show-fixes]
+        name: ruff check --show-fixes >> Fix issues with `ruff check --fix .` from the top of the repo.
+      - id: ruff-format
+        args: [--check, --diff]
+        name: ruff format --check --diff >> Fix issues with `ruff format .` from the top of the repo.
