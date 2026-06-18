@@ -24,6 +24,18 @@ dependencies = [
     "imageio",          # Used by Vertex-CFD server for Mesh GIF creation
     "maestrowf",        # Used by Maestro-Command-Executor server to run Maestro CLI commands in subprocesses
 ]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license = "Apache-2.0 WITH LLVM-exception"
+license-files = ["LICENSE"]
+
+[project.urls]
+Homepage = "https://github.com/llnl/mada-tools"
+Documentation = "https://software.llnl.gov/mada-tools"
+Issues = "https://github.com/llnl/mada-tools/issues"
+"Release Notes" = "https://github.com/llnl/mada-tools/releases"
 
 [project.optional-dependencies]
 docs = [
