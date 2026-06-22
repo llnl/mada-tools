@@ -1,0 +1,26 @@
+# Shared eval model list that may be used in LLM testing. See testskeleton.sh
+# for example usage.
+# One enabled model ID per line.
+# Comment out any model you want to omit from eval runs.
+anthropic.claude-3-5-sonnet-20240620-v1:0
+claude-haiku-3
+claude-sonnet-3.7
+claude-sonnet-4.5
+gpt-35-turbo
+gpt-4.1
+gpt-4.1-mini
+gpt-4.1-nano
+gpt-4o
+gpt-4o-mini
+gpt-5
+gpt-5-mini
+gpt-5-nano
+gpt-5.1
+gpt-5.2
+gpt-5.4
+gpt-5.4-mini
+gpt-5.5
+o1
+o3
+o3-mini
+o4-mini
