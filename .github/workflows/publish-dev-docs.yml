@@ -1,9 +1,9 @@
-name: Docs
+name: Develop Docs
 
 on:
   push:
     branches:
-      - feature/docs-setup
+      - develop
 
 jobs:
   api-docs:
