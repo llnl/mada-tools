@@ -5,7 +5,7 @@ This script helps update the version for this repository.
 The files that track version are:
 - pyproject.toml
 - src/mada_tools/__init__.py
-- CHANGLOG.md
+- CHANGELOG.md
 
 Usage:
 
@@ -90,7 +90,7 @@ def prepend_changelog_section(path: Path, new_version: str) -> None:
             True if the line is blank or a placeholder item, otherwise False.
         """
         stripped = line.strip()
-        return stripped in {"-", "- ", ""}
+        return stripped in {"-", "- ", "+", "+ ", "*", "* " ""}
 
     def build_released_section(unreleased_body: list[str]) -> str:
         """
