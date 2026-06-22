@@ -4,6 +4,7 @@ Welcome to the Developer Guide for the MADA Tools project! This comprehensive gu
 
 - A guide to the [architecture of the codebase](./architecture.md).
 - A [Testing Guide](./testing.md)
+- An explanation on how [documentation is deployed](./docs_deployment.md)
 - Instructions for [Creating MCP Servers](./server_creation/index.md), including:
     - [Adding Servers Directly to the MADA Tools Repository](./server_creation/adding_new_servers.md)
     - [Creating Plugin MCP Servers](./server_creation/plugin_servers.md)
