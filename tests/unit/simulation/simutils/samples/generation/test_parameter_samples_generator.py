@@ -2,6 +2,9 @@
 Unit tests for shared structured parameter sample generation.
 """
 
+import sys
+import types
+
 import pytest
 
 from mada_tools.simulation.simutils.samples.generation.parameter_samples_generator import (
@@ -9,6 +12,20 @@ from mada_tools.simulation.simutils.samples.generation.parameter_samples_generat
     create_sampling_rngs,
     normalize_cli_value,
 )
+
+fastmcp_module = types.ModuleType("fastmcp")
+fastmcp_module.FastMCP = object
+sys.modules.setdefault("fastmcp", fastmcp_module)
+
+openai_module = types.ModuleType("openai")
+openai_module.OpenAI = object
+sys.modules.setdefault("openai", openai_module)
+
+pydv_module = types.ModuleType("pydv")
+pydv_module.pydvpy = types.SimpleNamespace()
+sys.modules.setdefault("pydv", pydv_module)
+sys.modules.setdefault("pydv.pydvpy", pydv_module.pydvpy)
+sys.modules.setdefault("pyvista", types.ModuleType("pyvista"))
 
 
 def collect_values(result, parameter_name: str) -> list:
@@ -57,6 +74,31 @@ def test_discrete_parameters_generate_cartesian_product():
     assert result.samples == [["Aluminum", 5.0], ["Aluminum", 10.0], ["Steel", 5.0], ["Steel", 10.0]]
 
 
+def test_json_string_list_values_are_accepted():
+    result = ParameterSampleGenerator().generate(
+        parameters={
+            "material": ["def", "discrete", '["Aluminum", "Steel"]'],
+            "plate_loc": ["def", "discrete", "[5.0, 10.0]"],
+        },
+        seed=12345,
+    )
+
+    assert result.row_values == [
+        {"material": "Aluminum", "plate_loc": 5.0},
+        {"material": "Aluminum", "plate_loc": 10.0},
+        {"material": "Steel", "plate_loc": 5.0},
+        {"material": "Steel", "plate_loc": 10.0},
+    ]
+
+
+def test_json_string_non_list_values_are_rejected():
+    with pytest.raises(ValueError, match="values must be a non-empty list"):
+        ParameterSampleGenerator().generate(
+            parameters={"material": ["def", "discrete", '"Aluminum"']},
+            seed=12345,
+        )
+
+
 def test_generic_generator_allows_custom_parameter_types():
     result = ParameterSampleGenerator().generate(
         parameters={"mach": ["solver_input", "continuous", [1.0, 2.0]]},
@@ -88,12 +130,12 @@ def test_discrete_random_selects_subset_reproducibly():
     assert len(first.row_values) == 2
 
 
-def test_zip_pairs_values_by_group_index():
+def test_zip_pairs_values_by_group_identifier():
     result = ParameterSampleGenerator().generate(
         parameters={
-            "material": ["def", "zip", ["Aluminum", "Steel"], 1],
-            "plate_loc": ["def", "zip", [5.0, 10.0], 1],
-            "source": ["def", "zip", ["src1", "src2"], 2],
+            "material": ["def", "zip", ["Aluminum", "Steel"], "material_group"],
+            "plate_loc": ["def", "zip", [5.0, 10.0], "material_group"],
+            "source": ["def", "zip", ["src1", "src2"], 0],
         },
         seed=12345,
     )
@@ -104,6 +146,34 @@ def test_zip_pairs_values_by_group_index():
         {"material": "Steel", "plate_loc": 10.0, "source": "src1"},
         {"material": "Steel", "plate_loc": 10.0, "source": "src2"},
     ]
+
+
+def test_mixed_zip_group_identifiers_use_first_seen_group_order():
+    result = ParameterSampleGenerator().generate(
+        parameters={
+            "right": ["def", "zip", ["r1", "r2"], "right_group"],
+            "left": ["def", "zip", ["l1", "l2"], 0],
+        },
+        seed=12345,
+    )
+
+    assert result.row_values == [
+        {"right": "r1", "left": "l1"},
+        {"right": "r1", "left": "l2"},
+        {"right": "r2", "left": "l1"},
+        {"right": "r2", "left": "l2"},
+    ]
+
+
+def test_rejects_omitted_zip_group():
+    with pytest.raises(ValueError, match="zip requires a fourth param_zip_group_id"):
+        ParameterSampleGenerator().generate(
+            parameters={
+                "material": ["def", "zip", ["Aluminum", "Steel"]],
+                "plate_loc": ["def", "zip", [5.0, 10.0], 1],
+            },
+            seed=12345,
+        )
 
 
 def test_rejects_mismatched_zip_lengths_within_group():
@@ -117,10 +187,11 @@ def test_rejects_mismatched_zip_lengths_within_group():
         )
 
 
-def test_rejects_invalid_zip_group():
-    with pytest.raises(ValueError, match="zip group"):
+@pytest.mark.parametrize("zip_group", [-1, True, "", 1.5, None, [], {}])
+def test_rejects_invalid_zip_group(zip_group):
+    with pytest.raises(ValueError, match="param_zip_group_id"):
         ParameterSampleGenerator().generate(
-            parameters={"material": ["def", "zip", ["Aluminum"], 0]},
+            parameters={"material": ["def", "zip", ["Aluminum"], zip_group]},
             seed=12345,
         )
 

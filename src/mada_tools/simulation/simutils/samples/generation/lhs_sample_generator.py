@@ -25,6 +25,7 @@ class LHSampleSettings(BaseSettings):
         n_samples (int): The number of samples to generate.
         lower_bounds (List[float]): The lower bounds for each dimension.
         upper_bounds (List[float]): The upper bounds for each dimension.
+        rng (np.random.Generator): The random number generator that will seed LHS sampling (if provided)
     """
 
     dims: int
@@ -140,15 +141,13 @@ class LHSampleGenerator(BaseSampleGenerator):
                     dtype=np.uint32,
                 )
             )
-        lhs = qmc.LatinHypercube(d=sample_settings.dims, seed=lhs_seed)
-
         varying_mask = lower < upper
         fixed_mask = lower == upper
 
         result = np.empty((sample_settings.n_samples, sample_settings.dims), dtype=float)
 
         if np.any(varying_mask):
-            lhs = qmc.LatinHypercube(d=int(np.sum(varying_mask)))
+            lhs = qmc.LatinHypercube(d=int(np.sum(varying_mask)), seed=lhs_seed)
             samples = lhs.random(n=sample_settings.n_samples)
 
             scaled = qmc.scale(

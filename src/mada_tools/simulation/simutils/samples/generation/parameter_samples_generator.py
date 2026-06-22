@@ -1,8 +1,9 @@
 """
-Shared parameter sample generation utilities.
+Shared parameter sample generation utilities for simulation servers.
 """
 
 import itertools
+import json
 import shlex
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, cast
@@ -14,19 +15,36 @@ from mada_tools.simulation.simutils.samples.generation.lhs_sample_generator impo
 
 @dataclass(frozen=True)
 class ParameterSpec:
-    """Validated parameter generation specification."""
+    """
+    Validated parameter generation specification.
+
+    `parameter_type` is server-defined, while `selection` is one of the shared
+    sampling modes handled by ParameterSampleGenerator. These fields correspond
+    to the prompt-facing `param_type` and `param_selection` tuple positions.
+    `num_selections` stores the prompt-facing `param_num_selections` value for
+    discrete_random parameters, and `zip_group` stores `param_zip_group_id` for
+    zip parameters.
+    """
 
     name: str
     parameter_type: str
     selection: str
     values: List[Any]
     num_selections: Optional[int] = None
-    zip_group: Optional[int] = None
+    zip_group: Optional[int | str] = None
 
 
 @dataclass(frozen=True)
 class ParameterSampleResult:
-    """Generated parameter samples and metadata."""
+    """
+    Generated parameter samples and reproducibility metadata.
+
+    `parameter_names` defines the column order for `samples`. `row_values`
+    contains the same data as one dictionary per generated run and is usually
+    the easiest representation for server helpers to translate into command
+    lines, deck edits, input files, or run manifests. `specs` contains the
+    validated parameter schema used to generate the rows.
+    """
 
     parameter_names: List[str]
     samples: List[List[Any]]
@@ -36,16 +54,25 @@ class ParameterSampleResult:
 
 
 def create_sampling_rngs(
-    seed: Optional[int],
-    rng_bit_generator: Optional[str],
+    seed: Optional[int] = None,
+    rng_bit_generator: Optional[str] = "MT19937",
 ) -> tuple[Dict[str, np.random.Generator], Dict[str, Any]]:
-    """Create independent RNG streams for parameter sampling."""
+    """
+    Create independent RNG streams and metadata for parameter sampling.
+
+    The returned streams are keyed by sampling mode: `lhs`, `discrete_lhs`, and
+    `discrete_random`. They are derived from jumped versions of one root bit
+    generator so each mode is reproducible without sharing mutable RNG state.
+
+    `seed` must be None or a non-negative integer. When `seed` is None, NumPy
+    initializes from system entropy and the effective entropy value is recorded
+    in the metadata. `rng_bit_generator` may be MT19937, PCG64, PCG64DXSM, or
+    PHILOX. If omitted, MT19937 is used.
+    """
     if seed is not None and (not isinstance(seed, int) or isinstance(seed, bool) or seed < 0):
         raise ValueError("seed must be a non-negative integer or null")
 
-    normalized_bit_generator = "MT19937"
-    if rng_bit_generator is not None:
-        normalized_bit_generator = str(rng_bit_generator).upper()
+    normalized_bit_generator = str(rng_bit_generator or "MT19937").upper()
 
     bit_generator_classes = {
         "MT19937": np.random.MT19937,
@@ -74,7 +101,26 @@ def create_sampling_rngs(
 
 
 class ParameterSampleGenerator:
-    """Generate parameter sample rows from structured parameter specifications."""
+    """
+    Build concrete parameter rows from mixed parameter specifications.
+
+    The generator is intentionally simulation-agnostic. It validates the shared
+    sampling schema and returns row dictionaries; server helpers remain
+    responsible for translating row values into command-line arguments, deck
+    edits, input files, environment variables, or run metadata.
+
+    `allowed_types` restricts server-specific parameter types. For example, a
+    deck-based server might allow `def`, `cli`, and `exe`, while another server
+    might allow `input`, `flag`, and `executable`.
+
+    `continuous_allowed_types` restricts which parameter types may use
+    continuous sampling. This is useful when only numeric simulation variables,
+    and not executable or CLI selectors, should accept numeric bounds.
+
+    `max_exe_parameters` limits parameters of type exactly `exe`.
+    `validate_cli_values` validates values for parameters of type exactly `cli`
+    with normalize_cli_value during schema parsing.
+    """
 
     def __init__(
         self,
@@ -95,7 +141,21 @@ class ParameterSampleGenerator:
         seed: Optional[int] = None,
         rng_bit_generator: Optional[str] = None,
     ) -> ParameterSampleResult:
-        """Generate sample rows and metadata for the provided parameter specifications."""
+        """
+        Validate parameter specifications and generate all run rows.
+
+        Continuous and discrete_lhs parameters produce `num_samples` LHS rows.
+        Discrete and discrete_random parameters produce Cartesian grid rows. Zip
+        parameters pair values by index within each zip group, and independent
+        zip groups are combined as separate dimensions.
+
+        The final run matrix is:
+
+            grid rows * zip rows * LHS rows
+
+        The returned ParameterSampleResult contains ordered sample rows,
+        per-run dictionaries, validated specs, and reproducibility metadata.
+        """
         rng_streams, sampling_metadata = create_sampling_rngs(seed, rng_bit_generator)
         parameter_specs = self.parse_parameter_specs(parameters)
 
@@ -125,7 +185,28 @@ class ParameterSampleGenerator:
         )
 
     def parse_parameter_specs(self, parameters: Dict[str, List[Any]]) -> List[ParameterSpec]:
-        """Validate and normalize structured parameter specifications."""
+        """
+        Validate and normalize structured parameter specifications.
+
+        Each non-random, non-zip entry in `parameters` must use this list form:
+
+            [param_type, param_selection, param_values]
+
+        `discrete_random` and `zip` entries require a fourth value:
+
+            [param_type, "discrete_random", param_values, param_num_selections]
+            [param_type, "zip", param_values, param_zip_group_id]
+
+        Parameter names must be non-empty strings. Parameter type and selection
+        names are normalized to lowercase. `param_values` must normalize to a
+        non-empty list. JSON-encoded list strings are accepted as a compatibility
+        fallback, but callers should prefer passing native lists.
+
+        Supported selections are `continuous`, `discrete`, `discrete_lhs`,
+        `discrete_random`, and `zip`. Unsupported selections, invalid bounds,
+        invalid random counts, unsupported parameter types, and mismatched zip
+        groups raise built-in Python exceptions.
+        """
         if not parameters:
             raise ValueError("parameters must contain at least one parameter")
 
@@ -139,14 +220,14 @@ class ParameterSampleGenerator:
                 raise ValueError("parameter names must be non-empty strings")
             if not isinstance(parameter_spec, list) or len(parameter_spec) not in {3, 4}:
                 raise ValueError(
-                    f"parameters['{name}'] must be [type, selection, values],"
-                    "[type, selection, values, num_selections],"
-                    "or [type, selection, values, zip_group_index]"
+                    f"parameters['{name}'] must be [param_type, param_selection, param_values],"
+                    "[param_type, 'discrete_random', param_values, param_num_selections],"
+                    "or [param_type, 'zip', param_values, param_zip_group_id]"
                 )
 
             parameter_type = str(parameter_spec[0]).lower()
             selection = str(parameter_spec[1]).lower()
-            values = parameter_spec[2]
+            values = normalize_values_list(name, parameter_spec[2])
             fourth_value = parameter_spec[3] if len(parameter_spec) == 4 else None
             num_selections = None
             zip_group = None
@@ -161,8 +242,6 @@ class ParameterSampleGenerator:
                 and parameter_type not in self.continuous_allowed_types
             ):
                 raise ValueError(f"parameters['{name}'] type '{parameter_type}' does not support continuous selection")
-            if not isinstance(values, list) or not values:
-                raise ValueError(f"parameters['{name}'] values must be a non-empty list")
             if parameter_type == "exe" and self.max_exe_parameters is not None:
                 exe_parameter_names.append(name)
                 if not all(isinstance(value, str) and value for value in values):
@@ -179,15 +258,23 @@ class ParameterSampleGenerator:
             if selection == "discrete_random":
                 num_selections = fourth_value
                 if not isinstance(num_selections, int) or isinstance(num_selections, bool):
-                    raise TypeError(f"parameters['{name}'] discrete_random requires an integer num_selections")
+                    raise TypeError(f"parameters['{name}'] discrete_random requires an integer param_num_selections")
                 if num_selections <= 0:
-                    raise ValueError(f"parameters['{name}'] discrete_random num_selections must be positive")
+                    raise ValueError(f"parameters['{name}'] discrete_random param_num_selections must be positive")
                 if num_selections > len(values):
-                    raise ValueError(f"parameters['{name}'] discrete_random num_selections cannot exceed value count")
+                    raise ValueError(
+                        f"parameters['{name}'] discrete_random param_num_selections cannot exceed param_values count"
+                    )
             if selection == "zip":
-                zip_group = fourth_value if fourth_value is not None else 1
-                if not isinstance(zip_group, int) or isinstance(zip_group, bool) or zip_group <= 0:
-                    raise ValueError(f"parameters['{name}'] zip group must be a positive integer")
+                if len(parameter_spec) != 4:
+                    raise ValueError(f"parameters['{name}'] zip requires a fourth param_zip_group_id")
+                zip_group = fourth_value
+                valid_int_group = isinstance(zip_group, int) and not isinstance(zip_group, bool) and zip_group >= 0
+                valid_string_group = isinstance(zip_group, str) and zip_group != ""
+                if not valid_int_group and not valid_string_group:
+                    raise ValueError(
+                        f"parameters['{name}'] param_zip_group_id must be a non-negative integer or non-empty string"
+                    )
 
             specs.append(
                 ParameterSpec(
@@ -260,7 +347,7 @@ class ParameterSampleGenerator:
         for spec in grid_specs:
             if spec.selection == "discrete_random":
                 if spec.num_selections is None:
-                    raise RuntimeError(f"parameters['{spec.name}'] discrete_random requires num_selections")
+                    raise RuntimeError(f"parameters['{spec.name}'] discrete_random requires param_num_selections")
                 value_indices = rng_streams["discrete_random"].choice(
                     len(spec.values),
                     size=spec.num_selections,
@@ -278,14 +365,14 @@ class ParameterSampleGenerator:
         if not zip_specs:
             return [{}]
 
-        grouped_specs: Dict[int, List[ParameterSpec]] = {}
+        grouped_specs: Dict[int | str, List[ParameterSpec]] = {}
         for spec in zip_specs:
             if spec.zip_group is None:
                 raise RuntimeError(f"parameters['{spec.name}'] zip requires a zip group")
             grouped_specs.setdefault(spec.zip_group, []).append(spec)
 
         grouped_rows = []
-        for zip_group, group_specs in sorted(grouped_specs.items()):
+        for zip_group, group_specs in grouped_specs.items():
             value_counts = {len(spec.values) for spec in group_specs}
             if len(value_counts) != 1:
                 raise ValueError(f"All zip parameter value lists in group {zip_group} must have the same length")
@@ -303,8 +390,35 @@ class ParameterSampleGenerator:
         return rows
 
 
+def normalize_values_list(parameter_name: str, values: Any) -> List[Any]:
+    """
+    Normalize a parameter `values` field to a non-empty list.
+
+    Most callers should pass native JSON/Python lists. JSON-encoded list strings
+    are accepted as a compatibility fallback for LLM-generated tool calls that
+    double-encode the list value, such as "[1, 2, 3]". Non-list strings and
+    empty lists are rejected.
+    """
+    if isinstance(values, str):
+        try:
+            values = json.loads(values)
+        except json.JSONDecodeError:
+            pass
+
+    if not isinstance(values, list) or not values:
+        raise ValueError(f"parameters['{parameter_name}'] param_values must be a non-empty list")
+    return values
+
+
 def normalize_cli_value(parameter_name: str, value: Any) -> List[str]:
-    """Normalize a CLI parameter value into argv tokens."""
+    """
+    Normalize a CLI parameter value into argv tokens.
+
+    A non-empty string is split with shlex.split so quoted groups are preserved.
+    A non-empty list of non-empty strings is treated as an explicit argv token
+    list. Shell expansion is not performed; variables, globs, redirects, pipes,
+    and command substitutions remain ordinary argv text after splitting.
+    """
     if isinstance(value, str):
         if not value:
             raise ValueError(f"parameters['{parameter_name}'] cli values must be non-empty strings or lists of strings")

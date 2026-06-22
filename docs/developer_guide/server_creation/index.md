@@ -9,5 +9,5 @@ This section of the developer guide will discuss how to add servers for either o
 
 Additionally, this section of the developer guide will cover how to create [WEAVE Study Construction Servers](./weave_study_servers.md).
 
-Simulation servers that generate parameter sweeps can also use the shared
+Simulation servers that generate parameter sweeps can use the shared
 [`ParameterSampleGenerator`](./parameter_samples_generator.md) utility.

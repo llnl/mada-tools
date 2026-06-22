@@ -22,19 +22,38 @@ from mada_tools.simulation.simutils.samples.generation import (
 
 ## Parameter Schema
 
-Each entry in `parameters` uses one of these forms:
+Each non-random, non-zip entry in `parameters` uses this form:
 
 ```python
-"name": [parameter_type, selection, values]
-"name": [parameter_type, selection, values, num_selections_or_zip_group]
+"name": [param_type, param_selection, param_values]
+"name": [param_type, "discrete_random", param_values, param_num_selections]
+"name": [param_type, "zip", param_values, param_zip_group_id]
 ```
 
-The `parameter_type` is defined by the server. For example, one server might
+The `param_type` position is defined by the server. For example, one server might
 use `input`, `flag`, and `executable`, while another might use `def`, `cli`,
 and `exe`.
 
+For MCP tool docstrings, be explicit that `param_type` is not a data type.
+LLMs often invent labels such as `categorical`, `string`, `float`, `file`,
+`fixed`, or `continuous` for this position unless the tool description says not
+to. A deck-style server should usually say:
+
+```text
+The first item is the server parameter type, not a data type. Use "def" for
+simulation variables, including numeric values, strings, file names, labels,
+and case ids. Use "exe" only for executable selection and "cli" only for raw
+command-line argv tokens.
+```
+
+Likewise, be explicit that `param_selection` is a fixed vocabulary. Do not
+encourage or accept invented selection names such as `lhs`, `grid`, `range`,
+`constant`, `continuous_lhs`, `values`, or `set` in documentation examples. Use
+the exact selection strings listed below.
+
 Parameter names must be non-empty strings. Each parameter specification must be
-a list with three or four entries, and `values` must be a non-empty list.
+a list with three or four entries, and `param_values` must always be a JSON
+list, even when there is one value.
 Parameter types and selection names are normalized to lowercase before
 validation.
 
@@ -45,21 +64,56 @@ Supported selections:
 | `continuous` | `[min, max]` | Latin Hypercube samples in the numeric range. Requires `num_samples`. |
 | `discrete` | `[value, ...]` | Uses every listed value in a Cartesian product. |
 | `discrete_lhs` | `[value, ...]` | Selects one listed value per LHS row. Requires `num_samples`. |
-| `discrete_random` | `[value, ...]` plus `num_selections` | Selects a random subset without replacement. |
-| `zip` | `[value, ...]` plus optional `zip_group` | Pairs values by index inside a zip group. |
+| `discrete_random` | `param_values` plus `param_num_selections` | Selects a random subset without replacement. |
+| `zip` | `param_values` plus `param_zip_group_id` | Pairs values by index inside a zip group. |
 
 Validation rules:
 
-- `continuous` values must be exactly two numeric bounds.
+- `continuous` param_values must be exactly two numeric bounds.
 - `continuous` and `discrete_lhs` require `num_samples` to be a positive
   integer.
-- `discrete_random` requires a fourth value, `num_selections`, which must be a
-  positive integer and must not exceed the number of listed values.
-- `zip` can use a fourth value for the zip group. If omitted, the group
-  defaults to `1`. Zip groups must be positive integers.
+- `discrete_random` requires a fourth value, `param_num_selections`, which must
+  be a positive integer and must not exceed the number of listed param_values.
+- `zip` requires a fourth value, `param_zip_group_id`, which must be a
+  non-negative integer or non-empty string.
 - All `zip` parameters in the same group must have value lists of the same
   length.
 - `discrete_random_zip` is explicitly unsupported.
+
+Canonical deck-style examples:
+
+```json
+{
+  "density": ["def", "continuous", [1.0, 2.5]],
+  "material": ["def", "discrete", ["steel", "aluminum"]],
+  "mesh": ["def", "discrete_lhs", ["coarse", "medium", "fine"]],
+  "checkpoint": ["def", "discrete_random", ["chk_a", "chk_b", "chk_c"], 2],
+  "solver": ["exe", "discrete", ["skeleton_gpu"]],
+  "diagnostics": ["cli", "discrete", [["--diagnostics", "on", "--verbose"]]],
+  "source_file": ["def", "zip", ["src/a.deck", "src/b.deck"], 1],
+  "source_scale": ["def", "zip", [1.0, 0.8], 1],
+  "case_id": ["def", "discrete", ["debug_case"]]
+}
+```
+
+Common invalid examples:
+
+```json
+{
+  "density": ["continuous", "lhs", [1.0, 2.5]],
+  "material": ["categorical", "grid", ["steel", "aluminum"]],
+  "solver": ["fixed", "value", "skeleton_gpu"],
+  "case_id": ["string", "constant", "debug_case"]
+}
+```
+
+Use `["def", "continuous", [min, max]]` plus top-level `num_samples` for
+continuous LHS. Use `["def", "discrete", [value1, value2]]` for grid sweeps.
+Use `["exe", "discrete", ["solver_name"]]` for a fixed executable.
+Use `discrete_lhs` only for explicit lists of choices, not numeric `[min, max]`
+ranges. Zip group identifiers may be non-negative JSON integers or non-empty
+strings. CLI values must include the full argv tokens, not just put the flag
+name in the parameter key.
 
 ## Selection Semantics and Run Counts
 
@@ -84,7 +138,7 @@ groups with lengths three and two produces:
 2 * 2 * (3 * 2) * 3 = 72 runs
 ```
 
-`discrete_random` first chooses `num_selections` values without replacement from
+`discrete_random` first chooses `param_num_selections` values without replacement from
 the listed values. The selected values then become grid dimensions for the run
 matrix. `zip` parameters in the same group are paired by index. Different zip
 groups are combined as independent dimensions.
@@ -368,6 +422,108 @@ class DeckSimHelper:
         seed: int | None = None,
         rng_bit_generator: str | None = None,
     ) -> tuple[bool, str]:
+        """
+        Generate DeckSim run directories from structured parameter specifications.
+
+        Use this tool when the user asks to create a parameter sweep, sampling
+        study, or set of simulation runs from one input deck.
+
+        The `parameters` argument must be a JSON object. Each key is a parameter
+        name. Each value must be one of:
+          [param_type, param_selection, param_values]
+          [param_type, "discrete_random", param_values, param_num_selections]
+          [param_type, "zip", param_values, param_zip_group_id]
+
+        The first item is the server parameter type, not a data type. It must be
+        exactly one of "def", "cli", or "exe". Use "def" for all simulation
+        variables, including numeric values, strings, file names, labels, and
+        case ids. Do not use invented data-type labels such as "continuous",
+        "categorical", "string", "float", "file", "fixed", "parameter", or
+        "value" in the first position.
+
+        The second item, param_selection, is the selection mode. It must be exactly one of
+        "continuous", "discrete", "discrete_lhs", "discrete_random", or "zip".
+        Do not use invented selection labels such as "lhs", "grid",
+        "grid_values", "range", "uniform", "random", "constant",
+        "continuous_lhs", "values", "set", or "list".
+
+        Supported parameter types:
+          - "def": simulation variable passed as "-def name=value"
+          - "cli": raw command-line arguments appended to the executable
+          - "exe": executable selector. At most one "exe" parameter is allowed.
+
+        Supported selections:
+          - "continuous": param_values must be [min, max]; requires num_samples.
+            Use this for numeric LHS ranges.
+          - "discrete": param_values are fully enumerated in a grid.
+          - "discrete_lhs": one listed value is sampled per LHS row; requires
+            num_samples. Use this only for explicit lists of choices, not
+            numeric [min, max] ranges.
+          - "discrete_random": param_num_selections is the number of listed
+            param_values to select.
+          - "zip": param_values are paired by index with other zip parameters
+            in the same zip group. param_zip_group_id is required and must be a
+            non-negative JSON integer or non-empty string.
+
+        Common mistakes to avoid:
+          - Do not use "continuous", "categorical", "string", "float", or
+            "file" as parameter types. Use "def" unless the parameter is the
+            executable ("exe") or raw command-line argv ("cli").
+          - Do not split LHS into ["continuous", "lhs", param_values]. Correct
+            continuous LHS parameters use ["def", "continuous", [min, max]]
+            and set num_samples as a top-level argument.
+          - Do not use "discrete_lhs" for numeric [min, max] ranges. Numeric
+            ranges must use "continuous".
+          - Do not use "grid" for grid sweeps. Correct grid parameters use
+            ["def", "discrete", [value1, value2, ...]].
+          - Fixed values still use "discrete" with a one-element values list,
+            such as ["def", "discrete", ["debug_case"]].
+          - The third item, param_values, must always be a list, including for
+            zip and one fixed value. Incorrect: ["def", "zip", "src/a.deck", 1].
+          - Zip group identifiers may be non-negative integers such as 0 or 1,
+            or non-empty strings such as "source_group".
+          - For cli parameters, values must include the full argv tokens. Do
+            not put the flag only in the parameter key. Correct:
+            "restart_args": ["cli", "discrete", [["-restart", "old.chk"]]].
+            Incorrect: "-restart": ["cli", "discrete", ["old.chk"]].
+          - Do not put bounds in separate lower_bounds or upper_bounds fields.
+          - Do not use a JSON string for `parameters`; pass an object.
+          - Do not omit num_samples when using "continuous" or "discrete_lhs".
+          - Put executables and CLI options inside `parameters`, not in
+            separate top-level fields.
+          - For zip parameters, use the same zip group identifier for parameters
+            that should be paired by index.
+          - If the user gives /path/to/deck_dir/main.deck, pass
+            input_deck_path="/path/to/deck_dir" and
+            input_deck_entrypoint="main.deck".
+          - If dependency paths are relative to input_deck_path, preserve them
+            as relative strings in dependency_paths. Do not prefix
+            input_deck_path.
+
+        Canonical parameter examples:
+          - Continuous numeric LHS variable:
+            "density": ["def", "continuous", [1.0, 2.5]]
+          - Discrete/grid variable:
+            "material": ["def", "discrete", ["steel", "aluminum"]]
+          - Discrete LHS variable:
+            "mesh": ["def", "discrete_lhs", ["coarse", "medium", "fine"]]
+          - Random subset:
+            "checkpoint": ["def", "discrete_random", ["chk_a", "chk_b", "chk_c"], 2]
+          - Executable:
+            "solver": ["exe", "discrete", ["decksim_gpu"]]
+          - Raw CLI argv:
+            "diagnostics": ["cli", "discrete", [["--diagnostics", "on", "--verbose"]]]
+          - Zip group:
+            "source_file": ["def", "zip", ["src/a.deck", "src/b.deck"], "source_group"]
+
+        Example:
+          parameters={
+            "temperature": ["def", "continuous", [300.0, 900.0]],
+            "material": ["def", "discrete", ["steel", "aluminum"]],
+            "solver": ["exe", "discrete", ["decksim_cpu"]],
+          },
+          num_samples=4
+        """
         configured_bit_generator = rng_bit_generator
         if configured_bit_generator is None:
             configured_bit_generator = os.environ.get("DECKSIM_BITGENERATOR")
@@ -389,7 +545,7 @@ class DeckSimHelper:
             param_file="parameter_samples.txt",
         )
 
-        run_info = []
+        run_info: dict[str, list[dict[str, Any]]] = {"runs":[]}
         for run_instance, run_configuration in zip(output_result.run_instances, run_configurations):
             staged_deck = self._stage_input_deck(
                 input_deck_path=input_deck_path,
@@ -412,7 +568,7 @@ class DeckSimHelper:
             run_data["kernel_name"] = kernel_name
             run_data["staged_deck"] = staged_deck
             run_data["sampling"] = sample_result.sampling_metadata
-            run_info.append(run_data)
+            run_info["runs"].append(run_data)
 
         run_instances_json_path = os.path.join(output_dir, "run_instances.json")
         with open(run_instances_json_path, "w", encoding="utf-8") as json_file:
@@ -482,6 +638,35 @@ class DeckSimHelper:
     ) -> str:
         """Copy the deck entrypoint and dependencies into run_location."""
         raise NotImplementedError("Implement deck staging for this simulation code")
+```
+
+### Example Prompts
+
+The skeleton docstring should be paired with natural-language examples that
+exercise the schema. These prompts are useful for manual testing, LLM tool-call
+evaluation fixtures, and server-specific documentation:
+
+```text
+Create 8 DeckSim runs from /data/cases/blast with main.deck as the entrypoint.
+Sample density from 1.0 to 2.5 and pressure from 10 to 50 using LHS. Use kernel
+name blast_sweep and write the runs under ./runs/blast_lhs.
+
+Generate a grid sweep for plate_thickness values 1.0, 1.5, and 2.0 and material
+values steel and aluminum. Use deck ./inputs/plate/plate.deck and output to
+./runs/plate_grid.
+
+Create runs where source_file and source_scale are zipped together. Use
+source_file values src/a.deck, src/b.deck, and src/c.deck with source_scale
+values 1.0, 0.8, and 1.2. Also sample temperature continuously from 300 to 700
+with 5 LHS samples.
+
+Run one case with executable decksim_gpu, add raw CLI args "-restart old.chk
+--verbose", copy dependencies Materials and Tables, and write output to
+./runs/restart_case.
+
+Generate 6 runs using PCG64DXSM and seed 12345. Sample temperature continuously
+from 400 to 1200, choose one mesh from coarse, medium, and fine per LHS row, and
+write the output to ./runs/reproducible.
 ```
 
 ## File or Deck Based Codes
