@@ -19,7 +19,7 @@ Stable releases are prepared from a dedicated release branch so that final relea
 3. Merge `release/<version>` into `main`.
 4. Create the stable GitHub release from `main`. During this process, you'll need to create a new tag (e.g., "v0.1.1") that's associated with this release.
 
-The `release/<version>` branch should be retained for reference.
+The `release/<version>` branch can be retained for reference.
 
 ### Pre-releases
 
