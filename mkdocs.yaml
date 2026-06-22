@@ -37,6 +37,7 @@ nav:
       - Creating WEAVE Study Construction Servers: "developer_guide/server_creation/weave_study_servers.md"
     - Testing Guide: "developer_guide/testing.md"
     - Documentation Deployment: "developer_guide/docs_deployment.md"
+    - Release Workflow: "developer_guide/releases.md"
     - API Reference: "developer_guide/"
 
 exclude_docs: |

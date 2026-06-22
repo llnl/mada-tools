@@ -19,6 +19,7 @@ dependencies = [
     "matplotlib",
     "rich",
     "psutil",
+    "jinja2",           # Used by WEAVE Study Construction server
     "pyvista",          # Used by Vertex-CFD server for Mesh GIF creation
     "vtk",              # Used by Vertex-CFD server for Mesh GIF creation
     "imageio",          # Used by Vertex-CFD server for Mesh GIF creation
