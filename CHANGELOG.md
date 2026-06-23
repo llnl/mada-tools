@@ -10,10 +10,10 @@ All notable changes to this project will be documented in this file.
 - workflow for running CI
 
 ### Changed
-- 
+-
 
 ### Fixed
-- 
+-
 
 ## 0.1.0 - 2026-06-17
 
