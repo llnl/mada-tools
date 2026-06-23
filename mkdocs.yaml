@@ -36,6 +36,7 @@ nav:
       - Creating Plugin MCP Servers: "developer_guide/server_creation/plugin_servers.md"
       - Creating WEAVE Study Construction Servers: "developer_guide/server_creation/weave_study_servers.md"
     - Testing Guide: "developer_guide/testing.md"
+    - Documentation Deployment: "developer_guide/docs_deployment.md"
     - Release Workflow: "developer_guide/releases.md"
     - API Reference: "developer_guide/"
 
@@ -95,6 +96,7 @@ markdown_extensions:
 plugins:
   - glightbox
   - search
+  - mike
   - codeinclude:
       title_mode: pymdownx.tabbed
   - gen-files:
@@ -110,6 +112,8 @@ plugins:
       nav_file: SUMMARY.md
 
 extra:
+  version:
+    provider: mike
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/llnl/mada-tools

@@ -24,6 +24,13 @@ jobs:
             exit 1
           fi
 
+  docs:
+    uses: ./.github/workflows/test-job.yml
+    with:
+      python-version: 3.x
+      test-name: "docs"
+      test-command: "mkdocs build --strict"
+
   lint:
     uses: ./.github/workflows/test-job.yml
     with:
