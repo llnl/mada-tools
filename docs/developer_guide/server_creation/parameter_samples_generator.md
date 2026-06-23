@@ -13,7 +13,7 @@ directories from sampled or enumerated parameter values.
 ## Import the Generator
 
 ```python
-from mada_tools.simulation.simutils.samples.generation import (
+from mada_tools.simulation.simutils import (
     ParameterSampleGenerator,
     ParameterSampleResult,
     normalize_cli_value,
