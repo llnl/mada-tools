@@ -298,7 +298,7 @@ class ParameterSampleGenerator:
     def _generate_lhs_rows(
         self,
         parameter_specs: List[ParameterSpec],
-        num_samples: Optional[int],
+        num_samples: int,
         rng_streams: Dict[str, np.random.Generator],
     ) -> List[Dict[str, Any]]:
         continuous_specs = [spec for spec in parameter_specs if spec.selection == "continuous"]
