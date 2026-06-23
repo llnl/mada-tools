@@ -7,12 +7,13 @@ All notable changes to this project will be documented in this file.
 ### Added
 - `bump_version.py` script to help with releases
 - CHANGELOG to track changes across releases
+- workflows for running CI
 
 ### Changed
-- 
+-
 
 ### Fixed
-- 
+-
 
 ## 0.1.0 - 2026-06-17
 

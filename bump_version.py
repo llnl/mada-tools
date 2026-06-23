@@ -23,6 +23,7 @@ Usage:
     python3 bump_version.py 1.2.3
     ```
 """
+
 from __future__ import annotations
 
 import argparse
@@ -47,7 +48,7 @@ def update_file(path: Path, pattern: re.Pattern[str], new_version: str) -> bool:
         True if a replacement was made, otherwise False.
     """
     text = path.read_text(encoding="utf-8")
-    new_text, count = pattern.subn(rf'\g<1>{new_version}\3', text, count=1)
+    new_text, count = pattern.subn(rf"\g<1>{new_version}\3", text, count=1)
     if count:
         path.write_text(new_text, encoding="utf-8")
         return True
@@ -69,13 +70,13 @@ def prepend_changelog_section(path: Path, new_version: str) -> None:
     blank_unreleased = """## Unreleased
 
 ### Added
-- 
+-
 
 ### Changed
-- 
+-
 
 ### Fixed
-- 
+-
 
 """
 
@@ -90,7 +91,7 @@ def prepend_changelog_section(path: Path, new_version: str) -> None:
             True if the line is blank or a placeholder item, otherwise False.
         """
         stripped = line.strip()
-        return stripped in {"-", "- ", "+", "+ ", "*", "* " ""}
+        return stripped in {"-", "- ", "+", "+ ", "*", "* "}
 
     def build_released_section(unreleased_body: list[str]) -> str:
         """
@@ -113,7 +114,7 @@ def prepend_changelog_section(path: Path, new_version: str) -> None:
             if line.startswith("### "):
                 if current_heading is not None:
                     body_text = "".join(current_lines).strip()
-                    if body_text and not all(is_blank_item(l) for l in current_lines):
+                    if body_text and not all(is_blank_item(curr_line) for curr_line in current_lines):
                         sections.append(current_heading + body_text + "\n")
                 current_heading = line
                 current_lines = []
@@ -122,7 +123,7 @@ def prepend_changelog_section(path: Path, new_version: str) -> None:
 
         if current_heading is not None:
             body_text = "".join(current_lines).strip()
-            if body_text and not all(is_blank_item(l) for l in current_lines):
+            if body_text and not all(is_blank_item(line) for line in current_lines):
                 sections.append(current_heading + body_text + "\n")
 
         if not sections:
@@ -149,7 +150,7 @@ def prepend_changelog_section(path: Path, new_version: str) -> None:
             next_section_idx = i
             break
 
-    unreleased_body = lines[unreleased_idx + 1:next_section_idx]
+    unreleased_body = lines[unreleased_idx + 1 : next_section_idx]
     released_section = build_released_section(unreleased_body)
 
     new_lines = []
