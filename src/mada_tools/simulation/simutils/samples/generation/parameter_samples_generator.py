@@ -18,12 +18,29 @@ class ParameterSpec:
     """
     Validated parameter generation specification.
 
-    `parameter_type` is server-defined, while `selection` is one of the shared
-    sampling modes handled by ParameterSampleGenerator. These fields correspond
-    to the prompt-facing `param_type` and `param_selection` tuple positions.
-    `num_selections` stores the prompt-facing `param_num_selections` value for
-    discrete_random parameters, and `zip_group` stores `param_zip_group_id` for
-    zip parameters.
+    Instances of this dataclass represent one normalized parameter definition after
+    schema validation. The fields correspond to the shared prompt-facing tuple
+    shape consumed by `ParameterSampleGenerator.parse_parameter_specs()`.
+
+    Attributes:
+        name (str): Parameter name used in generated rows and output tables.
+        parameter_type (str): Server-defined parameter type such as `def`, `cli`,
+            or `exe`, normalized to lowercase.
+        selection (str): Shared sampling mode, normalized to lowercase. Supported
+            modes are `continuous`, `discrete`, `discrete_lhs`,
+            `discrete_random`, and `zip`.
+        values (List[Any]): Normalized non-empty list of candidate values or
+            numeric bounds, depending on `selection`.
+        num_selections (Optional[int]): Number of values to choose without
+            replacement for `discrete_random` parameters. `None` for other
+            selection types.
+        zip_group (Optional[int | str]): Zip-group identifier used to pair values
+            by index across related `zip` parameters. `None` for non-zip
+            parameters.
+
+    Methods:
+        This dataclass does not define custom methods beyond the dataclass-generated
+        constructor and representation helpers.
     """
 
     name: str
@@ -39,11 +56,29 @@ class ParameterSampleResult:
     """
     Generated parameter samples and reproducibility metadata.
 
-    `parameter_names` defines the column order for `samples`. `row_values`
-    contains the same data as one dictionary per generated run and is usually
-    the easiest representation for server helpers to translate into command
-    lines, deck edits, input files, or run manifests. `specs` contains the
-    validated parameter schema used to generate the rows.
+    This dataclass is the main output of `ParameterSampleGenerator.generate()`.
+    It contains the generated sample table, row-oriented dictionaries for server
+    helpers, the validated schema used to produce them, and metadata required to
+    reproduce randomized sampling.
+
+    Attributes:
+        parameter_names (List[str]): Ordered parameter names defining the column
+            order for `samples`.
+        samples (List[List[Any]]): Sample table in row-major form. Each inner list
+            contains values ordered to match `parameter_names`.
+        row_values (List[Dict[str, Any]]): One dictionary per generated run keyed
+            by parameter name. This is typically the most convenient structure for
+            translating sampled values into command lines, deck edits, manifests,
+            or staged input files.
+        specs (List[ParameterSpec]): Validated parameter specifications used to
+            generate the sample rows.
+        sampling_metadata (Dict[str, Any]): Reproducibility metadata returned from
+            `create_sampling_rngs()`, including the effective seed, requested seed,
+            seed source, and RNG bit generator name.
+
+    Methods:
+        This dataclass does not define custom methods beyond the dataclass-generated
+        constructor and representation helpers.
     """
 
     parameter_names: List[str]
@@ -104,22 +139,56 @@ class ParameterSampleGenerator:
     """
     Build concrete parameter rows from mixed parameter specifications.
 
-    The generator is intentionally simulation-agnostic. It validates the shared
-    sampling schema and returns row dictionaries; server helpers remain
-    responsible for translating row values into command-line arguments, deck
-    edits, input files, environment variables, or run metadata.
+    `ParameterSampleGenerator` is simulation-agnostic shared infrastructure for
+    parameterized run generation. It validates the common parameter schema and
+    expands it into concrete sample rows, while server helpers remain responsible
+    for translating those rows into simulation-specific runtime inputs such as
+    command-line arguments, deck variables, environment variables, or staged files.
 
-    `allowed_types` restricts server-specific parameter types. For example, a
-    deck-based server might allow `def`, `cli`, and `exe`, while another server
-    might allow `input`, `flag`, and `executable`.
+    Attributes:
+        allowed_types (Optional[set[str]]): Optional set of server-supported
+            parameter types. When provided, parameter specs using any other type are
+            rejected during parsing.
+        continuous_allowed_types (Optional[set[str]]): Optional set of parameter
+            types allowed to use `continuous` sampling. This is typically used to
+            restrict numeric continuous ranges to simulation-variable types rather
+            than executable or CLI selectors.
+        max_exe_parameters (Optional[int]): Optional maximum number of parameters
+            whose type is exactly `exe`.
+        validate_cli_values (bool): Whether parameters of type exactly `cli` should
+            be validated with `normalize_cli_value()` during schema parsing.
 
-    `continuous_allowed_types` restricts which parameter types may use
-    continuous sampling. This is useful when only numeric simulation variables,
-    and not executable or CLI selectors, should accept numeric bounds.
-
-    `max_exe_parameters` limits parameters of type exactly `exe`.
-    `validate_cli_values` validates values for parameters of type exactly `cli`
-    with normalize_cli_value during schema parsing.
+    Methods:
+        __init__(
+            allowed_types: Optional[set[str]] = None,
+            continuous_allowed_types: Optional[set[str]] = None,
+            max_exe_parameters: Optional[int] = None,
+            validate_cli_values: bool = False,
+        ): Configure generator-level validation constraints.
+        generate(
+            parameters: Dict[str, List[Any]],
+            num_samples: Optional[int] = None,
+            seed: Optional[int] = None,
+            rng_bit_generator: Optional[str] = None,
+        ) -> ParameterSampleResult: Validate parameter specifications and expand
+            them into concrete sample rows plus reproducibility metadata.
+        parse_parameter_specs(parameters: Dict[str, List[Any]]) -> List[ParameterSpec]:
+            Normalize and validate raw parameter specifications into structured
+            `ParameterSpec` instances.
+        _generate_lhs_rows(
+            parameter_specs: List[ParameterSpec],
+            num_samples: int,
+            rng_streams: Dict[str, np.random.Generator],
+        ) -> List[Dict[str, Any]]: Generate per-row values for `continuous` and
+            `discrete_lhs` parameters.
+        _generate_grid_rows(
+            parameter_specs: List[ParameterSpec],
+            rng_streams: Dict[str, np.random.Generator],
+        ) -> List[Dict[str, Any]]: Generate Cartesian-product rows for `discrete`
+            and sampled `discrete_random` parameters.
+        _generate_zip_rows(parameter_specs: List[ParameterSpec]) -> List[Dict[str, Any]]:
+            Generate grouped rows for `zip` parameters by pairing values by index
+            within each zip group and combining independent groups.
     """
 
     def __init__(
