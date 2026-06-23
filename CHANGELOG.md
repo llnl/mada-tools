@@ -7,7 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 - `bump_version.py` script to help with releases
 - CHANGELOG to track changes across releases
-- workflow for running CI
+- workflows for running CI
 
 ### Changed
 -
