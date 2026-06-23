@@ -172,9 +172,9 @@ def main() -> int:
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
-
-    print("Raw /models response:")
-    print(json.dumps(payload, indent=2, sort_keys=True))
+    # Uncomment for Raw printout of model dump
+    # print("Raw /models response:")
+    # print(json.dumps(payload, indent=2, sort_keys=True))
     print("Extracted model IDs:")
     for model_id in model_ids:
         print(model_id)

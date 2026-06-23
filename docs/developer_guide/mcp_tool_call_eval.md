@@ -150,9 +150,10 @@ unchanged so you can manually curate it.
 
 The curated file allows blank lines and `#` comments. Comment out any model you
 want to omit from any testing runs for example, the tests executed by
-`tests/benchmark/testskeleton.sh`.
+`tests/benchmark/testskeleton.sh`.  You can choose different lists with the `--modelfile`
+option, e.g., `./testskeleton.sh --modelfile=eval_models_small.txt`
 
-Example:
+Example `eval_models.txt`:
 
 ```text
 # Shared eval model list
@@ -171,7 +172,7 @@ example server:
 mada-mcp-skeleton-example --transport streamable-http --host localhost --port 8220
 ```
 
-Then run the evaluator from the repository root:
+Then run the evaluator from the repository root (this is a simplified version of `examples/testskeleton.sh`):
 
 ```bash
 python tests/benchmark/mcp_tool_call_eval.py \
