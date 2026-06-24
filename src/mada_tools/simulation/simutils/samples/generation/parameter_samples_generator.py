@@ -37,10 +37,6 @@ class ParameterSpec:
         zip_group (Optional[int | str]): Zip-group identifier used to pair values
             by index across related `zip` parameters. `None` for non-zip
             parameters.
-
-    Methods:
-        This dataclass does not define custom methods beyond the dataclass-generated
-        constructor and representation helpers.
     """
 
     name: str
@@ -75,10 +71,6 @@ class ParameterSampleResult:
         sampling_metadata (Dict[str, Any]): Reproducibility metadata returned from
             `create_sampling_rngs()`, including the effective seed, requested seed,
             seed source, and RNG bit generator name.
-
-    Methods:
-        This dataclass does not define custom methods beyond the dataclass-generated
-        constructor and representation helpers.
     """
 
     parameter_names: List[str]
@@ -159,35 +151,15 @@ class ParameterSampleGenerator:
             be validated with `normalize_cli_value()` during schema parsing.
 
     Methods:
-        __init__(
-            allowed_types: Optional[set[str]] = None,
-            continuous_allowed_types: Optional[set[str]] = None,
-            max_exe_parameters: Optional[int] = None,
-            validate_cli_values: bool = False,
-        ): Configure generator-level validation constraints.
-        generate(
-            parameters: Dict[str, List[Any]],
-            num_samples: Optional[int] = None,
-            seed: Optional[int] = None,
-            rng_bit_generator: Optional[str] = None,
-        ) -> ParameterSampleResult: Validate parameter specifications and expand
+        __init__: Configure generator-level validation constraints.
+        generate: Validate parameter specifications and expand
             them into concrete sample rows plus reproducibility metadata.
-        parse_parameter_specs(parameters: Dict[str, List[Any]]) -> List[ParameterSpec]:
-            Normalize and validate raw parameter specifications into structured
+        parse_parameter_specs: Normalize and validate raw parameter specifications into structured
             `ParameterSpec` instances.
-        _generate_lhs_rows(
-            parameter_specs: List[ParameterSpec],
-            num_samples: int,
-            rng_streams: Dict[str, np.random.Generator],
-        ) -> List[Dict[str, Any]]: Generate per-row values for `continuous` and
-            `discrete_lhs` parameters.
-        _generate_grid_rows(
-            parameter_specs: List[ParameterSpec],
-            rng_streams: Dict[str, np.random.Generator],
-        ) -> List[Dict[str, Any]]: Generate Cartesian-product rows for `discrete`
+        _generate_lhs_rows: Generate per-row values for `continuous` and `discrete_lhs` parameters.
+        _generate_grid_rows: Generate Cartesian-product rows for `discrete`
             and sampled `discrete_random` parameters.
-        _generate_zip_rows(parameter_specs: List[ParameterSpec]) -> List[Dict[str, Any]]:
-            Generate grouped rows for `zip` parameters by pairing values by index
+        _generate_zip_rows: Generate grouped rows for `zip` parameters by pairing values by index
             within each zip group and combining independent groups.
     """
 
