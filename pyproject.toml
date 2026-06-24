@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mada_tools"
 description = "Tooling for the MADA multi-agent ecosystem"
-version = "0.1.0"
+version = "0.1.1"
 requires-python = ">=3.10"
 readme = "README.md"
 dependencies = [
@@ -19,6 +19,7 @@ dependencies = [
     "matplotlib",
     "rich",
     "psutil",
+    "jinja2",           # Used by WEAVE Study Construction server
     "pyvista",          # Used by Vertex-CFD server for Mesh GIF creation
     "vtk",              # Used by Vertex-CFD server for Mesh GIF creation
     "imageio",          # Used by Vertex-CFD server for Mesh GIF creation
@@ -51,6 +52,9 @@ docs = [
     "mkdocs-gen-files",  # Generate files for MkDocs at build time
     "mkdocstrings",  # Automatic API documentation from docstrings
     "mkdocstrings-python",  # Python handler for mkdocstrings
+
+    # Deployment
+    "mike",
 ]
 
 examples = [
