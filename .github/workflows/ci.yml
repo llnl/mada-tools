@@ -42,9 +42,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     uses: ./.github/workflows/test-job.yml
     with:
+      runs-on: ${{ matrix.os }}
       python-version: ${{ matrix.python-version }}
       test-name: "unit"
       test-command: 'pytest -m "unit and not allocation_required" tests/'
@@ -53,9 +55,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     uses: ./.github/workflows/test-job.yml
     with:
+      runs-on: ${{ matrix.os }}
       python-version: ${{ matrix.python-version }}
       test-name: "integration"
       test-command: 'pytest -m "integration and not allocation_required" tests/'
@@ -64,9 +68,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     uses: ./.github/workflows/test-job.yml
     with:
+      runs-on: ${{ matrix.os }}
       python-version: ${{ matrix.python-version }}
       test-name: "e2e"
       test-command: 'pytest -m "e2e and not allocation_required" tests/'
