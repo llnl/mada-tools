@@ -91,7 +91,7 @@ def prepend_changelog_section(path: Path, new_version: str) -> None:
             True if the line is blank or a placeholder item, otherwise False.
         """
         stripped = line.strip()
-        return stripped in {"-", "- ", "+", "+ ", "*", "* "}
+        return stripped in {"-", "- ", "+", "+ ", "*", "* ", ""}
 
     def build_released_section(unreleased_body: list[str]) -> str:
         """

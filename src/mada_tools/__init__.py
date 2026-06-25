@@ -30,7 +30,7 @@ from mada_tools.shared.base_server import BaseMCPServer
 from mada_tools.shared.exceptions import MCPServerError, ToolExecutionError
 from mada_tools.workflow.weave import WEAVEStudyConstructionServer
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 VERSION = __version__
 
