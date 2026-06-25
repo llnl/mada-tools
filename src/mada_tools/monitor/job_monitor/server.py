@@ -9,13 +9,11 @@ executed through the MADA Job Manager. This server exposes tools to read log
 files, extract tails, and classify failures using regex-based patterns.
 """
 
-import json
-import os
 from typing import Optional
 
-from ...shared.base_server import BaseMCPServer
-from ...shared.exceptions import ToolExecutionError
-from .log_utils import classify_failure, tail_log
+from mada_tools.monitor.job_monitor_helper import JobMonitorHelper
+from mada_tools.shared.base_server import BaseMCPServer
+from mada_tools.shared.env import get_env_var
 
 
 class JobMonitorServer(BaseMCPServer):
@@ -50,8 +48,9 @@ class JobMonitorServer(BaseMCPServer):
             "Tools for log inspection, failure detection, and job diagnostics.",
         )
 
-        self.tail_bytes = int(self.get_env_var("MONITOR_LOG_TAIL_BYTES", 50000))
-        self.status_depth = int(self.get_env_var("MONITOR_DEFAULT_STATUS_DEPTH", 20))
+        self.tail_bytes = int(get_env_var("MONITOR_LOG_TAIL_BYTES", 50000))
+        self.status_depth = int(get_env_var("MONITOR_DEFAULT_STATUS_DEPTH", 20))
+        self.job_monitor_helper = JobMonitorHelper(tail_bytes=self.tail_bytes, status_depth=self.status_depth)
 
     def _register_tools(self):
         """
@@ -80,17 +79,7 @@ class JobMonitorServer(BaseMCPServer):
             Raises:
                 ToolExecutionError: If log reading fails for any reason.
             """
-            try:
-                out_path = os.path.join(run_location, stdout_file)
-                err_path = os.path.join(run_location, stderr_file)
-
-                result = {
-                    "stdout": tail_log(out_path, self.tail_bytes),
-                    "stderr": tail_log(err_path, self.tail_bytes),
-                }
-                return json.dumps(result, indent=2)
-            except Exception as e:
-                raise ToolExecutionError(f"Failed to read logs: {e}")
+            return self.run_tool(self.job_monitor_helper.read_logs, run_location, stdout_file, stderr_file)
 
         @self.mcp.tool()
         def summarize_status(
@@ -129,23 +118,13 @@ class JobMonitorServer(BaseMCPServer):
                 aborts, scheduler preemption signatures, missing output, and
                 other known error indicators.
             """
-            out_path = os.path.join(run_location, stdout_file)
-            err_path = os.path.join(run_location, stderr_file)
-
-            out_text = tail_log(out_path, self.tail_bytes)
-            err_text = tail_log(err_path, self.tail_bytes)
-            combined = out_text + "\n" + err_text
-
-            findings = classify_failure(combined, self.tail_bytes)
-
-            summary = {
-                "exit_code": exit_code,
-                "stdout_tail": out_text,
-                "stderr_tail": err_text,
-                "detected_failures": findings,
-            }
-
-            return json.dumps(summary, indent=2)
+            return self.run_tool(
+                self.job_monitor_helper.summarize_status,
+                run_location,
+                stdout_file,
+                stderr_file,
+                exit_code=exit_code,
+            )
 
 
 def main():
