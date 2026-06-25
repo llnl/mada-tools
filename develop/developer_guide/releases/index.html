@@ -1502,6 +1502,8 @@
       <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
       
       
+        
+      
       
         <label class="md-nav__link md-nav__link--active" for="__toc">
           
@@ -1544,6 +1546,8 @@
   
   
   
+    
+  
   
     <label class="md-nav__title" for="__toc">
       <span class="md-nav__icon md-icon"></span>
@@ -1552,18 +1556,6 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
       
         <li class="md-nav__item">
-  <a href="#release-workflow" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Release Workflow
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Release Workflow">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
   <a href="#branch-roles" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1573,8 +1565,19 @@
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
+  <a href="#bumping-the-version" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bumping the Version
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#stable-releases" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1584,8 +1587,8 @@
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
   <a href="#pre-releases" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1595,8 +1598,8 @@
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
   <a href="#branch-synchronization" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1606,8 +1609,8 @@
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
   <a href="#summary" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1615,11 +1618,6 @@
       
     </span>
   </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -4579,6 +4577,8 @@
   
   
   
+    
+  
   
     <label class="md-nav__title" for="__toc">
       <span class="md-nav__icon md-icon"></span>
@@ -4587,18 +4587,6 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
       
         <li class="md-nav__item">
-  <a href="#release-workflow" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Release Workflow
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Release Workflow">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
   <a href="#branch-roles" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4608,8 +4596,19 @@
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
+  <a href="#bumping-the-version" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bumping the Version
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#stable-releases" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4619,8 +4618,8 @@
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
   <a href="#pre-releases" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4630,8 +4629,8 @@
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
   <a href="#branch-synchronization" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4641,8 +4640,8 @@
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
+      
+        <li class="md-nav__item">
   <a href="#summary" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4650,11 +4649,6 @@
       
     </span>
   </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -4675,11 +4669,9 @@
 
 
 
-  <h1>Release Workflow</h1>
-
-<h2 id="release-workflow">Release Workflow</h2>
+<h1 id="release-workflow">Release Workflow</h1>
 <p>This project uses a branch-based release process designed to keep ongoing development separate from stable published releases.</p>
-<h3 id="branch-roles">Branch roles</h3>
+<h2 id="branch-roles">Branch roles</h2>
 <table>
 <thead>
 <tr>
@@ -4702,26 +4694,36 @@
 </tr>
 </tbody>
 </table>
-<h3 id="stable-releases">Stable releases</h3>
+<h2 id="bumping-the-version">Bumping the Version</h2>
+<p>Bumping the version number can be done from the top of the repository with:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>python<span class="w"> </span>bump_version.py<span class="w"> </span>&lt;version<span class="w"> </span>number&gt;
+</span></code></pre></div>
+<p>This script will:</p>
+<ol>
+<li>Update the version in <code>src/mada_tools/__init__.py</code></li>
+<li>Update the version in <code>pyproject.toml</code></li>
+<li>Tag the "Unreleased" section of the <code>CHANGELOG.md</code> file with a version number and date, trim empty sections, and create a new, blank "Unreleased" section at the top of the file</li>
+</ol>
+<h2 id="stable-releases">Stable releases</h2>
 <p>Stable releases are prepared from a dedicated release branch so that final release changes are isolated from ongoing development work.</p>
 <ol>
 <li>Create a <code>release/&lt;version&gt;</code> branch from <code>develop</code>.</li>
-<li>Use the release branch to finalize the version number, update the changelog, and apply any last release-specific fixes.</li>
+<li>Use the release branch to <a href="#bumping-the-version">finalize the version number</a>, update the changelog, and apply any last release-specific fixes.</li>
 <li>Merge <code>release/&lt;version&gt;</code> into <code>main</code>.</li>
 <li>Create the stable GitHub release from <code>main</code>. During this process, you'll need to create a new tag (e.g., "v0.1.1") that's associated with this release.</li>
 </ol>
 <p>The <code>release/&lt;version&gt;</code> branch can be retained for reference.</p>
-<h3 id="pre-releases">Pre-releases</h3>
+<h2 id="pre-releases">Pre-releases</h2>
 <p>Pre-releases are created directly from <code>develop</code>.</p>
 <ol>
-<li>Update the version in <code>develop</code> to the next development version or pre-release version.</li>
+<li><a href="#bumping-the-version">Update the version</a> in <code>develop</code> to the next development version or pre-release version.</li>
 <li>Create the GitHub pre-release from <code>develop</code>. During this process, you'll need to create a new tag (e.g., "v0.1.1b1") that's associated with this release.</li>
 </ol>
 <p>This keeps pre-release work aligned with active development while avoiding disruption to the stable release process.</p>
-<h3 id="branch-synchronization">Branch synchronization</h3>
+<h2 id="branch-synchronization">Branch synchronization</h2>
 <p>In this workflow, <code>main</code> and <code>develop</code> are usually synchronized only at release boundaries. After a stable release, <code>main</code> contains the released version, while <code>develop</code> may continue forward with the next development or pre-release version.</p>
 <p>If the stable release includes changes that are not already present in <code>develop</code>, merge <code>main</code> back into <code>develop</code> so the two branches remain consistent.</p>
-<h3 id="summary">Summary</h3>
+<h2 id="summary">Summary</h2>
 <table>
 <thead>
 <tr>
