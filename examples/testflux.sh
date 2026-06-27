@@ -4,11 +4,12 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 usage() {
-  echo "Usage: ./testflux.sh [--modelfile PATH]"
+  echo "Usage: ./testflux.sh [--modelfile PATH] [-n NUM_SAMPLES|--num-samples NUM_SAMPLES]"
   echo "Model file precedence: --modelfile > MCP_EVAL_MODELS_FILE > eval_models.txt"
 }
 
 cli_models_file=""
+num_samples=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --modelfile)
@@ -24,6 +25,24 @@ while [[ $# -gt 0 ]]; do
       cli_models_file="${1#--modelfile=}"
       if [[ -z "$cli_models_file" ]]; then
         echo "Missing value for --modelfile" >&2
+        usage >&2
+        exit 1
+      fi
+      shift
+      ;;
+    -n|--num-samples)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for $1" >&2
+        usage >&2
+        exit 1
+      fi
+      num_samples="$2"
+      shift 2
+      ;;
+    --num-samples=*)
+      num_samples="${1#--num-samples=}"
+      if [[ -z "$num_samples" ]]; then
+        echo "Missing value for --num-samples" >&2
         usage >&2
         exit 1
       fi
@@ -70,6 +89,7 @@ eval_status=0
 python mcp_tool_call_eval.py \
   --cases flux_tool_call_eval_cases.json \
   --models "${models[@]}" \
+  --num-samples "$num_samples" \
   --results-csv "$output_dir/flux_tool_call_rows.csv" \
   --results-json "$output_dir/flux_tool_call_rows.json" \
   --summary-csv "$output_dir/flux_tool_call_summary.csv" \

@@ -34,6 +34,7 @@ ROW_FIELDS = [
     "server",
     "case_id",
     "prompt_id",
+    "sample_index",
     "passed",
     "error_type",
     "error",
@@ -45,15 +46,24 @@ ROW_FIELDS = [
     "latency_ms",
 ]
 
-SUMMARY_FIELDS = [
+SUMMARY_BASE_FIELDS = [
     "model",
     "server",
     "case_id",
+    "num_flavors",
+    "num_samples",
+    "flavor_order",
+    "score_passed",
+    "score_total",
+    "score_rate",
     "prompts_passed",
     "prompts_total",
     "pass_rate",
     "all_passed",
     "any_passed",
+]
+
+SUMMARY_METRIC_FIELDS = [
     "avg_prompt_tokens",
     "avg_completion_tokens",
     "avg_total_tokens",
@@ -153,6 +163,41 @@ def normalize_prompts(test_case: dict[str, Any]) -> list[dict[str, str]]:
             continue
         raise ValueError(f"Invalid prompt in test case {test_case.get('id', '<missing id>')}: {prompt!r}")
     return normalized
+
+
+def parse_num_samples(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("--num-samples must be at least 1")
+    return parsed
+
+
+def flavor_field_names(prompt_id: str) -> tuple[str, str, str]:
+    return (f"{prompt_id}_passed", f"{prompt_id}_total", f"{prompt_id}_rate")
+
+
+def summary_fields_for_fixture(fixture: dict[str, Any]) -> list[str]:
+    flavor_fields: list[str] = []
+    seen_prompt_ids: set[str] = set()
+    for test_case in fixture["tests"]:
+        for prompt in normalize_prompts(test_case):
+            prompt_id = prompt["id"]
+            if prompt_id in seen_prompt_ids:
+                continue
+            seen_prompt_ids.add(prompt_id)
+            flavor_fields.extend(flavor_field_names(prompt_id))
+    return SUMMARY_BASE_FIELDS + flavor_fields + SUMMARY_METRIC_FIELDS
+
+
+def prompt_ids_for_case(test_case: dict[str, Any]) -> list[str]:
+    return [prompt["id"] for prompt in normalize_prompts(test_case)]
+
+
+def prompt_ids_by_case(fixture: dict[str, Any]) -> dict[tuple[str, str], list[str]]:
+    mapping = {}
+    for test_case in fixture["tests"]:
+        mapping[(test_case["server"], test_case["id"])] = prompt_ids_for_case(test_case)
+    return mapping
 
 
 def expected_call_from_test_case(test_case: dict[str, Any]) -> ExpectedCall:
@@ -796,6 +841,7 @@ def build_row(
     model: str,
     test_case: dict[str, Any],
     prompt: dict[str, str],
+    sample_index: int,
     result: ToolCallResult,
     passed: bool,
     error_type: str | None,
@@ -808,6 +854,7 @@ def build_row(
         "server": test_case["server"],
         "case_id": test_case["id"],
         "prompt_id": prompt["id"],
+        "sample_index": sample_index,
         "passed": passed,
         "error_type": error_type or "",
         "error": error or "",
@@ -847,7 +894,8 @@ def average(values: list[int | None]) -> float | None:
     return round(sum(present) / len(present), 3)
 
 
-def summarize(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def summarize(fixture: dict[str, Any], rows: list[dict[str, Any]], num_samples: int) -> list[dict[str, Any]]:
+    case_prompt_ids = prompt_ids_by_case(fixture)
     grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
     for row in rows:
         key = (row["model"], row["server"], row["case_id"])
@@ -855,51 +903,72 @@ def summarize(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     summary_rows = []
     for (model, server, case_id), case_rows in sorted(grouped.items()):
+        prompt_ids = case_prompt_ids[(server, case_id)]
         passed_count = sum(1 for row in case_rows if row["passed"])
         total_count = len(case_rows)
-        summary_rows.append(
-            {
-                "model": model,
-                "server": server,
-                "case_id": case_id,
-                "prompts_passed": passed_count,
-                "prompts_total": total_count,
-                "pass_rate": round(passed_count / total_count, 3) if total_count else 0,
-                "all_passed": passed_count == total_count,
-                "any_passed": passed_count > 0,
-                "avg_prompt_tokens": average([row["prompt_tokens"] for row in case_rows]),
-                "avg_completion_tokens": average([row["completion_tokens"] for row in case_rows]),
-                "avg_total_tokens": average([row["total_tokens"] for row in case_rows]),
-                "avg_latency_ms": average([row["latency_ms"] for row in case_rows]),
-            }
-        )
+        pass_rate = round(passed_count / total_count, 3) if total_count else 0
+        summary_row: dict[str, Any] = {
+            "model": model,
+            "server": server,
+            "case_id": case_id,
+            "num_flavors": len(prompt_ids),
+            "num_samples": num_samples,
+            "flavor_order": json.dumps(prompt_ids),
+            "score_passed": passed_count,
+            "score_total": total_count,
+            "score_rate": pass_rate,
+            "prompts_passed": passed_count,
+            "prompts_total": total_count,
+            "pass_rate": pass_rate,
+            "all_passed": passed_count == total_count,
+            "any_passed": passed_count > 0,
+        }
+        rows_by_prompt: dict[str, list[dict[str, Any]]] = {prompt_id: [] for prompt_id in prompt_ids}
+        for row in case_rows:
+            rows_by_prompt.setdefault(str(row["prompt_id"]), []).append(row)
+
+        for prompt_id in prompt_ids:
+            prompt_rows = rows_by_prompt.get(prompt_id, [])
+            prompt_passed = sum(1 for row in prompt_rows if row["passed"])
+            prompt_total = len(prompt_rows)
+            prompt_rate = round(prompt_passed / prompt_total, 3) if prompt_total else 0
+            passed_field, total_field, rate_field = flavor_field_names(prompt_id)
+            summary_row[passed_field] = prompt_passed
+            summary_row[total_field] = prompt_total or num_samples
+            summary_row[rate_field] = prompt_rate
+
+        summary_row["avg_prompt_tokens"] = average([row["prompt_tokens"] for row in case_rows])
+        summary_row["avg_completion_tokens"] = average([row["completion_tokens"] for row in case_rows])
+        summary_row["avg_total_tokens"] = average([row["total_tokens"] for row in case_rows])
+        summary_row["avg_latency_ms"] = average([row["latency_ms"] for row in case_rows])
+        summary_rows.append(summary_row)
     return summary_rows
 
 
-def total_prompt_count(fixture: dict[str, Any], models: list[str]) -> int:
-    return len(models) * sum(len(normalize_prompts(test_case)) for test_case in fixture["tests"])
+def total_prompt_count(fixture: dict[str, Any], models: list[str], num_samples: int) -> int:
+    return len(models) * sum(len(normalize_prompts(test_case)) for test_case in fixture["tests"]) * num_samples
 
 
 def print_rows(rows: list[dict[str, Any]], summary_rows: list[dict[str, Any]]) -> None:
     print("\nResults")
-    print("model | server | case | prompt | result | tokens | latency_ms | error")
-    print("-" * 100)
+    print("model | server | case | prompt | sample | result | tokens | latency_ms | error")
+    print("-" * 112)
     for row in rows:
         result = "PASS" if row["passed"] else "FAIL"
         tokens = row["total_tokens"] if row["total_tokens"] is not None else "n/a"
         print(
-            f"{row['model']} | {row['server']} | {row['case_id']} | {row['prompt_id']} | "
+            f"{row['model']} | {row['server']} | {row['case_id']} | {row['prompt_id']} | {row['sample_index']} | "
             f"{result} | {tokens} | {row['latency_ms']} | {row['error']}"
         )
 
     print("\nSummary")
-    print("model | server | case | passed/total | pass_rate | avg_tokens | avg_latency_ms")
-    print("-" * 90)
+    print("model | server | case | score | pass_rate | avg_tokens | avg_latency_ms")
+    print("-" * 96)
     for row in summary_rows:
         avg_tokens = row["avg_total_tokens"] if row["avg_total_tokens"] is not None else "n/a"
         print(
             f"{row['model']} | {row['server']} | {row['case_id']} | "
-            f"{row['prompts_passed']}/{row['prompts_total']} | {row['pass_rate']} | "
+            f"{row['score_passed']}/{row['score_total']} | {row['pass_rate']} | "
             f"{avg_tokens} | {row['avg_latency_ms']}"
         )
 
@@ -931,10 +1000,12 @@ async def run(args: argparse.Namespace) -> int:
     client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=args.request_timeout)
     rows: list[dict[str, Any]] = []
     detailed_rows: list[dict[str, Any]] = []
-    total_prompts = total_prompt_count(fixture, args.models)
+    summary_fields = summary_fields_for_fixture(fixture)
+    total_prompts = total_prompt_count(fixture, args.models, args.num_samples)
     progress(
-        f"Evaluating {total_prompts} prompts across {len(args.models)} models, "
-        f"{len(fixture['tests'])} test cases, and {len(fixture['mcp_servers'])} configured MCP servers.",
+        f"Evaluating {total_prompts} tool-call attempts across {len(args.models)} models, "
+        f"{len(fixture['tests'])} test cases, {len(fixture['mcp_servers'])} configured MCP servers, "
+        f"and {args.num_samples} sample(s) per prompt flavor.",
         args.quiet,
     )
 
@@ -958,63 +1029,65 @@ async def run(args: argparse.Namespace) -> int:
                     prompts = normalize_prompts(test_case)
                     _session, tools = connected_servers[test_case["server"]]
                     for prompt in prompts:
-                        current_prompt += 1
-                        progress(
-                            f"[{current_prompt}/{total_prompts}] START "
-                            f"model={model} server={test_case['server']} "
-                            f"case={test_case['id']} prompt={prompt['id']}",
-                            args.quiet,
-                        )
-                        result = await get_tool_call(
-                            client=client,
-                            model=model,
-                            tools=tools,
-                            prompt=prompt["text"],
-                            system_prompt=system_prompt,
-                            temperature=args.temperature,
-                            capture_raw_response=args.capture_raw_response,
-                        )
-                        passed, error_type, error = evaluate_result(test_case, result, args.strict)
-                        row = build_row(model, test_case, prompt, result, passed, error_type, error)
-                        rows.append(row)
-                        detailed_rows.append(
-                            {
-                                **row,
-                                "prompt": prompt["text"],
-                                "expected_call": test_case["expected_call"],
-                                "actual_arguments": result.tool_arguments,
-                                "actual_arguments_raw": result.tool_arguments_raw,
-                                "assistant_text": result.assistant_text,
-                                "raw_message": result.raw_message,
-                                "raw_tool_calls": result.raw_tool_calls,
-                                "raw_response": result.raw_response,
-                            }
-                        )
-                        if csv_writer and csv_file:
-                            write_csv_row(csv_writer, row, ROW_FIELDS)
-                            csv_file.flush()
-                        result_label = "PASS" if passed else "FAIL"
-                        error_detail = f" error_type={error_type} error={error}" if error_type else ""
-                        progress(
-                            f"[{current_prompt}/{total_prompts}] {result_label} "
-                            f"latency_ms={row['latency_ms']} tokens={format_tokens(row)}{error_detail}",
-                            args.quiet,
-                        )
+                        for sample_index in range(1, args.num_samples + 1):
+                            current_prompt += 1
+                            progress(
+                                f"[{current_prompt}/{total_prompts}] START "
+                                f"model={model} server={test_case['server']} "
+                                f"case={test_case['id']} prompt={prompt['id']} sample={sample_index}",
+                                args.quiet,
+                            )
+                            result = await get_tool_call(
+                                client=client,
+                                model=model,
+                                tools=tools,
+                                prompt=prompt["text"],
+                                system_prompt=system_prompt,
+                                temperature=args.temperature,
+                                capture_raw_response=args.capture_raw_response,
+                            )
+                            passed, error_type, error = evaluate_result(test_case, result, args.strict)
+                            row = build_row(model, test_case, prompt, sample_index, result, passed, error_type, error)
+                            rows.append(row)
+                            detailed_rows.append(
+                                {
+                                    **row,
+                                    "prompt": prompt["text"],
+                                    "expected_call": test_case["expected_call"],
+                                    "actual_arguments": result.tool_arguments,
+                                    "actual_arguments_raw": result.tool_arguments_raw,
+                                    "assistant_text": result.assistant_text,
+                                    "raw_message": result.raw_message,
+                                    "raw_tool_calls": result.raw_tool_calls,
+                                    "raw_response": result.raw_response,
+                                }
+                            )
+                            if csv_writer and csv_file:
+                                write_csv_row(csv_writer, row, ROW_FIELDS)
+                                csv_file.flush()
+                            result_label = "PASS" if passed else "FAIL"
+                            error_detail = f" error_type={error_type} error={error}" if error_type else ""
+                            progress(
+                                f"[{current_prompt}/{total_prompts}] {result_label} "
+                                f"sample={sample_index} latency_ms={row['latency_ms']} "
+                                f"tokens={format_tokens(row)}{error_detail}",
+                                args.quiet,
+                            )
     finally:
         if csv_file:
             csv_file.close()
 
     elapsed_s = round(time.perf_counter() - run_started, 3)
-    progress(f"Completed {len(rows)} prompt evaluations in {elapsed_s}s.", args.quiet)
+    progress(f"Completed {len(rows)} tool-call attempts in {elapsed_s}s.", args.quiet)
 
-    summary_rows = summarize(rows)
+    summary_rows = summarize(fixture, rows, args.num_samples)
     if not args.no_final_table:
         print_rows(rows, summary_rows)
 
     if args.results_json:
         write_json(args.results_json, detailed_rows)
     if args.summary_csv:
-        write_csv(args.summary_csv, summary_rows, SUMMARY_FIELDS)
+        write_csv(args.summary_csv, summary_rows, summary_fields)
     if args.summary_json:
         write_json(args.summary_json, summary_rows)
 
@@ -1034,6 +1107,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--system-prompt", help="Override the default system prompt")
     parser.add_argument("--temperature", type=float, help="Optional temperature to pass to the model")
     parser.add_argument("--request-timeout", type=float, default=120.0, help="LLM request timeout in seconds")
+    parser.add_argument(
+        "--num-samples",
+        "-n",
+        type=parse_num_samples,
+        default=1,
+        help="Number of tool-call samples to collect per prompt flavor (default: 1)",
+    )
     parser.add_argument("--strict", action="store_true", help="Require exact argument equality")
     parser.add_argument(
         "--min-pass-rate",

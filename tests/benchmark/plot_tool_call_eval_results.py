@@ -27,6 +27,15 @@ DEFAULT_COLORS = [
     "#5F9ED1",
 ]
 
+AGGREGATE_SUMMARY_FIELDS = {
+    "prompts_passed",
+    "prompts_total",
+    "pass_rate",
+    "score_passed",
+    "score_total",
+    "score_rate",
+}
+
 
 def load_rows(path: Path) -> list[dict[str, Any]]:
     if path.suffix.lower() == ".json":
@@ -61,13 +70,72 @@ def ordered_values(rows: list[dict[str, Any]], field: str) -> list[str]:
 
 def matrix_for(
     rows: list[dict[str, Any]], value_field: str
-) -> tuple[list[str], list[str], dict[tuple[str, str], float]]:
+) -> tuple[list[str], list[str], dict[tuple[str, str], float], dict[tuple[str, str], dict[str, Any]]]:
     models = ordered_values(rows, "model")
     cases = ordered_values(rows, "case_id")
     values = {}
+    row_map = {}
     for row in rows:
-        values[(str(row["model"]), str(row["case_id"]))] = as_float(row.get(value_field))
-    return models, cases, values
+        key = (str(row["model"]), str(row["case_id"]))
+        values[key] = as_float(row.get(value_field))
+        row_map[key] = row
+    return models, cases, values, row_map
+
+
+def flavor_ids_for_row(row: dict[str, Any]) -> list[str]:
+    flavor_order = row.get("flavor_order")
+    if isinstance(flavor_order, str) and flavor_order:
+        try:
+            parsed = json.loads(flavor_order)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, list) and all(isinstance(item, str) for item in parsed):
+            return parsed
+
+    flavor_ids = []
+    for field_name, value in row.items():
+        if not field_name.endswith("_total") or field_name in AGGREGATE_SUMMARY_FIELDS or value in (None, ""):
+            continue
+        prompt_id = field_name[: -len("_total")]
+        if f"{prompt_id}_passed" in row:
+            flavor_ids.append(prompt_id)
+    return flavor_ids
+
+
+def shared_flavor_order(rows: list[dict[str, Any]]) -> tuple[str, list[str]] | None:
+    flavor_orders = [flavor_ids_for_row(row) for row in rows]
+    flavor_orders = [order for order in flavor_orders if order]
+    if not flavor_orders:
+        return None
+    first_order = flavor_orders[0]
+    if all(order == first_order for order in flavor_orders[1:]):
+        return "Flavor order", first_order
+    return "Flavor order (summary row 1)", first_order
+
+
+def add_flavor_order_box(ax: Any, rows: list[dict[str, Any]]) -> None:
+    flavor_order_info = shared_flavor_order(rows)
+    if flavor_order_info is None:
+        return
+
+    label, flavor_order = flavor_order_info
+    lines = [label]
+    lines.extend(f"{index}. {flavor_id}" for index, flavor_id in enumerate(flavor_order, start=1))
+    ax.text(
+        0.985,
+        0.985,
+        "\n".join(lines),
+        transform=ax.transAxes,
+        ha="right",
+        va="top",
+        fontsize=9,
+        bbox={
+            "boxstyle": "round,pad=0.35",
+            "facecolor": "white",
+            "edgecolor": "#cccccc",
+            "alpha": 0.92,
+        },
+    )
 
 
 def plot_stacked(
@@ -77,8 +145,11 @@ def plot_stacked(
     title: str,
     xlabel: str,
     value_format: str,
+    legend_title: str,
+    draw_flavor_boundaries: bool = False,
+    show_flavor_order_box: bool = False,
 ) -> None:
-    models, cases, values = matrix_for(rows, value_field)
+    models, cases, values, row_map = matrix_for(rows, value_field)
     if not models or not cases:
         raise ValueError("No rows available to plot")
 
@@ -88,36 +159,69 @@ def plot_stacked(
 
     y_positions = list(range(len(models)))
     left = [0.0 for _ in models]
+    bar_height = 0.8
     for case_index, case_id in enumerate(cases):
         case_values = [values.get((model, case_id), 0.0) for model in models]
         color = DEFAULT_COLORS[case_index % len(DEFAULT_COLORS)]
         total = sum(case_values)
         nonzero = sum(1 for value in case_values if value > 0)
         label = f"{case_label(case_id)} ({value_format.format(total / nonzero) if nonzero else value_format.format(0)})"
-        ax.barh(y_positions, case_values, left=left, color=color, edgecolor="white", linewidth=0.7, label=label)
+        ax.barh(
+            y_positions,
+            case_values,
+            left=left,
+            height=bar_height,
+            color=color,
+            edgecolor="white",
+            linewidth=0.7,
+            label=label,
+        )
+        if draw_flavor_boundaries:
+            for model_index, model in enumerate(models):
+                row = row_map.get((model, case_id))
+                if row is None:
+                    continue
+                boundaries = []
+                cumulative = 0.0
+                for prompt_id in flavor_ids_for_row(row):
+                    cumulative += as_float(row.get(f"{prompt_id}_passed"))
+                    if 0 < cumulative < case_values[model_index]:
+                        boundaries.append(left[model_index] + cumulative)
+                if boundaries:
+                    y_center = y_positions[model_index]
+                    ax.vlines(
+                        boundaries,
+                        y_center - (bar_height / 2),
+                        y_center + (bar_height / 2),
+                        colors="#1f1f1f",
+                        linewidth=0.8,
+                    )
         left = [base + value for base, value in zip(left, case_values)]
 
     ax.set_yticks(y_positions)
     ax.set_yticklabels(models)
     ax.invert_yaxis()
     ax.set_xlabel(xlabel)
-    ax.set_title(title, loc="left", fontweight="bold")
+    ax.set_title(title, loc="left", fontweight="bold", pad=22)
     ax.grid(axis="x", color="#dddddd", linewidth=0.8)
     ax.set_axisbelow(True)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
+    if show_flavor_order_box:
+        add_flavor_order_box(ax, rows)
+
     legend = ax.legend(
         loc="lower center",
-        bbox_to_anchor=(0.5, 1.02),
+        bbox_to_anchor=(0.5, 1.08),
         ncol=min(3, len(cases)),
         frameon=False,
-        title="Test case (mean block value)",
+        title=legend_title,
     )
     legend._legend_box.align = "left"
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.tight_layout(rect=(0, 0, 1, 0.88))
+    fig.tight_layout(rect=(0, 0, 1, 0.84))
     fig.savefig(output_path, dpi=200)
     plt.close(fig)
 
@@ -144,8 +248,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--score-field",
-        default="pass_rate",
-        help="Summary field to plot for score blocks (default: pass_rate)",
+        default="score_passed",
+        help="Summary field to plot for score blocks (default: score_passed)",
     )
     parser.add_argument(
         "--token-field",
@@ -158,14 +262,23 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     rows = load_rows(args.summary)
+    score_value_format = "{:.2f}" if args.score_field.endswith("_rate") or args.score_field == "pass_rate" else "{:.0f}"
+    score_xlabel = (
+        "Stacked score rate across test cases"
+        if args.score_field.endswith("_rate") or args.score_field == "pass_rate"
+        else "Stacked total score across test cases"
+    )
 
     plot_stacked(
         rows=rows,
         value_field=args.score_field,
         output_path=args.score_output,
         title="MCP Tool-Call Evaluation Score By Model",
-        xlabel="Stacked pass rate across test cases",
-        value_format="{:.2f}",
+        xlabel=score_xlabel,
+        value_format=score_value_format,
+        legend_title="Test case (mean block score)",
+        draw_flavor_boundaries=True,
+        show_flavor_order_box=True,
     )
     plot_stacked(
         rows=rows,
@@ -174,6 +287,7 @@ def main() -> int:
         title="MCP Tool-Call Evaluation Token Use By Model",
         xlabel="Stacked average total tokens across test cases",
         value_format="{:.0f}",
+        legend_title="Test case (mean block value)",
     )
 
     print(f"Wrote {args.score_output}")

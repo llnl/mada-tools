@@ -24,6 +24,10 @@ The runner does not call the MCP tool. This keeps the evaluation focused on
 tool selection and argument generation, and avoids side effects such as
 creating simulation run directories.
 
+Use `--num-samples` or `-n` to repeat each prompt flavor multiple times. For
+example, a case with `direct`, `natural`, and `terse` prompts and `-n 3` has a
+maximum raw score of `9`.
+
 ## Fixture Format
 
 Fixtures are JSON files with two top-level keys:
@@ -178,6 +182,7 @@ Then run the evaluator from the repository root (this is a simplified version of
 python tests/benchmark/mcp_tool_call_eval.py \
   --cases tests/benchmark/skeleton_tool_call_eval_cases.json \
   --models gpt-5.5 gpt-5-mini gpt-4.1-mini \
+  --num-samples 3 \
   --results-csv tests/benchmark/results/se_tool_call_rows.csv \
   --results-json tests/benchmark/results/se_tool_call_rows.json \
   --summary-csv tests/benchmark/results/se_tool_call_summary.csv \
@@ -185,7 +190,8 @@ python tests/benchmark/mcp_tool_call_eval.py \
 ```
 
 The `--models` argument accepts one or more model names. Each prompt variant is
-evaluated independently for each model.
+evaluated independently for each model. `--num-samples` repeats each prompt
+flavor and adds a 1-based `sample_index` field to the detailed outputs.
 
 During a run, the evaluator prints live progress by default. It reports MCP
 server connection status, the current prompt counter, model, server, case ID,
@@ -194,11 +200,11 @@ prompt ID, result, latency, token usage, and error details.
 Example progress lines:
 
 ```text
-Evaluating 54 prompts across 3 models, 6 test cases, and 1 configured MCP servers.
+Evaluating 162 tool-call attempts across 3 models, 6 test cases, 1 configured MCP servers, and 3 sample(s) per prompt flavor.
 Connecting to MCP server 'skeleton_example' at http://localhost:8220/mcp ...
 Connected to 'skeleton_example' with 1 tools in 142ms.
-[12/54] START model=gpt-5-mini server=skeleton_example case=mixed_lhs_discrete_random_cli prompt=natural
-[12/54] FAIL latency_ms=19320 tokens=2114 error_type=arg_mismatch error=missing $.parameters.restart_args
+[12/162] START model=gpt-5-mini server=skeleton_example case=mixed_lhs_discrete_random_cli prompt=natural sample=2
+[12/162] FAIL sample=2 latency_ms=19320 tokens=2114 error_type=arg_mismatch error=missing $.parameters.restart_args
 ```
 
 Use `--quiet` to suppress live progress output:
@@ -242,69 +248,29 @@ If you want one command that creates a timestamped output directory, runs the
 evaluation, and writes the plots, use `tests/benchmark/testskeleton.sh`:
 
 ```bash
-bash tests/benchmark/testskeleton.sh
+bash tests/benchmark/testskeleton.sh -n3
 ```
 
-Its current contents are:
+The core eval invocation inside that wrapper is:
 
 ```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-cd "$(dirname "$0")"
-
-models_file="${MCP_EVAL_MODELS_FILE:-eval_models.txt}"
-if [[ ! -f "$models_file" ]]; then
-  echo "Model list file not found: $models_file" >&2
-  exit 1
-fi
-
-models=()
-while IFS= read -r line; do
-  line="${line#"${line%%[![:space:]]*}"}"
-  line="${line%"${line##*[![:space:]]}"}"
-  if [[ -z "$line" || "${line:0:1}" == "#" ]]; then
-    continue
-  fi
-  models+=("$line")
-done < "$models_file"
-
-if [[ "${#models[@]}" -eq 0 ]]; then
-  echo "No enabled models found in $models_file" >&2
-  exit 1
-fi
-
-timestamp="$(date '+%Y-%m-%d_%H-%M-%S')"
-output_dir="results/skeleton_${timestamp}"
-mkdir -p "$output_dir"
-
-eval_status=0
-python mcp_tool_call_eval.py \
+num_samples=3
+python examples/mcp_tool_call_eval.py \
   --cases skeleton_tool_call_eval_cases.json \
   --models "${models[@]}" \
+  --num-samples "$num_samples" \
   --results-csv "$output_dir/se_tool_call_rows.csv" \
   --results-json "$output_dir/se_tool_call_rows.json" \
   --summary-csv "$output_dir/se_tool_call_summary.csv" \
   --summary-json "$output_dir/se_tool_call_summary.json" \
-  --capture-raw-response || eval_status=$?
-
-if [[ -f "$output_dir/se_tool_call_summary.csv" ]]; then
-  python plot_tool_call_eval_results.py \
-    --summary "$output_dir/se_tool_call_summary.csv" \
-    --score-output "$output_dir/se_tool_call_score.png" \
-    --tokens-output "$output_dir/se_tool_call_tokens.png"
-else
-  echo "Skipping plot generation because $output_dir/se_tool_call_summary.csv was not created." >&2
-fi
-
-echo "Wrote Skeleton eval results and plots to $output_dir"
-exit "$eval_status"
+  --capture-raw-response
 ```
 
 This produces a timestamped run folder under `tests/benchmark/results/` and keeps the
 CSV, JSON, and plot outputs from the same run together. If some prompt cases
 fail, the script still generates plots from the summary CSV and then exits with
-the evaluator's original non-zero status.
+the evaluator's original non-zero status. Use `-n` or `--num-samples` with the
+wrapper script to repeat each prompt flavor.
 
 ## Example Output
 
@@ -329,13 +295,9 @@ skeleton_2026-06-23_09-37-30/
 Excerpt from `se_tool_call_summary.csv`:
 
 ```csv
-model,server,case_id,prompts_passed,prompts_total,pass_rate,all_passed,any_passed,avg_prompt_tokens,avg_completion_tokens,avg_total_tokens,avg_latency_ms
-gpt-4.1-mini,skeleton_example,continuous_lhs_with_seed,3,3,1.0,True,True,731.333,126.0,857.333,2379.667
-gpt-4.1-mini,skeleton_example,discrete_grid_material_and_mesh,1,3,0.333,False,True,702.667,109.667,812.333,1921.0
-gpt-4.1-mini,skeleton_example,executable_and_cli_args,1,3,0.333,False,True,696.333,114.0,810.333,2493.0
-gpt-4.1-mini,skeleton_example,mixed_lhs_discrete_random_cli,1,3,0.333,False,True,743.0,167.333,910.333,2740.333
-gpt-4.1-mini,skeleton_example,multiple_zip_groups_with_lhs,1,3,0.333,False,True,764.667,184.333,949.0,3703.667
-gpt-4.1-mini,skeleton_example,zip_grouped_input_files,3,3,1.0,True,True,749.0,142.333,891.333,2292.667
+model,server,case_id,num_flavors,num_samples,flavor_order,score_passed,score_total,score_rate,prompts_passed,prompts_total,pass_rate,all_passed,any_passed,direct_passed,direct_total,direct_rate,natural_passed,natural_total,natural_rate,terse_passed,terse_total,terse_rate,avg_prompt_tokens,avg_completion_tokens,avg_total_tokens,avg_latency_ms
+gpt-4.1-mini,skeleton_example,continuous_lhs_with_seed,3,1,"[""direct"", ""natural"", ""terse""]",3,3,1.0,3,3,1.0,True,True,1,1,1.0,1,1,1.0,1,1,1.0,731.333,126.0,857.333,2379.667
+gpt-4.1-mini,skeleton_example,discrete_grid_material_and_mesh,3,1,"[""direct"", ""natural"", ""terse""]",1,3,0.333,1,3,0.333,False,True,0,1,0.0,1,1,1.0,0,1,0.0,702.667,109.667,812.333,1921.0
 ```
 
 Score plot:
@@ -433,17 +395,24 @@ JSON outputs and summary outputs are written at the end of the run.
 Per-prompt CSV fields:
 
 ```text
-model,server,case_id,prompt_id,passed,error_type,error,expected_tool,actual_tool,prompt_tokens,completion_tokens,total_tokens,latency_ms
+model,server,case_id,prompt_id,sample_index,passed,error_type,error,expected_tool,actual_tool,prompt_tokens,completion_tokens,total_tokens,latency_ms
 ```
 
 Per-case summary CSV fields:
 
 ```text
-model,server,case_id,prompts_passed,prompts_total,pass_rate,all_passed,any_passed,avg_prompt_tokens,avg_completion_tokens,avg_total_tokens,avg_latency_ms
+model,server,case_id,num_flavors,num_samples,flavor_order,score_passed,score_total,score_rate,prompts_passed,prompts_total,pass_rate,all_passed,any_passed,<flavor>_passed,<flavor>_total,<flavor>_rate,avg_prompt_tokens,avg_completion_tokens,avg_total_tokens,avg_latency_ms
 ```
 
+`score_passed` and `score_total` are raw counts across all prompt-sample
+attempts. `pass_rate` is retained as a compatibility alias for the aggregate
+normalized score. `flavor_order` stores the prompt-id order for the row, and
+the per-flavor columns follow that order for example `direct_passed`,
+`natural_passed`, and `terse_passed`.
+
 Use `--min-pass-rate` to set the process exit criteria from the per-case
-summary. For example, this requires every prompt variant in each case to pass:
+summary. For example, this requires every prompt-sample attempt in each case to
+pass:
 
 ```bash
 python tests/benchmark/mcp_tool_call_eval.py \

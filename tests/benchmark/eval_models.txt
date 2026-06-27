@@ -2,11 +2,11 @@
 # for example usage.
 # One enabled model ID per line.
 # Comment out any model you want to omit from eval runs.
-anthropic.claude-3-5-sonnet-20240620-v1:0
+#anthropic.claude-3-5-sonnet-20240620-v1:0
 claude-haiku-3
 claude-sonnet-3.7
 claude-sonnet-4.5
-gpt-35-turbo
+#gpt-35-turbo
 gpt-4.1
 gpt-4.1-mini
 gpt-4.1-nano
