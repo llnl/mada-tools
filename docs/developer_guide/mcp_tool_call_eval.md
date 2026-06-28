@@ -183,6 +183,7 @@ python tests/benchmark/mcp_tool_call_eval.py \
   --cases tests/benchmark/skeleton_tool_call_eval_cases.json \
   --models gpt-5.5 gpt-5-mini gpt-4.1-mini \
   --num-samples 3 \
+  --max-concurrency 4 \
   --results-csv tests/benchmark/results/se_tool_call_rows.csv \
   --results-json tests/benchmark/results/se_tool_call_rows.json \
   --summary-csv tests/benchmark/results/se_tool_call_summary.csv \
@@ -192,6 +193,8 @@ python tests/benchmark/mcp_tool_call_eval.py \
 The `--models` argument accepts one or more model names. Each prompt variant is
 evaluated independently for each model. `--num-samples` repeats each prompt
 flavor and adds a 1-based `sample_index` field to the detailed outputs.
+`--max-concurrency` overlaps multiple API requests inside one process while
+preserving deterministic output row order.
 
 During a run, the evaluator prints live progress by default. It reports MCP
 server connection status, the current prompt counter, model, server, case ID,
@@ -200,7 +203,8 @@ prompt ID, result, latency, token usage, and error details.
 Example progress lines:
 
 ```text
-Evaluating 162 tool-call attempts across 3 models, 6 test cases, 1 configured MCP servers, and 3 sample(s) per prompt flavor.
+Evaluating 162 logical tool-call attempts across 3 models, 6 test cases, 1 configured MCP servers, and 3 sample(s) per prompt flavor.
+Executing 162 attempt(s) with max_concurrency=4.
 Connecting to MCP server 'skeleton_example' at http://localhost:8220/mcp ...
 Connected to 'skeleton_example' with 1 tools in 142ms.
 [12/162] START model=gpt-5-mini server=skeleton_example case=mixed_lhs_discrete_random_cli prompt=natural sample=2
@@ -225,6 +229,34 @@ python tests/benchmark/mcp_tool_call_eval.py \
   --results-csv tests/benchmark/results/se_tool_call_rows.csv \
   --no-final-table
 ```
+
+## Parallel and Batch Runs
+
+The evaluator already uses async I/O for the model API. With
+`--max-concurrency > 1`, it issues multiple tool-call attempts concurrently
+while buffering completions and writing rows back in the original logical order.
+
+For batch systems, the better scaling pattern is usually multiple evaluator
+processes, not a single high-concurrency process. Use sharding to divide the
+full eval matrix across allocated tasks or cores:
+
+```bash
+python examples/mcp_tool_call_eval.py \
+  --cases examples/skeleton_tool_call_eval_cases.json \
+  --models gpt-5.5 gpt-5-mini \
+  --num-samples 3 \
+  --max-concurrency 2 \
+  --shard-count 4 \
+  --shard-index 0 \
+  --results-csv shard0_rows.csv \
+  --results-json shard0_rows.json
+```
+
+Shards are assigned by deterministic logical attempt index modulo
+`--shard-count`, so shard outputs are disjoint and reproducible. Shard-local
+summary outputs and `--min-pass-rate` evaluate only that shard's subset of
+attempts. If you need full-run summaries, merge per-row outputs from all shards
+and summarize after collection.
 
 The detailed JSON output includes the prompt, expected call, parsed actual
 arguments, raw tool argument string, assistant text, raw assistant message, and

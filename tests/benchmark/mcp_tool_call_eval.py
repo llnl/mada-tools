@@ -97,6 +97,25 @@ class ExpectedCall:
     match_profile: str | None = None
 
 
+@dataclass(frozen=True)
+class EvalWorkItem:
+    ordinal: int
+    model: str
+    test_case: dict[str, Any]
+    prompt: dict[str, str]
+    sample_index: int
+
+
+@dataclass
+class CompletedWorkItem:
+    work_item: EvalWorkItem
+    row: dict[str, Any]
+    detailed_row: dict[str, Any]
+    passed: bool
+    error_type: str | None
+    error: str | None
+
+
 def expand_env_var(value: str) -> str:
     """Expand ${VAR} and ${VAR:-default} in config values."""
 
@@ -172,6 +191,27 @@ def parse_num_samples(value: str) -> int:
     return parsed
 
 
+def parse_max_concurrency(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("--max-concurrency must be at least 1")
+    return parsed
+
+
+def parse_shard_count(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("--shard-count must be at least 1")
+    return parsed
+
+
+def parse_shard_index(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("--shard-index must be at least 0")
+    return parsed
+
+
 def flavor_field_names(prompt_id: str) -> tuple[str, str, str]:
     return (f"{prompt_id}_passed", f"{prompt_id}_total", f"{prompt_id}_rate")
 
@@ -198,6 +238,21 @@ def prompt_ids_by_case(fixture: dict[str, Any]) -> dict[tuple[str, str], list[st
     for test_case in fixture["tests"]:
         mapping[(test_case["server"], test_case["id"])] = prompt_ids_for_case(test_case)
     return mapping
+
+
+def shard_label(shard_count: int, shard_index: int) -> str:
+    return f"{shard_index + 1}/{shard_count}"
+
+
+def progress_shard_suffix(shard_count: int, shard_index: int) -> str:
+    if shard_count <= 1:
+        return ""
+    return f" shard={shard_label(shard_count, shard_index)}"
+
+
+def validate_shard_args(args: argparse.Namespace) -> None:
+    if args.shard_index >= args.shard_count:
+        raise ValueError("--shard-index must be less than --shard-count")
 
 
 def expected_call_from_test_case(test_case: dict[str, Any]) -> ExpectedCall:
@@ -949,6 +1004,181 @@ def total_prompt_count(fixture: dict[str, Any], models: list[str], num_samples: 
     return len(models) * sum(len(normalize_prompts(test_case)) for test_case in fixture["tests"]) * num_samples
 
 
+def build_work_items(
+    fixture: dict[str, Any],
+    models: list[str],
+    num_samples: int,
+    shard_count: int,
+    shard_index: int,
+) -> list[EvalWorkItem]:
+    work_items = []
+    ordinal = 0
+    for model in models:
+        for test_case in fixture["tests"]:
+            prompts = normalize_prompts(test_case)
+            for prompt in prompts:
+                for sample_index in range(1, num_samples + 1):
+                    if ordinal % shard_count == shard_index:
+                        work_items.append(
+                            EvalWorkItem(
+                                ordinal=ordinal,
+                                model=model,
+                                test_case=test_case,
+                                prompt=prompt,
+                                sample_index=sample_index,
+                            )
+                        )
+                    ordinal += 1
+    return work_items
+
+
+def build_detailed_row(
+    row: dict[str, Any],
+    prompt_text: str,
+    expected_call: dict[str, Any],
+    result: ToolCallResult,
+) -> dict[str, Any]:
+    return {
+        **row,
+        "prompt": prompt_text,
+        "expected_call": expected_call,
+        "actual_arguments": result.tool_arguments,
+        "actual_arguments_raw": result.tool_arguments_raw,
+        "assistant_text": result.assistant_text,
+        "raw_message": result.raw_message,
+        "raw_tool_calls": result.raw_tool_calls,
+        "raw_response": result.raw_response,
+    }
+
+
+async def execute_work_item(
+    work_item: EvalWorkItem,
+    client: AsyncOpenAI,
+    connected_servers: dict[str, tuple[ClientSession, list[dict[str, Any]]]],
+    system_prompt: str,
+    temperature: float | None,
+    strict: bool,
+    capture_raw_response: bool,
+    semaphore: asyncio.Semaphore,
+) -> CompletedWorkItem:
+    async with semaphore:
+        _session, tools = connected_servers[work_item.test_case["server"]]
+        result = await get_tool_call(
+            client=client,
+            model=work_item.model,
+            tools=tools,
+            prompt=work_item.prompt["text"],
+            system_prompt=system_prompt,
+            temperature=temperature,
+            capture_raw_response=capture_raw_response,
+        )
+
+    passed, error_type, error = evaluate_result(work_item.test_case, result, strict)
+    row = build_row(
+        work_item.model,
+        work_item.test_case,
+        work_item.prompt,
+        work_item.sample_index,
+        result,
+        passed,
+        error_type,
+        error,
+    )
+    detailed_row = build_detailed_row(row, work_item.prompt["text"], work_item.test_case["expected_call"], result)
+    return CompletedWorkItem(
+        work_item=work_item,
+        row=row,
+        detailed_row=detailed_row,
+        passed=passed,
+        error_type=error_type,
+        error=error,
+    )
+
+
+async def execute_work_items(
+    work_items: list[EvalWorkItem],
+    client: AsyncOpenAI,
+    connected_servers: dict[str, tuple[ClientSession, list[dict[str, Any]]]],
+    system_prompt: str,
+    temperature: float | None,
+    strict: bool,
+    capture_raw_response: bool,
+    quiet: bool,
+    total_attempts: int,
+    shard_count: int,
+    shard_index: int,
+    max_concurrency: int,
+    csv_writer: csv.DictWriter | None,
+    csv_file: Any,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    rows: list[dict[str, Any]] = []
+    detailed_rows: list[dict[str, Any]] = []
+    if not work_items:
+        return rows, detailed_rows
+
+    semaphore = asyncio.Semaphore(max_concurrency)
+    shard_suffix = progress_shard_suffix(shard_count, shard_index)
+    ordered_ordinals = [work_item.ordinal for work_item in work_items]
+    buffered: dict[int, CompletedWorkItem] = {}
+    next_flush_position = 0
+    tasks = []
+
+    for work_item in work_items:
+        progress(
+            f"[{work_item.ordinal + 1}/{total_attempts}] START "
+            f"model={work_item.model} server={work_item.test_case['server']} "
+            f"case={work_item.test_case['id']} prompt={work_item.prompt['id']} "
+            f"sample={work_item.sample_index}{shard_suffix}",
+            quiet,
+        )
+        tasks.append(
+            asyncio.create_task(
+                execute_work_item(
+                    work_item=work_item,
+                    client=client,
+                    connected_servers=connected_servers,
+                    system_prompt=system_prompt,
+                    temperature=temperature,
+                    strict=strict,
+                    capture_raw_response=capture_raw_response,
+                    semaphore=semaphore,
+                )
+            )
+        )
+
+    for task in asyncio.as_completed(tasks):
+        completed = await task
+        buffered[completed.work_item.ordinal] = completed
+        while next_flush_position < len(ordered_ordinals):
+            next_ordinal = ordered_ordinals[next_flush_position]
+            buffered_item = buffered.get(next_ordinal)
+            if buffered_item is None:
+                break
+
+            rows.append(buffered_item.row)
+            detailed_rows.append(buffered_item.detailed_row)
+            if csv_writer and csv_file:
+                write_csv_row(csv_writer, buffered_item.row, ROW_FIELDS)
+                csv_file.flush()
+
+            result_label = "PASS" if buffered_item.passed else "FAIL"
+            error_detail = (
+                f" error_type={buffered_item.error_type} error={buffered_item.error}"
+                if buffered_item.error_type
+                else ""
+            )
+            progress(
+                f"[{buffered_item.work_item.ordinal + 1}/{total_attempts}] {result_label} "
+                f"sample={buffered_item.work_item.sample_index} latency_ms={buffered_item.row['latency_ms']} "
+                f"tokens={format_tokens(buffered_item.row)}{error_detail}{shard_suffix}",
+                quiet,
+            )
+            del buffered[next_ordinal]
+            next_flush_position += 1
+
+    return rows, detailed_rows
+
+
 def print_rows(rows: list[dict[str, Any]], summary_rows: list[dict[str, Any]]) -> None:
     print("\nResults")
     print("model | server | case | prompt | sample | result | tokens | latency_ms | error")
@@ -980,6 +1210,7 @@ def format_tokens(row: dict[str, Any]) -> str:
 async def run(args: argparse.Namespace) -> int:
     from openai import AsyncOpenAI
 
+    validate_shard_args(args)
     fixture = load_json(args.cases)
     config = load_config(args.config)
     system_prompt = args.system_prompt or DEFAULT_SYSTEM_PROMPT
@@ -998,16 +1229,28 @@ async def run(args: argparse.Namespace) -> int:
         raise ValueError("API key is required. Pass --api-key or set API_KEY.")
 
     client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=args.request_timeout)
-    rows: list[dict[str, Any]] = []
-    detailed_rows: list[dict[str, Any]] = []
     summary_fields = summary_fields_for_fixture(fixture)
     total_prompts = total_prompt_count(fixture, args.models, args.num_samples)
+    work_items = build_work_items(fixture, args.models, args.num_samples, args.shard_count, args.shard_index)
     progress(
-        f"Evaluating {total_prompts} tool-call attempts across {len(args.models)} models, "
+        f"Evaluating {total_prompts} logical tool-call attempts across {len(args.models)} models, "
         f"{len(fixture['tests'])} test cases, {len(fixture['mcp_servers'])} configured MCP servers, "
         f"and {args.num_samples} sample(s) per prompt flavor.",
         args.quiet,
     )
+    if args.shard_count > 1:
+        progress(
+            f"Executing shard {shard_label(args.shard_count, args.shard_index)} with {len(work_items)} attempt(s) "
+            f"and max_concurrency={args.max_concurrency}.",
+            args.quiet,
+        )
+    else:
+        progress(f"Executing {len(work_items)} attempt(s) with max_concurrency={args.max_concurrency}.", args.quiet)
+    if args.shard_count > 1 and (args.summary_csv or args.summary_json or args.min_pass_rate is not None):
+        progress(
+            "Note: shard-local summary outputs and --min-pass-rate apply only to this shard's subset of attempts.",
+            args.quiet,
+        )
 
     csv_file = None
     csv_writer = None
@@ -1022,63 +1265,31 @@ async def run(args: argparse.Namespace) -> int:
     try:
         async with AsyncExitStack() as stack:
             connected_servers = await connect_required_servers(fixture, stack, args.quiet)
-
-            current_prompt = 0
-            for model in args.models:
-                for test_case in fixture["tests"]:
-                    prompts = normalize_prompts(test_case)
-                    _session, tools = connected_servers[test_case["server"]]
-                    for prompt in prompts:
-                        for sample_index in range(1, args.num_samples + 1):
-                            current_prompt += 1
-                            progress(
-                                f"[{current_prompt}/{total_prompts}] START "
-                                f"model={model} server={test_case['server']} "
-                                f"case={test_case['id']} prompt={prompt['id']} sample={sample_index}",
-                                args.quiet,
-                            )
-                            result = await get_tool_call(
-                                client=client,
-                                model=model,
-                                tools=tools,
-                                prompt=prompt["text"],
-                                system_prompt=system_prompt,
-                                temperature=args.temperature,
-                                capture_raw_response=args.capture_raw_response,
-                            )
-                            passed, error_type, error = evaluate_result(test_case, result, args.strict)
-                            row = build_row(model, test_case, prompt, sample_index, result, passed, error_type, error)
-                            rows.append(row)
-                            detailed_rows.append(
-                                {
-                                    **row,
-                                    "prompt": prompt["text"],
-                                    "expected_call": test_case["expected_call"],
-                                    "actual_arguments": result.tool_arguments,
-                                    "actual_arguments_raw": result.tool_arguments_raw,
-                                    "assistant_text": result.assistant_text,
-                                    "raw_message": result.raw_message,
-                                    "raw_tool_calls": result.raw_tool_calls,
-                                    "raw_response": result.raw_response,
-                                }
-                            )
-                            if csv_writer and csv_file:
-                                write_csv_row(csv_writer, row, ROW_FIELDS)
-                                csv_file.flush()
-                            result_label = "PASS" if passed else "FAIL"
-                            error_detail = f" error_type={error_type} error={error}" if error_type else ""
-                            progress(
-                                f"[{current_prompt}/{total_prompts}] {result_label} "
-                                f"sample={sample_index} latency_ms={row['latency_ms']} "
-                                f"tokens={format_tokens(row)}{error_detail}",
-                                args.quiet,
-                            )
+            rows, detailed_rows = await execute_work_items(
+                work_items=work_items,
+                client=client,
+                connected_servers=connected_servers,
+                system_prompt=system_prompt,
+                temperature=args.temperature,
+                strict=args.strict,
+                capture_raw_response=args.capture_raw_response,
+                quiet=args.quiet,
+                total_attempts=total_prompts,
+                shard_count=args.shard_count,
+                shard_index=args.shard_index,
+                max_concurrency=args.max_concurrency,
+                csv_writer=csv_writer,
+                csv_file=csv_file,
+            )
     finally:
         if csv_file:
             csv_file.close()
 
     elapsed_s = round(time.perf_counter() - run_started, 3)
-    progress(f"Completed {len(rows)} tool-call attempts in {elapsed_s}s.", args.quiet)
+    progress(
+        f"Completed {len(work_items)} executed tool-call attempt(s) in {elapsed_s}s.",
+        args.quiet,
+    )
 
     summary_rows = summarize(fixture, rows, args.num_samples)
     if not args.no_final_table:
@@ -1108,11 +1319,29 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--temperature", type=float, help="Optional temperature to pass to the model")
     parser.add_argument("--request-timeout", type=float, default=120.0, help="LLM request timeout in seconds")
     parser.add_argument(
+        "--max-concurrency",
+        type=parse_max_concurrency,
+        default=1,
+        help="Maximum number of concurrent tool-call attempts per process (default: 1)",
+    )
+    parser.add_argument(
         "--num-samples",
         "-n",
         type=parse_num_samples,
         default=1,
         help="Number of tool-call samples to collect per prompt flavor (default: 1)",
+    )
+    parser.add_argument(
+        "--shard-count",
+        type=parse_shard_count,
+        default=1,
+        help="Total number of shards to split the eval matrix across (default: 1)",
+    )
+    parser.add_argument(
+        "--shard-index",
+        type=parse_shard_index,
+        default=0,
+        help="0-based shard index to execute from the sharded eval matrix (default: 0)",
     )
     parser.add_argument("--strict", action="store_true", help="Require exact argument equality")
     parser.add_argument(
