@@ -381,7 +381,7 @@ class TestGetStatuses:
         monkeypatch.setattr(executor, "execute_command", fake_execute)
 
         success, output = executor.get_statuses(
-            [Path("/tmp/study1")],
+            [Path("/") / "tmp" / "study1"],
             layout="narrow",
             disable_theme=True,
         )
@@ -391,7 +391,7 @@ class TestGetStatuses:
         assert captured["command"] == [
             "maestro",
             "status",
-            "/tmp/study1",
+            str(Path("/") / "tmp" / "study1"),
             "--disable-pager",
             "--layout",
             "narrow",
