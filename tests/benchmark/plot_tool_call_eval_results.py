@@ -13,6 +13,7 @@ from typing import Any
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/mada_mcp_matplotlib")
 
 import matplotlib.pyplot as plt  # noqa: E402
+from matplotlib.patches import Rectangle  # noqa: E402
 
 DEFAULT_COLORS = [
     "#4C78A8",
@@ -25,6 +26,15 @@ DEFAULT_COLORS = [
     "#9D755D",
     "#BAB0AC",
     "#5F9ED1",
+]
+
+FLAVOR_OUTLINE_COLORS = [
+    "#1f1f1f",
+    "#1b6ca8",
+    "#a23b1e",
+    "#2f7d32",
+    "#8a3fb0",
+    "#8c564b",
 ]
 
 AGGREGATE_SUMMARY_FIELDS = {
@@ -120,7 +130,9 @@ def add_flavor_order_box(ax: Any, rows: list[dict[str, Any]]) -> None:
 
     label, flavor_order = flavor_order_info
     lines = [label]
-    lines.extend(f"{index}. {flavor_id}" for index, flavor_id in enumerate(flavor_order, start=1))
+    for index, flavor_id in enumerate(flavor_order, start=1):
+        color = FLAVOR_OUTLINE_COLORS[(index - 1) % len(FLAVOR_OUTLINE_COLORS)]
+        lines.append(f"{index}. {flavor_id} [{color}]")
     ax.text(
         0.985,
         0.985,
@@ -136,6 +148,51 @@ def add_flavor_order_box(ax: Any, rows: list[dict[str, Any]]) -> None:
             "alpha": 0.92,
         },
     )
+
+
+def draw_flavor_outlines(
+    ax: Any,
+    row: dict[str, Any],
+    segment_left: float,
+    y_center: float,
+    bar_height: float,
+    total_value: float,
+    axis_span: float,
+) -> None:
+    cumulative = 0.0
+    marker_width = max(axis_span * 0.004, 0.06)
+    y_bottom = y_center - (bar_height / 2)
+    for flavor_index, prompt_id in enumerate(flavor_ids_for_row(row)):
+        outline_color = FLAVOR_OUTLINE_COLORS[flavor_index % len(FLAVOR_OUTLINE_COLORS)]
+        flavor_value = as_float(row.get(f"{prompt_id}_passed"))
+        flavor_left = segment_left + cumulative
+        if flavor_value > 0:
+            ax.add_patch(
+                Rectangle(
+                    (flavor_left, y_bottom),
+                    flavor_value,
+                    bar_height,
+                    fill=False,
+                    edgecolor=outline_color,
+                    linewidth=1.1,
+                    zorder=4,
+                )
+            )
+        else:
+            ax.add_patch(
+                Rectangle(
+                    (flavor_left - (marker_width / 2), y_bottom),
+                    marker_width,
+                    bar_height,
+                    fill=False,
+                    edgecolor=outline_color,
+                    linewidth=1.1,
+                    zorder=4,
+                )
+            )
+        cumulative += flavor_value
+        if cumulative > total_value:
+            break
 
 
 def plot_stacked(
@@ -158,6 +215,8 @@ def plot_stacked(
     fig, ax = plt.subplots(figsize=(fig_width, fig_height))
 
     y_positions = list(range(len(models)))
+    max_case_value = max(values.values(), default=0.0)
+    axis_span = max(1.0, max_case_value * max(1, len(cases)))
     left = [0.0 for _ in models]
     bar_height = 0.8
     for case_index, case_id in enumerate(cases):
@@ -181,21 +240,15 @@ def plot_stacked(
                 row = row_map.get((model, case_id))
                 if row is None:
                     continue
-                boundaries = []
-                cumulative = 0.0
-                for prompt_id in flavor_ids_for_row(row):
-                    cumulative += as_float(row.get(f"{prompt_id}_passed"))
-                    if 0 < cumulative < case_values[model_index]:
-                        boundaries.append(left[model_index] + cumulative)
-                if boundaries:
-                    y_center = y_positions[model_index]
-                    ax.vlines(
-                        boundaries,
-                        y_center - (bar_height / 2),
-                        y_center + (bar_height / 2),
-                        colors="#1f1f1f",
-                        linewidth=0.8,
-                    )
+                draw_flavor_outlines(
+                    ax=ax,
+                    row=row,
+                    segment_left=left[model_index],
+                    y_center=y_positions[model_index],
+                    bar_height=bar_height,
+                    total_value=case_values[model_index],
+                    axis_span=axis_span,
+                )
         left = [base + value for base, value in zip(left, case_values)]
 
     ax.set_yticks(y_positions)

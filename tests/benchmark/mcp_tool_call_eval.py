@@ -18,10 +18,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from mcp.client.session import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
-
 if TYPE_CHECKING:
+    from mcp.client.session import ClientSession
     from openai import AsyncOpenAI
 
 DEFAULT_SYSTEM_PROMPT = """You are testing MCP tool calling.
@@ -345,12 +343,24 @@ def exception_messages(exc: BaseException) -> list[str]:
     return [f"{type(exc).__name__}: {exc}"]
 
 
+def load_mcp_client_dependencies() -> tuple[type["ClientSession"], Any]:
+    try:
+        from mcp.client.session import ClientSession
+        from mcp.client.streamable_http import streamablehttp_client
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "mcp package is required for live evaluator runs that connect to MCP servers"
+        ) from exc
+    return ClientSession, streamablehttp_client
+
+
 async def connect_server(
     server_name: str,
     server_config: dict[str, Any],
     stack: AsyncExitStack,
     quiet: bool = False,
 ) -> tuple[ClientSession, list[dict[str, Any]]]:
+    client_session_cls, streamablehttp_client = load_mcp_client_dependencies()
 
     url = server_config.get("url")
     if not isinstance(url, str) or not url:
@@ -361,7 +371,7 @@ async def connect_server(
     started = time.perf_counter()
     try:
         read_stream, write_stream, _ = await stack.enter_async_context(streamablehttp_client(url))
-        session = ClientSession(read_stream, write_stream)
+        session = client_session_cls(read_stream, write_stream)
         await stack.enter_async_context(session)
         await session.initialize()
         tools_result = await session.list_tools()

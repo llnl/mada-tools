@@ -176,7 +176,10 @@ example server:
 mada-mcp-skeleton-example --transport streamable-http --host localhost --port 8220
 ```
 
-Then run the evaluator from the repository root (this is a simplified version of `examples/testskeleton.sh`):
+Then run the evaluator from the repository root. This direct Python invocation
+does not create a timestamped directory by itself; it writes to the explicit
+paths you pass on the command line. The timestamped run folders shown later are
+created by the bash wrapper scripts such as `examples/testskeleton.sh`.
 
 ```bash
 python tests/benchmark/mcp_tool_call_eval.py \
@@ -258,6 +261,31 @@ summary outputs and `--min-pass-rate` evaluate only that shard's subset of
 attempts. If you need full-run summaries, merge per-row outputs from all shards
 and summarize after collection.
 
+### Merging Shards
+
+Use `examples/merge_tool_call_eval_results.py` after all shard jobs finish to
+restore canonical row order and regenerate full-run summaries:
+
+```bash
+python examples/merge_tool_call_eval_results.py \
+  --cases examples/skeleton_tool_call_eval_cases.json \
+  --models gpt-5.5 gpt-5-mini \
+  --num-samples 3 \
+  --rows-json shard0_rows.json shard1_rows.json shard2_rows.json shard3_rows.json \
+  --merged-results-json merged_rows.json \
+  --merged-summary-csv merged_summary.csv \
+  --merged-summary-json merged_summary.json
+```
+
+JSON shard inputs are preferred because the merged JSON output preserves the
+full debugging payload from each row, including fields such as `prompt`,
+`expected_call`, `actual_arguments`, `raw_tool_calls`, and optional
+`raw_response`.
+
+CSV shard inputs can still be merged for base-row consolidation and summary
+regeneration, but they cannot reconstruct the detailed JSON-only debugging
+fields.
+
 The detailed JSON output includes the prompt, expected call, parsed actual
 arguments, raw tool argument string, assistant text, raw assistant message, and
 raw tool-call objects. This is the best artifact for inspecting why a model
@@ -286,6 +314,10 @@ bash tests/benchmark/testskeleton.sh -n3
 The core eval invocation inside that wrapper is:
 
 ```bash
+timestamp="$(date '+%Y-%m-%d_%H-%M-%S')"
+output_dir="results/skeleton_${timestamp}"
+mkdir -p "$output_dir"
+
 num_samples=3
 python examples/mcp_tool_call_eval.py \
   --cases skeleton_tool_call_eval_cases.json \
@@ -298,11 +330,11 @@ python examples/mcp_tool_call_eval.py \
   --capture-raw-response
 ```
 
-This produces a timestamped run folder under `tests/benchmark/results/` and keeps the
-CSV, JSON, and plot outputs from the same run together. If some prompt cases
-fail, the script still generates plots from the summary CSV and then exits with
-the evaluator's original non-zero status. Use `-n` or `--num-samples` with the
-wrapper script to repeat each prompt flavor.
+Those `timestamp` and `output_dir` lines are what create the timestamped run
+folder under `tests/benchmark/results/` and keep the CSV, JSON, and plot outputs from
+the same run together. The wrapper then plots the summary CSV and preserves the
+evaluator's original exit status if some prompt cases fail. Use `-n` or
+`--num-samples` with the wrapper script to repeat each prompt flavor.
 
 ## Example Output
 
