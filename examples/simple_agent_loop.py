@@ -356,7 +356,9 @@ class MultiServerAgent:
 
         self.chat_history.append(message)
 
-    async def process_query(self, query: str, chat_snapshot: List[Dict[str, Any]], task_id: str = "", max_tool_calls: int = 10) -> str:
+    async def process_query(
+        self, query: str, chat_snapshot: List[Dict[str, Any]], task_id: str = "", max_tool_calls: int = 10
+    ) -> str:
         """
         Process a query using LLM and available MADA MCP tools.
 
@@ -548,6 +550,7 @@ class MultiServerAgent:
 
         task.add_done_callback(done_callback)
         return task_id
+
 
 async def main():
     """Main function to run the multi-server agent with MADA MCP servers."""
