@@ -4,11 +4,14 @@
 """Base MCP server class for common functionality."""
 
 import argparse
+import concurrent.futures
 import json
 import logging
 import os
+import threading
 import traceback
 from abc import ABC
+from datetime import datetime
 from typing import Any, Callable, Dict, Optional
 
 from fastmcp import FastMCP
@@ -35,6 +38,11 @@ class BaseMCPServer(ABC):
         self.mcp = None
         # OAuth configuration (set during run_with_args)
         self.oauth_enabled = False
+        self._tool_executor = concurrent.futures.ThreadPoolExecutor(
+            thread_name_prefix=f"{server_name.lower().replace(' ', '-')}-tool"
+        )
+        self._tool_task_lock = threading.Lock()
+        self._tool_task_counter = 0
 
     def get_env_var(self, var_name: str, default: Optional[str] = None, required: bool = False) -> Optional[str]:
         """
@@ -192,17 +200,56 @@ class BaseMCPServer(ABC):
 
     def run_tool(self, func: Callable, *args, **kwargs) -> Any:
         """
-        Helper function to run a tool and handle errors.
+        Start a tool in the background and return a tracking payload.
 
         Args:
             func: The function/method to execute.
 
         Returns:
-            The successful payload returned by the tool.
-
-        Raises:
-            ToolExecutionError: If the tool execution fails.
+            A JSON task descriptor for the started background tool.
         """
+        task_id = self._next_tool_task_id()
+        tool_name = getattr(func, "__name__", repr(func))
+        submitted_at = self._utc_now()
+        future = self._tool_executor.submit(self._execute_tool, func, *args, **kwargs)
+        future.add_done_callback(
+            lambda done_future, tracked_task_id=task_id, tracked_tool_name=tool_name: self._log_background_completion(
+                tracked_task_id,
+                tracked_tool_name,
+                done_future,
+            )
+        )
+        return json.dumps(
+            {
+                "task_id": task_id,
+                "tool_name": tool_name,
+                "status": "running",
+                "submitted_at": submitted_at,
+                "message": "Tool started in background.",
+            },
+            indent=2,
+        )
+
+    @staticmethod
+    def _utc_now() -> str:
+        """Return a stable UTC timestamp string for tool task metadata."""
+        return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+    def _next_tool_task_id(self) -> str:
+        """Generate the next server-local tool task ID."""
+        with self._tool_task_lock:
+            self._tool_task_counter += 1
+            return f"tool-task-{self._tool_task_counter}"
+
+    def _log_background_completion(self, task_id: str, tool_name: str, future: concurrent.futures.Future) -> None:
+        """Log failures from detached background tool execution."""
+        try:
+            future.result()
+        except Exception as e:
+            LOG.error("Background tool %s (%s) failed: %s", tool_name, task_id, e)
+
+    def _execute_tool(self, func: Callable, *args, **kwargs) -> Any:
+        """Execute one tool function and normalize `(success, payload)` results."""
         try:
             success, payload = func(*args, **kwargs)
             if success:
