@@ -1192,7 +1192,7 @@ def test_start_server_starts_new_process_and_registers(
     assert cmd[1] == "-m"
     assert cmd[2] == "pkg.server"
     assert "--config" in cmd
-    assert config_file.as_posix() in cmd
+    assert str(config_file) in cmd
 
     # Environment should include our env_vars
     env = kwargs["env"]
