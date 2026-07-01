@@ -13,7 +13,6 @@ config-based operations (start, restart) and state-only operations
 (stop, status).
 """
 
-import importlib
 import json
 import logging
 import os
@@ -25,10 +24,10 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import psutil
-from rich import box
 from rich.console import Console
 from rich.table import Table
 
+from mada_tools.extensions.registry import ExtensionRegistry
 from mada_tools.server_management import ServerInfo, ServerStatus
 from mada_tools.server_management.state_manager import ServerStateManager
 from mada_tools.shared import PortInUseError
@@ -52,12 +51,10 @@ class ServerManager:
     Attributes:
         state_manager (ServerStateManager):
             Manager responsible for persisting and validating server runtime state.
+        _extension_registry (ExtensionRegistry):
+            Registry used to resolve available MCP server registrations.
 
     Methods:
-        get_available_servers:
-            Retrieve the available MCP servers.
-        print_available_servers:
-            Retrieve the available MCP servers and then print them to the console.
         start_servers:
             Start all or a subset of configured servers.
         start_server:
@@ -84,111 +81,8 @@ class ServerManager:
             state_file (Optional[Path]): Optional path to state file for ServerStateManager.
         """
         self.state_manager = ServerStateManager(state_file=state_file)
+        self._extension_registry = ExtensionRegistry()
         LOG.debug("ServerManager initialized")
-
-    def _discover_servers(self) -> Dict[str, Dict[str, str]]:
-        """
-        Discover all available MCP servers.
-
-        Primary mechanism: Python entry points group 'mada_tools.servers'.
-        Fallback: scan built-in mada_tools package for server.py modules.
-
-        Returns:
-            Dict mapping server names to module paths and packages.
-        """
-        discovered: Dict[str, Dict[str, str]] = {}
-
-        # Discover via entry points (built-ins if registered, plus plugins)
-        discovered.update(self._discover_servers_from_entry_points(existing=discovered))
-
-        return discovered
-
-    def _validate_server_module(self, server_name: str, module_path: str) -> bool:
-        """
-        Validate that a module can be imported and exposes callable main().
-
-        Args:
-            server_name (str):
-                The name of the server to validate.
-            module_path (str):
-                The path to the module within its package.
-
-        Returns:
-            True if valid, False otherwise.
-        """
-        try:
-            mod = importlib.import_module(module_path)
-        except Exception as e:
-            LOG.warning(f"Could not import server module for '{server_name}' from '{module_path}': {e}")
-            return False
-
-        if not hasattr(mod, "main") or not callable(getattr(mod, "main")):
-            LOG.warning(f"Server module '{module_path}' for '{server_name}' does not expose callable main()")
-            return False
-
-        return True
-
-    def _discover_servers_from_entry_points(
-        self,
-        existing: Optional[Dict[str, Dict[str, str]]] = None,
-    ) -> Dict[str, Dict[str, str]]:
-        """
-        Discover server modules registered via Python entry points.
-
-        The entry point group that's being pulled from is 'mada_tools.servers'.
-        Each entry point name becomes the server name, and its value is a module path.
-        Example:
-            [project.entry-points."mada_tools.servers"]
-            myserver = "my_pkg.somewhere.server"
-
-        Args:
-            existing (Optional[Dict[str, str]]):
-                Previously discovered MCP servers.
-
-        Returns:
-            Dict mapping server names to module paths and packages.
-        """
-        existing = existing or {}
-        found: Dict[str, Dict[str, str]] = {}
-
-        try:
-            from importlib.metadata import entry_points
-        except Exception:
-            from importlib_metadata import entry_points  # type: ignore
-
-        try:
-            eps = entry_points()
-            group = "mada_tools.servers"
-            candidates = eps.select(group=group) if hasattr(eps, "select") else eps.get(group, [])
-        except Exception as e:
-            LOG.warning(f"Failed to read entry points: {e}")
-            return found
-
-        for ep in candidates:
-            server_name = ep.name
-            module_path = ep.value.split(":")[0].strip()
-
-            if server_name in existing or server_name in found:
-                LOG.warning(
-                    f"Plugin server name collision for '{server_name}', already discovered. "
-                    f"Skipping plugin entry point '{ep.value}'."
-                )
-                continue
-
-            if not self._validate_server_module(server_name, module_path):
-                continue
-
-            # Best-effort provider package
-            provider = getattr(ep, "dist", None)
-            provider_name = getattr(provider, "name", None) or "unknown"
-
-            found[server_name] = {
-                "module_path": module_path,
-                "package": provider_name,
-            }
-            LOG.debug(f"Discovered plugin server '{server_name}' at {module_path} from {provider_name}")
-
-        return found
 
     def _load_servers(self, config_file: Path) -> Dict[str, ServerInfo]:
         """
@@ -199,6 +93,10 @@ class ServerManager:
 
         Returns:
             A dictionary mapping server names to `ServerInfo` instances.
+
+        Raises:
+            FileNotFoundError:
+                Raised when the provided configuration path does not exist.
         """
         if not config_file.exists():
             raise FileNotFoundError(f"Config file not found: {config_file}")
@@ -206,7 +104,7 @@ class ServerManager:
         config = json.loads(config_file.read_text())
 
         # Discover all available server entry points
-        available_servers = self._discover_servers()
+        available_servers = self._extension_registry.get_mcp_server_index()
 
         servers = {}
         server_configs = config.get("servers", {})
@@ -219,8 +117,7 @@ class ServerManager:
             if name not in available_servers:
                 LOG.warning(f"Server '{name}' not found in discovered servers, skipping")
                 continue
-            server_module = available_servers[name]["module_path"]
-            server_package = available_servers[name]["package"]
+            registration = available_servers[name]
 
             # Get optional fields with defaults
             log_file = server_config.get("log_file")
@@ -238,8 +135,8 @@ class ServerManager:
                 # Use the state manager's info which has current PID, status, etc.
                 server_info = running_servers[name]
                 # Update with any config changes
-                server_info.package = server_package
-                server_info.module_path = server_module
+                server_info.package = registration.package
+                server_info.module_path = registration.module_path
                 server_info.log_file = log_file
                 server_info.env_vars = env_vars
                 server_info.host = host
@@ -249,8 +146,8 @@ class ServerManager:
                 # Create new ServerInfo instance
                 server_info = ServerInfo(
                     name=name,
-                    package=server_package,
-                    module_path=server_module,
+                    package=registration.package,
+                    module_path=registration.module_path,
                     log_file=log_file,
                     env_vars=env_vars,
                     host=host,
@@ -262,65 +159,6 @@ class ServerManager:
 
         return servers
 
-    def get_available_servers(self) -> Dict[str, str]:
-        """
-        Discover built-in and plugin servers for MADA and return the results.
-
-        Returns:
-            A dictionary containing available servers in MADA.
-        """
-        return self._discover_servers()
-
-    def print_available_servers(self):
-        """
-        Retrieve the available servers in MADA and print them in table
-        format to the console using the Rich library.
-        """
-        available = self.get_available_servers()
-
-        if not available:
-            print("\nNo available servers found.")
-            return
-
-        console = Console()
-
-        # Build sorted rows by package then server name
-        rows = []
-        for name, info in available.items():
-            info = info or {}
-            pkg = info.get("package") or "N/A"
-            module_path = info.get("module_path") or "N/A"
-            rows.append((pkg, name, module_path))
-        rows.sort(key=lambda r: (r[0].lower(), r[1].lower()))
-
-        table = Table(
-            title="Available MCP Servers",
-            show_header=True,
-            header_style="bold magenta",
-            box=box.SIMPLE_HEAVY,
-        )
-
-        # Add columns
-        table.add_column("Provider Package", no_wrap=True)
-        table.add_column("Server", style="cyan", no_wrap=True)
-        table.add_column("Module Path")
-
-        # Alternate style by package group
-        style_cycle = ["", "dim"]
-        current_pkg = None
-        pkg_index = -1
-
-        # Add rows
-        for pkg, name, module_path in rows:
-            if pkg != current_pkg:
-                current_pkg = pkg
-                pkg_index += 1
-
-            row_style = style_cycle[pkg_index % len(style_cycle)]
-            table.add_row(pkg, name, module_path, style=row_style)
-
-        console.print(table)
-
     def start_servers(self, config_file: Path, server_names: Optional[List[str]] = None):
         """
         Start specified MCP servers or all servers if none specified.
@@ -328,6 +166,11 @@ class ServerManager:
         Args:
             config_file: Path to the JSON configuration file defining servers
             server_names: Optional list of server names to start. If None, starts all.
+
+        Raises:
+            ValueError:
+                Raised when a requested server name is not present in the
+                resolved configuration.
         """
         # Load servers from config
         servers = self._load_servers(config_file)
