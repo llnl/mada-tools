@@ -2,7 +2,7 @@
   "servers": {
     "flux": {
       "host": "localhost",
-      "port": 8531,
+      "port": 8101,
       "transport": "streamable-http",
       "env_vars": {
         "FLUX_HANDLE": "default",
@@ -12,7 +12,7 @@
     },
     "vertex_cfd": {
       "host": "localhost",
-      "port": 8532,
+      "port": 8107,
       "transport": "streamable-http",
       "env_vars": {
         "VERTEX_CFD_PATH": "/usr/workspace/mada/vertex-cfd/tuo/vertexcfd-installation/",

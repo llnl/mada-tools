@@ -17,6 +17,7 @@ Configuration:
 """
 
 import asyncio
+import copy
 import json
 import logging
 import os
@@ -128,12 +129,16 @@ class MultiServerAgent:
         )
 
         # Initialize state
-        self.messages: List[Dict[str, Any]] = []
+        self.chat_history: List[Dict[str, Any]] = []
         self.tools: List[Tool] = []
         self.model = model_config["model"]
         self._base_context_messages: list[dict] = []
         self.sessions: Dict[str, ClientSession] = {}
         self.transports: Dict[str, Any] = {}
+
+        self.pending_tasks: Dict[str, asyncio.Task] = {}
+        self.task_counter = 0
+        self.task_results: Dict[str, str] = {}
 
         # Load static context once at startup
         if context_file:
@@ -304,6 +309,19 @@ class MultiServerAgent:
             return f"Error executing {tool_name}: {str(e)}"
 
     @staticmethod
+    def _extract_tool_task(tool_output: str) -> Dict[str, Any] | None:
+        """Parse a JSON tool-task payload when present."""
+        try:
+            payload = json.loads(tool_output)
+        except (TypeError, json.JSONDecodeError):
+            return None
+
+        task_id = payload.get("task_id")
+        if isinstance(task_id, str) and task_id.startswith("tool-task-"):
+            return payload
+        return None
+
+    @staticmethod
     def _stringify_content(content: Any) -> str:
         """Normalize message content so conversation history never stores null."""
         if content is None:
@@ -336,67 +354,95 @@ class MultiServerAgent:
             if tool_call_id:
                 message["tool_call_id"] = tool_call_id
 
-        self.messages.append(message)
+        self.chat_history.append(message)
 
-    async def process_query(self, query: str, max_tool_calls: int = 10) -> str:
+    async def process_query(self, query: str, chat_snapshot: List[Dict[str, Any]], task_id: str = "", max_tool_calls: int = 10) -> str:
         """
         Process a query using LLM and available MADA MCP tools.
 
         Args:
             query: The user query.
+            task_id: Background task id for logging.
             max_tool_calls: Maximum number of LLM/tool-call rounds before aborting.
 
         Returns:
             The response from LLM.
         """
-        self.add_message("user", query)
+        messages: List[Dict[str, Any]] = list(self._base_context_messages) + list(chat_snapshot)
+        messages.append({"role": "user", "content": query})
 
-        # Convert tools to OpenAI format
         openai_tools = [tool.to_openai_format() for tool in self.tools]
 
         for step in range(max_tool_calls):
-            messages_for_call: List[Dict[str, Any]] = list(self._base_context_messages) + list(self.messages)
-
             try:
-                LOGGER.info(f"Making API call to {self.client.base_url} with model {self.model}")
+                LOGGER.info(f"[{task_id}] Making API call to {self.client.base_url} with model {self.model}\n\n")
                 response = await self.client.chat.completions.create(
                     model=self.model,
-                    messages=messages_for_call,
+                    messages=messages,
                     tools=openai_tools,
                     tool_choice="auto",
                 )
             except Exception as e:
-                LOGGER.error(f"Error Details: {type(e).__name__}: {e}")
+                LOGGER.error(f"[{task_id}] Error Details: {type(e).__name__}: {e}")
                 return f"Error calling LLM: {e}"
 
             assistant_message = response.choices[0].message
             tool_calls = assistant_message.tool_calls or []
 
             if tool_calls:
-                self.add_message(
-                    "assistant",
-                    content=assistant_message.content,
-                    tool_calls=[tc.dict() for tc in tool_calls],
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": assistant_message.content or "",
+                        "tool_calls": [tc.model_dump() for tc in tool_calls],
+                    }
                 )
 
+                started_tasks: List[Dict[str, str]] = []
                 for tool_call in tool_calls:
-                    LOGGER.info(f"\nExecuting tool: {tool_call.function.name}")
-                    result = await self._execute_tool(
-                        tool_name=tool_call.function.name,
-                        tool_input=json.loads(tool_call.function.arguments),
+                    tool_args = json.loads(tool_call.function.arguments)
+                    LOGGER.info(f"[{task_id}] Executing tool: {tool_call.function.name}")
+                    tool_result = await self._execute_tool(
+                        tool_call.function.name,
+                        tool_args,
                     )
-                    self.add_message("tool", content=result, tool_call_id=tool_call.id)
+                    tool_task = self._extract_tool_task(tool_result)
+                    if tool_task and tool_task.get("status") in {"queued", "running"}:
+                        started_tasks.append(
+                            {
+                                "tool_name": tool_call.function.name,
+                                "task_id": tool_task["task_id"],
+                                "status": str(tool_task["status"]),
+                            }
+                        )
+
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "content": tool_result,
+                            "tool_call_id": tool_call.id,
+                        }
+                    )
+
+                if started_tasks:
+                    lines = ["Started background tool tasks:"]
+                    for started_task in started_tasks:
+                        lines.append(
+                            f"- {started_task['tool_name']}: {started_task['task_id']} ({started_task['status']})"
+                        )
+                    lines.append("This query will not wait for completion.")
+                    return "\n".join(lines)
 
                 continue
 
             final_content = self._stringify_content(assistant_message.content)
-            self.add_message("assistant", content=final_content)
+            messages.append({"role": "assistant", "content": final_content})
             return final_content
 
         max_tool_calls_message = (
             f"Agent stopped after reaching max_tool_calls={max_tool_calls} without producing a final response."
         )
-        LOGGER.warning(max_tool_calls_message)
+        LOGGER.warning(f"[{task_id}] {max_tool_calls_message}")
         return max_tool_calls_message
 
     async def chat_loop(self):
@@ -458,19 +504,14 @@ class MultiServerAgent:
                     if not query.strip():
                         continue
 
+                    if query.strip().lower() == "tasks":
+                        LOGGER.info(f"Pending tasks: {list(self.pending_tasks.keys())}")
+                        LOGGER.info(f"Completed tasks: {list(self.task_results.keys())}")
+                        continue
+
                     LOGGER.query(query)
-                    LOGGER.info("\nProcessing...")
-
-                    task = asyncio.create_task(self.process_query(query))
-                    state["running_task"] = task
-
-                    try:
-                        response = await task
-                        LOGGER.info(f"\nResponse:\n{response}")
-                    except asyncio.CancelledError:
-                        LOGGER.info("\nQuery was canceled by user.")
-                    finally:
-                        state["running_task"] = None
+                    task_id = self.submit_query(query)
+                    LOGGER.info(f"\n[{task_id}] Started in background")
 
                 except KeyboardInterrupt:
                     LOGGER.info("\nGoodbye!")
@@ -483,6 +524,30 @@ class MultiServerAgent:
         finally:
             signal.signal(signal.SIGINT, old_handler)
 
+    def submit_query(self, query: str) -> str:
+        self.task_counter += 1
+        task_id = f"task-{self.task_counter}"
+
+        snapshot = copy.deepcopy(self.chat_history)
+
+        task = asyncio.create_task(self.process_query(query, snapshot, task_id=task_id))
+        self.pending_tasks[task_id] = task
+
+        def done_callback(t: asyncio.Task):
+            try:
+                result = t.result()
+                self.task_results[task_id] = result
+                self.chat_history.append({"role": "user", "content": query})
+                self.chat_history.append({"role": "assistant", "content": result})
+                LOGGER.info(f"\n[{task_id}] Completed:\n{result}")
+            except Exception as e:
+                self.task_results[task_id] = f"Error: {e}"
+                LOGGER.error(f"\n[{task_id}] Failed: {e}")
+            finally:
+                self.pending_tasks.pop(task_id, None)
+
+        task.add_done_callback(done_callback)
+        return task_id
 
 async def main():
     """Main function to run the multi-server agent with MADA MCP servers."""

@@ -24,6 +24,14 @@ class FastMCPStub:
     def __init__(self, **kwargs):
         self.init_kwargs = kwargs
         self.run_calls = []
+        self.tools = []
+
+    def tool(self):
+        def decorator(func):
+            self.tools.append(func)
+            return func
+
+        return decorator
 
     def run(self, **kwargs):
         self.run_calls.append(kwargs)
@@ -738,3 +746,41 @@ class TestRunWithArgs:
 
         with pytest.raises(ValueError, match=r"Unsupported transport: weird"):
             server.run_with_args("srv")
+
+
+class TestRunTool:
+    """Unit tests for the always-background `BaseMCPServer.run_tool()`."""
+
+    def test_run_tool_background_starts_job_and_tracks_result(self, server: BaseMCPServer):
+        """It returns a job descriptor immediately for a background tool."""
+
+        def succeed():
+            return True, "background-done"
+
+        started = json.loads(server.run_tool(succeed))
+        assert started["job_id"].startswith("tool-job-")
+        assert started["tool_name"] == "succeed"
+        assert started["status"] == "running"
+        assert started["message"] == "Tool started in background."
+
+    def test_run_tool_background_tracks_failure(self, server: BaseMCPServer):
+        """It still returns a background job descriptor when the tool will fail."""
+
+        def fail():
+            return False, "background-boom"
+
+        started = json.loads(server.run_tool(fail))
+        assert started["job_id"].startswith("tool-job-")
+        assert started["tool_name"] == "fail"
+        assert started["status"] == "running"
+
+    def test_run_tool_background_tracks_unexpected_exception(self, server: BaseMCPServer):
+        """It still returns a background job descriptor when the tool will raise."""
+
+        def explode():
+            raise RuntimeError("kaboom")
+
+        started = json.loads(server.run_tool(explode))
+        assert started["job_id"].startswith("tool-job-")
+        assert started["tool_name"] == "explode"
+        assert started["status"] == "running"
