@@ -16,6 +16,7 @@ from typing import Dict
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
 
+from mada_tools.extensions.manifest import MCPServerRegistration
 from mada_tools.server_management import ServerInfo, ServerStatus
 from mada_tools.server_management.server_manager import ServerManager
 from mada_tools.server_management.state_manager import ServerStateManager
@@ -118,29 +119,23 @@ class DummyPsutilProcess:
 
 
 @pytest.fixture
-def discovered_servers() -> Dict[str, Dict[str, str]]:
+def discovered_servers() -> Dict[str, MCPServerRegistration]:
     """
     Provide a fake discovered server registry.
 
     Returns:
-        dict: Server discovery metadata keyed by server name.
+        dict: Server registrations keyed by server name.
     """
     return {
-        "alpha": {
-            "module_path": "fake_pkg.alpha.server",
-            "package": "fake_pkg",
-        },
-        "beta": {
-            "module_path": "fake_pkg.beta.server",
-            "package": "fake_pkg",
-        },
+        "alpha": MCPServerRegistration("alpha", "fake_pkg.alpha.server", "fake_pkg"),
+        "beta": MCPServerRegistration("beta", "fake_pkg.beta.server", "fake_pkg"),
     }
 
 
 def test_load_servers_merges_config_with_discovered_servers_and_state(
     state_file: Path,
     config_file: Path,
-    discovered_servers: Dict[str, Dict[str, str]],
+    discovered_servers: Dict[str, MCPServerRegistration],
     monkeypatch: MonkeyPatch,
 ):
     """
@@ -169,7 +164,7 @@ def test_load_servers_merges_config_with_discovered_servers_and_state(
         status=ServerStatus.RUNNING,
     )
 
-    monkeypatch.setattr(manager, "_discover_servers", lambda: discovered_servers)
+    monkeypatch.setattr(manager._extension_registry, "get_mcp_server_index", lambda: discovered_servers)
     monkeypatch.setattr(
         manager.state_manager,
         "get_running_servers",
@@ -196,7 +191,7 @@ def test_load_servers_merges_config_with_discovered_servers_and_state(
 def test_start_server_registers_state_and_marks_running_when_port_becomes_healthy(
     state_file: Path,
     config_file: Path,
-    discovered_servers: Dict[str, Dict[str, str]],
+    discovered_servers: Dict[str, MCPServerRegistration],
     monkeypatch: MonkeyPatch,
 ):
     """
@@ -215,7 +210,7 @@ def test_start_server_registers_state_and_marks_running_when_port_becomes_health
     """
     manager = ServerManager(state_file=state_file)
 
-    monkeypatch.setattr(manager, "_discover_servers", lambda: discovered_servers)
+    monkeypatch.setattr(manager._extension_registry, "get_mcp_server_index", lambda: discovered_servers)
     monkeypatch.setattr(manager.state_manager, "get_running_servers", lambda validate=True: {})
 
     servers = manager._load_servers(config_file)
@@ -266,7 +261,7 @@ def test_start_server_registers_state_and_marks_running_when_port_becomes_health
 def test_start_server_marks_failed_if_process_exits_immediately(
     state_file: Path,
     config_file: Path,
-    discovered_servers: Dict[str, Dict[str, str]],
+    discovered_servers: Dict[str, MCPServerRegistration],
     monkeypatch: MonkeyPatch,
 ):
     """
@@ -285,7 +280,7 @@ def test_start_server_marks_failed_if_process_exits_immediately(
     """
     manager = ServerManager(state_file=state_file)
 
-    monkeypatch.setattr(manager, "_discover_servers", lambda: discovered_servers)
+    monkeypatch.setattr(manager._extension_registry, "get_mcp_server_index", lambda: discovered_servers)
     monkeypatch.setattr(manager.state_manager, "get_running_servers", lambda validate=True: {})
     monkeypatch.setattr(manager.state_manager, "_is_port_in_use", lambda host, port: False)
     monkeypatch.setattr("time.sleep", lambda _: None)
@@ -306,7 +301,7 @@ def test_start_server_marks_failed_if_process_exits_immediately(
 def test_start_server_raises_port_in_use_error_before_launch(
     state_file: Path,
     config_file: Path,
-    discovered_servers: Dict[str, Dict[str, str]],
+    discovered_servers: Dict[str, MCPServerRegistration],
     monkeypatch: MonkeyPatch,
 ):
     """
@@ -325,7 +320,7 @@ def test_start_server_raises_port_in_use_error_before_launch(
     """
     manager = ServerManager(state_file=state_file)
 
-    monkeypatch.setattr(manager, "_discover_servers", lambda: discovered_servers)
+    monkeypatch.setattr(manager._extension_registry, "get_mcp_server_index", lambda: discovered_servers)
     monkeypatch.setattr(manager.state_manager, "get_running_servers", lambda validate=True: {})
     monkeypatch.setattr(manager.state_manager, "_is_port_in_use", lambda host, port: True)
 
@@ -379,7 +374,7 @@ def test_stop_server_removes_server_from_state_after_graceful_shutdown(
 def test_restart_server_stops_existing_process_and_starts_fresh(
     state_file: Path,
     config_file: Path,
-    discovered_servers: Dict[str, Dict[str, str]],
+    discovered_servers: Dict[str, MCPServerRegistration],
     monkeypatch: MonkeyPatch,
 ):
     """
@@ -409,7 +404,7 @@ def test_restart_server_stops_existing_process_and_starts_fresh(
     )
     manager.state_manager.register_server(existing, {})
 
-    monkeypatch.setattr(manager, "_discover_servers", lambda: discovered_servers)
+    monkeypatch.setattr(manager._extension_registry, "get_mcp_server_index", lambda: discovered_servers)
     monkeypatch.setattr(
         manager.state_manager,
         "get_running_servers",
@@ -451,7 +446,7 @@ def test_restart_server_stops_existing_process_and_starts_fresh(
 def test_get_server_statuses_with_config_includes_stopped_servers_from_config(
     state_file: Path,
     config_file: Path,
-    discovered_servers: Dict[str, Dict[str, str]],
+    discovered_servers: Dict[str, MCPServerRegistration],
     monkeypatch: MonkeyPatch,
 ):
     """
@@ -480,7 +475,7 @@ def test_get_server_statuses_with_config_includes_stopped_servers_from_config(
         status=ServerStatus.RUNNING,
     )
 
-    monkeypatch.setattr(manager, "_discover_servers", lambda: discovered_servers)
+    monkeypatch.setattr(manager._extension_registry, "get_mcp_server_index", lambda: discovered_servers)
     monkeypatch.setattr(
         manager.state_manager,
         "get_running_servers",
