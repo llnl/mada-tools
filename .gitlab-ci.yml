@@ -1,0 +1,203 @@
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+
+stages:
+  - test
+  - deploy
+
+
+###################################
+##### Global CI template jobs #####
+###################################
+
+.python_matrix:
+  parallel:
+    matrix:
+      - PYTHON_IMAGE:
+          - python:3.11
+          - python:3.12
+          - python:3.13
+          - python:3.14
+
+
+.on_cz:
+  tags:
+    - shell
+    - tuolumne
+  rules:
+    - if: $SOURCE_ZONE == "CZ"
+
+
+.on_rz:
+  tags:
+    - shell
+    - rzadams
+  rules:
+    - if: $SOURCE_ZONE == "RZ"
+
+
+.on_scf:
+  tags:
+    - shell
+    - tenaya
+  rules:
+    - if: $SOURCE_ZONE == "SCF"
+
+
+.retry_settings:
+  retry:
+    max: 2
+    when: runner_system_failure
+    exit_codes: 2
+
+
+.install_mada_tools:
+  image: $PYTHON_IMAGE
+  before_script:
+    - python --version
+    - pip install --upgrade pip
+    - pip install -e '.[tests, docs, examples]'
+
+.install_mada_tools_runner:
+  before_script:
+    - python3 --version
+    - python3 -m venv venv
+    - source venv/bin/activate
+    - pip install --upgrade pip
+    - pip install -e '.[tests, flux, examples]'
+
+##########################################
+##### Test definitions via job files #####
+##########################################
+
+include:
+  - project: 'lc-templates/id_tokens'
+    file: 'id_tokens.yml'
+
+  ######################################
+  ##### Documentation-related jobs #####
+  ######################################
+
+  - local: .gitlab/pages-job.yml
+    inputs:
+      zone_extends:
+        - .on_cz
+    rules:
+      - if: '$SOURCE_ZONE == "CZ"'
+
+  - local: .gitlab/pages-job.yml
+    inputs:
+      zone_extends:
+        - .on_rz
+    rules:
+      - if: '$SOURCE_ZONE == "RZ"'
+
+  - local: .gitlab/pages-job.yml
+    inputs:
+      zone_extends:
+        - .on_scf
+    rules:
+      - if: '$SOURCE_ZONE == "SCF"'
+
+  ##################################
+  ##### Pre-commit/linter jobs #####
+  ##################################
+
+  - local: .gitlab/pre-commit-job.yml
+    inputs:
+      zone_extends:
+        - .on_cz
+    rules:
+      - if: '$SOURCE_ZONE == "CZ"'
+
+  - local: .gitlab/pre-commit-job.yml
+    inputs:
+      zone_extends:
+        - .on_rz
+    rules:
+      - if: '$SOURCE_ZONE == "RZ"'
+
+  - local: .gitlab/pre-commit-job.yml
+    inputs:
+      zone_extends:
+        - .on_scf
+    rules:
+      - if: '$SOURCE_ZONE == "SCF"'
+
+  ######################
+  ##### Unit tests #####
+  ######################
+
+  - local: .gitlab/unit-tests-job.yml
+    inputs:
+      zone_extends:
+        - .on_cz
+    rules:
+      - if: '$SOURCE_ZONE == "CZ"'
+
+  - local: .gitlab/unit-tests-job.yml
+    inputs:
+      zone_extends:
+        - .on_rz
+    rules:
+      - if: '$SOURCE_ZONE == "RZ"'
+
+  - local: .gitlab/unit-tests-job.yml
+    inputs:
+      zone_extends:
+        - .on_scf
+    rules:
+      - if: '$SOURCE_ZONE == "SCF"'
+
+  #############################
+  ##### Integration tests #####
+  #############################
+
+  - local: .gitlab/integration-tests-job.yml
+    inputs:
+      zone_extends:
+        - .on_cz
+    rules:
+      - if: '$SOURCE_ZONE == "CZ"'
+
+  - local: .gitlab/integration-tests-job.yml
+    inputs:
+      zone_extends:
+        - .on_rz
+    rules:
+      - if: '$SOURCE_ZONE == "RZ"'
+
+  - local: .gitlab/integration-tests-job.yml
+    inputs:
+      zone_extends:
+        - .on_scf
+    rules:
+      - if: '$SOURCE_ZONE == "SCF"'
+
+  ############################
+  ##### End-to-end tests #####
+  ############################
+
+  - local: .gitlab/e2e-tests-job.yml
+    inputs:
+      zone_extends:
+        - .on_cz
+    rules:
+      - if: '$SOURCE_ZONE == "CZ"'
+
+  - local: .gitlab/e2e-tests-job.yml
+    inputs:
+      zone_extends:
+        - .on_rz
+    rules:
+      - if: '$SOURCE_ZONE == "RZ"'
+
+  - local: .gitlab/e2e-tests-job.yml
+    inputs:
+      zone_extends:
+        - .on_scf
+    rules:
+      - if: '$SOURCE_ZONE == "SCF"'
