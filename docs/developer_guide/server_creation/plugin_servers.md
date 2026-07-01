@@ -1,6 +1,13 @@
 # Creating Plugin MCP Servers
 
-Plugin MCP servers are useful for several reasons, including:
+!!! note
+
+    The preferred registration mechanism for new external packages is now the
+    [extension manifest workflow](./extensions.md). The legacy
+    `[project.entry-points."mada_tools.servers"]` registration described on
+    this page is still supported for compatibility.
+
+Legacy plugin MCP servers are useful for several reasons, including:
 
 - **Version control**, you can pin server behavior to a specific release
 - **Security**, you can restrict execution to audited code paths and controlled dependencies
@@ -36,6 +43,13 @@ Next, create your server class. Below is a template class that you can start fro
 from mada_tools import BaseMCPServer
 
 
+class TemplateHelper:
+    def custom_tool(self, text: str) -> tuple[bool, str]:
+        if not text:
+            return False, "text must not be empty"
+        return True, text.upper()
+
+
 class TemplateServer(BaseMCPServer):
     """
     This is a template MCP server class for MADA.
@@ -50,18 +64,29 @@ class TemplateServer(BaseMCPServer):
         Constructor for the TemplateServer.
         """
         super().__init__("Template Server", "A template MCP server.")
+        self.helper = TemplateHelper()
 
     def _register_tools(self):
         """Register MCP tools."""
 
         @self.mcp.tool()
-        def custom_mcp_tool(self):
+        def custom_mcp_tool(text: str) -> str:
             """
             Each tool you create in `_register_tools()` should be decorated
             with `@self.mcp.tool()` and given a detailed docstring. Every argument
             should be documented as well.
             """
+            return self.run_tool(self.helper.custom_tool, text)
 ```
+
+This helper-plus-`run_tool()` pattern is the recommended design for plugin servers. It keeps the MCP entrypoints thin while placing the real tool logic in reusable Python classes. That is important when you want the same tool behavior to work with both MCP and Programmatic Tool Calling (PTC). For more information on PTC, see the [Anthropic Programmatic Tool Calling documentation](https://platform.claude.com/docs/en/agents-and-tools/tool-use/programmatic-tool-calling).
+
+Recommended guidance for plugin servers:
+
+- Keep tool business logic in helper classes or other plain Python callables
+- Use `BaseMCPServer.run_tool()` inside the MCP-decorated function
+- Treat the MCP-decorated function as a thin adapter layer rather than the core implementation
+- Reuse the helper directly if you later expose the same tool through PTC or another interface
 
 At the bottom of this file, create a main function that initializes and runs this server:
 

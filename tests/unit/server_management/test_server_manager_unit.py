@@ -19,6 +19,7 @@ from _pytest.logging import LogCaptureFixture
 from _pytest.monkeypatch import MonkeyPatch
 from pytest_mock import MockerFixture
 
+from mada_tools.extensions.registry import ExtensionRegistry
 from mada_tools.server_management.server_info import ServerInfo, ServerStatus
 from mada_tools.server_management.server_manager import ServerManager
 from mada_tools.shared import PortInUseError
@@ -65,8 +66,8 @@ def server_manager(mocker: MockerFixture, dummy_state_manager: type) -> ServerMa
     # Adjust to how you actually construct your class
     obj = ServerManager()
 
-    # Patch _discover_servers; default is empty, override in tests as needed
-    mocker.patch.object(obj, "_discover_servers", return_value={})
+    # Patch registry-backed discovery; default is empty, override in tests as needed
+    mocker.patch.object(obj._extension_registry, "get_mcp_server_index", return_value={})
 
     # Default state manager has no running servers, override in tests as needed
     obj.state_manager = dummy_state_manager(running_servers={})
@@ -130,396 +131,39 @@ def test_server_manager_constructor_default_state_file():
 
 
 # ---------------------------------------------
-# ---------- _discover_servers tests ----------
+# ---------- Discovery wiring tests ----------
 # ---------------------------------------------
 
 
-def test_discover_servers_success(monkeypatch: MonkeyPatch):
-    """
-    Verify that _discover_servers runs properly.
+def test_server_manager_constructor_initializes_extension_registry():
+    """Verify that `ServerManager` creates an `ExtensionRegistry` instance."""
+    with patch("mada_tools.server_management.server_manager.ServerStateManager"):
+        manager = ServerManager()
 
-    Args:
-        monkeypatch (MonkeyPatch):
-            Pytest's monkeypatch fixture.
-    """
+    assert isinstance(manager._extension_registry, ExtensionRegistry)
+
+
+def test_load_servers_uses_extension_registry_index(monkeypatch: MonkeyPatch, server_management_testing_dir: Path):
+    """Verify that `_load_servers()` queries the registry-backed server index."""
+    config_file = write_config(server_management_testing_dir, {"servers": {"slurm": {}}})
     manager = ServerManager(state_file=None)
+    manager.state_manager = MagicMock()
+    manager.state_manager.get_running_servers.return_value = {}
 
-    fake_result = {
-        "slurm": {
-            "package": "provider_pkg",
-            "module_path": "provider_pkg.scheduler.slurm.server",
+    registry_mock = MagicMock(
+        return_value={
+            "slurm": ServerInfo(
+                name="slurm",
+                package="mada_tools",
+                module_path="mada_tools.scheduler.slurm.server",
+            )
         }
-    }
-
-    monkeypatch.setattr(
-        manager,
-        "_discover_servers_from_entry_points",
-        MagicMock(return_value=fake_result),
     )
+    monkeypatch.setattr(manager._extension_registry, "get_mcp_server_index", registry_mock)
 
-    result = manager._discover_servers()
+    manager._load_servers(config_file)
 
-    assert result == fake_result
-
-
-def test_discover_servers_from_entry_points_handles_failure(monkeypatch: MonkeyPatch, caplog: LogCaptureFixture):
-    """
-    Verify that `_discover_servers_from_entry_points` logs a warning and returns
-    an empty dict if entry point loading fails.
-
-    Args:
-        monkeypatch (MonkeyPatch):
-            Pytest's monkeypatch fixture.
-        caplog (LogCaptureFixture):
-            Pytest's caplog fixture.
-    """
-    manager = ServerManager(state_file=None)
-
-    def fake_entry_points():
-        raise RuntimeError("boom")
-
-    monkeypatch.setattr("importlib.metadata.entry_points", fake_entry_points)
-
-    with caplog.at_level("WARNING"):
-        discovered = manager._discover_servers_from_entry_points()
-
-    assert discovered == {}
-    assert any("Failed to read entry points" in record.message for record in caplog.records)
-
-
-# ---------------------------------------------------------------
-# ---------- _discover_servers_from_entry_points tests ----------
-# ---------------------------------------------------------------
-
-
-class FakeEntryPoint:
-    def __init__(self, name, value, dist_name=None):
-        self.name = name
-        self.value = value
-        self.dist = types.SimpleNamespace(name=dist_name) if dist_name is not None else None
-
-
-class FakeSelectableEntryPoints(list):
-    def select(self, group=None):
-        if group == "mada_tools.servers":
-            return self
-        return []
-
-
-def test_discover_servers_from_entry_points_discovers_valid_servers(
-    monkeypatch: MonkeyPatch,
-):
-    """
-    Verify that `_discover_servers_from_entry_points` returns discovered servers
-    for valid entry points using the modern `entry_points().select(...)` API.
-
-    This test confirms that:
-    - each entry point name becomes the server name,
-    - each entry point value becomes the `module_path`,
-    - the provider package is taken from `ep.dist.name`,
-    - `_validate_server_module` is called for each candidate,
-    - and only validated servers are returned.
-
-    Args:
-        monkeypatch (MonkeyPatch):
-            Pytest monkeypatch fixture.
-    """
-    manager = ServerManager(state_file=None)
-
-    fake_eps = FakeSelectableEntryPoints(
-        [
-            FakeEntryPoint("slurm", "provider_pkg.scheduler.slurm.server", "provider_pkg"),
-            FakeEntryPoint("pbs", "other_pkg.scheduler.pbs.server", "other_pkg"),
-        ]
-    )
-
-    monkeypatch.setattr(
-        "importlib.metadata.entry_points",
-        lambda: fake_eps,
-    )
-    monkeypatch.setattr(manager, "_validate_server_module", MagicMock(return_value=True))
-
-    discovered = manager._discover_servers_from_entry_points()
-
-    assert discovered == {
-        "slurm": {
-            "module_path": "provider_pkg.scheduler.slurm.server",
-            "package": "provider_pkg",
-        },
-        "pbs": {
-            "module_path": "other_pkg.scheduler.pbs.server",
-            "package": "other_pkg",
-        },
-    }
-
-    manager._validate_server_module.assert_any_call("slurm", "provider_pkg.scheduler.slurm.server")
-    manager._validate_server_module.assert_any_call("pbs", "other_pkg.scheduler.pbs.server")
-
-
-def test_discover_servers_from_entry_points_strips_callable_suffix(
-    monkeypatch: MonkeyPatch,
-):
-    """
-    Verify that `_discover_servers_from_entry_points` strips any callable suffix
-    from the entry point value before validation and storage.
-
-    For example, an entry point value like `pkg.server:main` should be converted
-    to `pkg.server` for both `_validate_server_module` and the returned mapping.
-
-    Args:
-        monkeypatch (MonkeyPatch):
-            Pytest monkeypatch fixture.
-    """
-    manager = ServerManager(state_file=None)
-
-    fake_eps = FakeSelectableEntryPoints(
-        [
-            FakeEntryPoint("slurm", "provider_pkg.scheduler.slurm.server:main", "provider_pkg"),
-        ]
-    )
-
-    monkeypatch.setattr("importlib.metadata.entry_points", lambda: fake_eps)
-    validate_mock = MagicMock(return_value=True)
-    monkeypatch.setattr(manager, "_validate_server_module", validate_mock)
-
-    discovered = manager._discover_servers_from_entry_points()
-
-    validate_mock.assert_called_once_with("slurm", "provider_pkg.scheduler.slurm.server")
-    assert discovered == {
-        "slurm": {
-            "module_path": "provider_pkg.scheduler.slurm.server",
-            "package": "provider_pkg",
-        }
-    }
-
-
-def test_discover_servers_from_entry_points_skips_existing_name_collision(
-    monkeypatch: MonkeyPatch,
-    caplog: LogCaptureFixture,
-):
-    """
-    Verify that `_discover_servers_from_entry_points` skips an entry point whose
-    server name already exists in the provided `existing` mapping.
-
-    This test confirms that:
-      - the colliding server is not returned,
-      - `_validate_server_module` is not called for that entry,
-      - and a warning is logged about the collision.
-
-    Args:
-        monkeypatch (MonkeyPatch):
-            Pytest monkeypatch fixture.
-        caplog (LogCaptureFixture):
-            Pytest caplog fixture.
-    """
-    manager = ServerManager(state_file=None)
-
-    fake_eps = FakeSelectableEntryPoints(
-        [
-            FakeEntryPoint("slurm", "provider_pkg.scheduler.slurm.server", "provider_pkg"),
-        ]
-    )
-
-    monkeypatch.setattr("importlib.metadata.entry_points", lambda: fake_eps)
-    monkeypatch.setattr(manager, "_validate_server_module", MagicMock(return_value=True))
-
-    existing = {
-        "slurm": {
-            "module_path": "already.present.server",
-            "package": "already_present_pkg",
-        }
-    }
-
-    with caplog.at_level("WARNING"):
-        discovered = manager._discover_servers_from_entry_points(existing=existing)
-
-    assert discovered == {}
-    manager._validate_server_module.assert_not_called()
-    assert any("Plugin server name collision for 'slurm'" in record.message for record in caplog.records)
-
-
-def test_discover_servers_from_entry_points_skips_duplicate_names_in_entry_points(
-    monkeypatch: MonkeyPatch,
-    caplog: LogCaptureFixture,
-):
-    """
-    Verify that `_discover_servers_from_entry_points` skips later duplicate
-    server names encountered within the discovered entry points themselves.
-
-    This test confirms that:
-      - the first valid occurrence is kept,
-      - later duplicates are ignored,
-      - and a warning is logged for the collision.
-
-    Args:
-        monkeypatch (MonkeyPatch):
-            Pytest monkeypatch fixture.
-        caplog (LogCaptureFixture):
-            Pytest caplog fixture.
-    """
-    manager = ServerManager(state_file=None)
-
-    fake_eps = FakeSelectableEntryPoints(
-        [
-            FakeEntryPoint("slurm", "provider_pkg.scheduler.slurm.server", "provider_pkg"),
-            FakeEntryPoint("slurm", "different_pkg.scheduler.slurm.server", "different_pkg"),
-        ]
-    )
-
-    monkeypatch.setattr("importlib.metadata.entry_points", lambda: fake_eps)
-    monkeypatch.setattr(manager, "_validate_server_module", MagicMock(return_value=True))
-
-    with caplog.at_level("WARNING"):
-        discovered = manager._discover_servers_from_entry_points()
-
-    assert discovered == {
-        "slurm": {
-            "module_path": "provider_pkg.scheduler.slurm.server",
-            "package": "provider_pkg",
-        }
-    }
-    assert any("Plugin server name collision for 'slurm'" in record.message for record in caplog.records)
-
-
-def test_discover_servers_from_entry_points_skips_invalid_modules(
-    monkeypatch: MonkeyPatch,
-):
-    """
-    Verify that `_discover_servers_from_entry_points` excludes entry points for
-    which `_validate_server_module` returns False.
-
-    This test confirms that invalid modules are silently skipped and only valid
-    entry points appear in the returned mapping.
-
-    Args:
-        monkeypatch (MonkeyPatch):
-            Pytest monkeypatch fixture.
-    """
-    manager = ServerManager(state_file=None)
-
-    fake_eps = FakeSelectableEntryPoints(
-        [
-            FakeEntryPoint("good", "provider_pkg.good.server", "provider_pkg"),
-            FakeEntryPoint("bad", "provider_pkg.bad.server", "provider_pkg"),
-        ]
-    )
-
-    monkeypatch.setattr("importlib.metadata.entry_points", lambda: fake_eps)
-
-    def validate(server_name, module_path):
-        return server_name == "good"
-
-    monkeypatch.setattr(manager, "_validate_server_module", MagicMock(side_effect=validate))
-
-    discovered = manager._discover_servers_from_entry_points()
-
-    assert discovered == {
-        "good": {
-            "module_path": "provider_pkg.good.server",
-            "package": "provider_pkg",
-        }
-    }
-
-
-def test_discover_servers_from_entry_points_uses_unknown_when_dist_name_missing(
-    monkeypatch: MonkeyPatch,
-):
-    """
-    Verify that `_discover_servers_from_entry_points` uses `"unknown"` as the
-    provider package when the entry point distribution metadata is missing.
-
-    This covers the fallback behavior for entry points without `dist` or without
-    a usable `dist.name`.
-
-    Args:
-        monkeypatch (MonkeyPatch):
-            Pytest monkeypatch fixture.
-    """
-    manager = ServerManager(state_file=None)
-
-    fake_eps = FakeSelectableEntryPoints(
-        [
-            FakeEntryPoint("slurm", "provider_pkg.scheduler.slurm.server", dist_name=None),
-        ]
-    )
-
-    monkeypatch.setattr("importlib.metadata.entry_points", lambda: fake_eps)
-    monkeypatch.setattr(manager, "_validate_server_module", MagicMock(return_value=True))
-
-    discovered = manager._discover_servers_from_entry_points()
-
-    assert discovered == {
-        "slurm": {
-            "module_path": "provider_pkg.scheduler.slurm.server",
-            "package": "unknown",
-        }
-    }
-
-
-def test_discover_servers_from_entry_points_supports_legacy_get_api(
-    monkeypatch: MonkeyPatch,
-):
-    """
-    Verify that `_discover_servers_from_entry_points` supports the legacy
-    `entry_points().get(group, [])` API shape in addition to the modern
-    `.select(group=...)` API.
-
-    Args:
-        monkeypatch (MonkeyPatch):
-            Pytest monkeypatch fixture.
-    """
-    manager = ServerManager(state_file=None)
-
-    fake_entry_points = {
-        "mada_tools.servers": [
-            FakeEntryPoint("slurm", "provider_pkg.scheduler.slurm.server", "provider_pkg"),
-        ]
-    }
-
-    monkeypatch.setattr("importlib.metadata.entry_points", lambda: fake_entry_points)
-    monkeypatch.setattr(manager, "_validate_server_module", MagicMock(return_value=True))
-
-    discovered = manager._discover_servers_from_entry_points()
-
-    assert discovered == {
-        "slurm": {
-            "module_path": "provider_pkg.scheduler.slurm.server",
-            "package": "provider_pkg",
-        }
-    }
-
-
-def test_discover_servers_from_entry_points_returns_empty_on_entry_point_read_error(
-    monkeypatch: MonkeyPatch,
-    caplog: LogCaptureFixture,
-):
-    """
-    Verify that `_discover_servers_from_entry_points` logs a warning and
-    returns an empty dictionary when reading entry points raises an exception.
-
-    This test covers failures in the call to `entry_points()` or while
-    selecting the target entry point group.
-
-    Args:
-        monkeypatch (MonkeyPatch):
-            Pytest monkeypatch fixture.
-        caplog (LogCaptureFixture):
-            Pytest caplog fixture.
-    """
-    manager = ServerManager(state_file=None)
-
-    def fake_entry_points():
-        raise RuntimeError("boom")
-
-    monkeypatch.setattr("importlib.metadata.entry_points", fake_entry_points)
-    monkeypatch.setattr(manager, "_validate_server_module", MagicMock())
-
-    with caplog.at_level("WARNING"):
-        discovered = manager._discover_servers_from_entry_points()
-
-    assert discovered == {}
-    manager._validate_server_module.assert_not_called()
-    assert any("Failed to read entry points: boom" in record.message for record in caplog.records)
+    registry_mock.assert_called_once_with()
 
 
 # -----------------------------------------
@@ -555,7 +199,7 @@ def test_load_servers_uses_discovered_servers_for_mada_package(
     """
     Verify that for servers with package 'mada_tools' (or default),
     _load_servers:
-      - uses _discover_servers to resolve the server module path,
+      - uses the extension registry to resolve the server module path,
       - creates ServerInfo with the correct module path and defaults,
       - and sets status to STOPPED for non running servers.
 
@@ -590,14 +234,15 @@ def test_load_servers_uses_discovered_servers_for_mada_package(
 
     # Mock discovered servers
     monkeypatch.setattr(
-        manager,
-        "_discover_servers",
+        manager._extension_registry,
+        "get_mcp_server_index",
         MagicMock(
             return_value={
-                "slurm": {
-                    "module_path": "mada_tools.scheduler.slurm.server",
-                    "package": "mada_tools",
-                }
+                "slurm": ServerInfo(
+                    name="slurm",
+                    package="mada_tools",
+                    module_path="mada_tools.scheduler.slurm.server",
+                )
             }
         ),
     )
@@ -619,7 +264,7 @@ def test_load_servers_uses_discovered_servers_for_mada_package(
     assert slurm_info.status == ServerStatus.STOPPED
 
     manager.state_manager.get_running_servers.assert_called_once_with(validate=True)
-    manager._discover_servers.assert_called_once_with()
+    manager._extension_registry.get_mcp_server_index.assert_called_once_with()
 
 
 def test_load_servers_skips_missing_mada_server(
@@ -659,14 +304,15 @@ def test_load_servers_skips_missing_mada_server(
     manager.state_manager.get_running_servers.return_value = {}
 
     monkeypatch.setattr(
-        manager,
-        "_discover_servers",
+        manager._extension_registry,
+        "get_mcp_server_index",
         MagicMock(
             return_value={
-                "other": {
-                    "module_path": "mada_tools.other.server",
-                    "package": "mada_tools",
-                }
+                "other": ServerInfo(
+                    name="other",
+                    package="mada_tools",
+                    module_path="mada_tools.other.server",
+                )
             }
         ),
     )
@@ -714,7 +360,7 @@ def test_load_servers_skips_server_not_in_discovery(
     manager.state_manager = MagicMock()
     manager.state_manager.get_running_servers.return_value = {}
 
-    monkeypatch.setattr(manager, "_discover_servers", MagicMock(return_value={}))
+    monkeypatch.setattr(manager._extension_registry, "get_mcp_server_index", MagicMock(return_value={}))
 
     with caplog.at_level("WARNING"):
         servers = manager._load_servers(config_file)
@@ -760,14 +406,15 @@ def test_load_servers_uses_default_log_file_and_host(
     manager.state_manager.get_running_servers.return_value = {}
 
     monkeypatch.setattr(
-        manager,
-        "_discover_servers",
+        manager._extension_registry,
+        "get_mcp_server_index",
         MagicMock(
             return_value={
-                "slurm": {
-                    "module_path": "mada_tools.scheduler.slurm.server",
-                    "package": "mada_tools",
-                }
+                "slurm": ServerInfo(
+                    name="slurm",
+                    package="mada_tools",
+                    module_path="mada_tools.scheduler.slurm.server",
+                )
             }
         ),
     )
@@ -834,14 +481,15 @@ def test_load_servers_updates_running_server_info(
     manager.state_manager.get_running_servers.return_value = running_servers
 
     monkeypatch.setattr(
-        manager,
-        "_discover_servers",
+        manager._extension_registry,
+        "get_mcp_server_index",
         MagicMock(
             return_value={
-                "slurm": {
-                    "module_path": "mada_tools.scheduler.slurm.server",
-                    "package": "mada_tools",
-                }
+                "slurm": ServerInfo(
+                    name="slurm",
+                    package="mada_tools",
+                    module_path="mada_tools.scheduler.slurm.server",
+                )
             }
         ),
     )
@@ -1192,7 +840,7 @@ def test_start_server_starts_new_process_and_registers(
     assert cmd[1] == "-m"
     assert cmd[2] == "pkg.server"
     assert "--config" in cmd
-    assert config_file.as_posix() in cmd
+    assert str(config_file) in cmd
 
     # Environment should include our env_vars
     env = kwargs["env"]

@@ -14,6 +14,8 @@ The `BaseMCPServer` class provides common functionality for all MCP servers, inc
 - Handling different transport methods (stdio, HTTP)
 - Providing a standard entrypoint for launching the server
 
+For new servers, we also strongly recommend putting the underlying tool logic in one or more helper classes and then exposing that logic through MCP tools that call `BaseMCPServer.run_tool()`. This keeps the business logic separate from MCP-specific registration details, makes unit testing easier, and allows the same implementation to support both MCP and Programmatic Tool Calling (PTC). For more information on PTC, see the [Anthropic Programmatic Tool Calling documentation](https://platform.claude.com/docs/en/agents-and-tools/tool-use/programmatic-tool-calling).
+
 By inheriting from this class, you ensure your server is compatible with the MADA MCP launch and orchestration infrastructure.
 
 ## Creating a `server.py` File
@@ -35,17 +37,25 @@ Below is a basic template for what's required when creating your own server:
 ```python
 from mada_tools import BaseMCPServer
 
+
+class MyServerHelper:
+    def my_cool_tool(self, value: str) -> tuple[bool, str]:
+        if not value:
+            return False, "value must not be empty"
+        return True, f"processed {value}"
+
 class MyNewMCPServer(BaseMCPServer):
     def __init__(self):
         super().__init__(
             server_name="my_new_server",
             description="MCP Server for My New Functionality"
         )
+        self.helper = MyServerHelper()
 
     def _register_tools(self):
         @self.mcp.tool()
-        def my_cool_tool():
-            pass
+        def my_cool_tool(value: str) -> str:
+            return self.run_tool(self.helper.my_cool_tool, value)
 
 if __name__ == "__main__":
     my_server = MyNewMCPServer()
@@ -56,7 +66,26 @@ if __name__ == "__main__":
 
 - Inherit from `BaseMCPServer`.
 - Implement the `_register_tools` method to register all tools (APIs) your server provides.
+- Prefer helper classes for business logic, and have your MCP tools call that logic with `self.run_tool(...)`.
+- Return structured success and payload information from helper methods so the same logic can be used by MCP and PTC callers.
 - In the `__main__` block, call `run_with_args(server_key=...)` with your server’s key name (used in config files).
+
+## Recommended Pattern for MCP and PTC Compatibility
+
+When defining tools, avoid putting all of the implementation directly inside the function decorated with `@self.mcp.tool()`. Instead:
+
+1. Put the actual tool logic in a helper class or other plain Python callable.
+2. Have the MCP tool function call that implementation through `self.run_tool(...)`.
+3. Reuse the helper directly when you need the same capability outside an MCP server context.
+
+This pattern is recommended because it:
+
+- Keeps MCP registration code thin and easy to read
+- Centralizes validation and error handling
+- Makes unit testing simpler because helpers can be tested directly
+- Makes it easier to support Programmatic Tool Calling (PTC) in addition to MCP
+
+In practice, MCP and PTC often need access to the same tool behavior, but they do not share the same transport and registration layer. Keeping tool logic in helpers avoids coupling your implementation to MCP-specific decorators and server lifecycle details.
 
 !!! note
 
@@ -73,11 +102,16 @@ After creating your server class, you need to register it so it can be launched 
     mada-mcp-<server key> = "mada_tools.path.to.server:main"
     ```
 
-2. Similarly, add a Python entry point to the `pyproject.toml` in the `[project.entry-points."mada_tools.servers"]` section. This should follow this format:
+2. Register the server in the built-in extension manifest at `src/mada_tools/extensions/builtins.py` by adding an `MCPServerRegistration` entry to `get_extension_manifest()`. This keeps built-in server discovery in one place.
 
-    ```toml
-    [project.entry-points."mada_tools.servers"]
-    <server_name> = "mada_tools.path.to.server"
+    Example:
+
+    ```python
+    MCPServerRegistration(
+        name="my_new_server",
+        module_path="mada_tools.path.to.server",
+        package="mada_tools",
+    )
     ```
 
 3. Add the server to the `configs/development.json` file. Below is a template entry; you may not need the `env_vars` entry:

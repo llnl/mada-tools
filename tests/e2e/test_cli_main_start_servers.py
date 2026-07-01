@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
 
+from mada_tools.extensions.manifest import MCPServerRegistration
 from mada_tools.main import main
 from mada_tools.server_management import ServerStatus
 
@@ -77,12 +78,9 @@ def test_main_start_servers_starts_configured_server_and_exits_successfully(
 
     """
     monkeypatch.setattr(
-        "mada_tools.server_management.server_manager.ServerManager._discover_servers",
+        "mada_tools.server_management.server_manager.ExtensionRegistry.get_mcp_server_index",
         lambda self: {
-            "alpha": {
-                "module_path": "fake_pkg.alpha.server",
-                "package": "fake_pkg",
-            }
+            "alpha": MCPServerRegistration("alpha", "fake_pkg.alpha.server", "fake_pkg"),
         },
     )
 
@@ -148,16 +146,10 @@ def test_main_start_servers_with_specific_server_name_only_starts_requested_serv
             Path to a test-local state file.
     """
     monkeypatch.setattr(
-        "mada_tools.server_management.server_manager.ServerManager._discover_servers",
+        "mada_tools.server_management.server_manager.ExtensionRegistry.get_mcp_server_index",
         lambda self: {
-            "alpha": {
-                "module_path": "fake_pkg.alpha.server",
-                "package": "fake_pkg",
-            },
-            "beta": {
-                "module_path": "fake_pkg.beta.server",
-                "package": "fake_pkg",
-            },
+            "alpha": MCPServerRegistration("alpha", "fake_pkg.alpha.server", "fake_pkg"),
+            "beta": MCPServerRegistration("beta", "fake_pkg.beta.server", "fake_pkg"),
         },
     )
 
@@ -231,12 +223,9 @@ def test_main_start_servers_exits_with_error_for_unknown_server(
             Path to a test-local state file.
     """
     monkeypatch.setattr(
-        "mada_tools.server_management.server_manager.ServerManager._discover_servers",
+        "mada_tools.server_management.server_manager.ExtensionRegistry.get_mcp_server_index",
         lambda self: {
-            "alpha": {
-                "module_path": "fake_pkg.alpha.server",
-                "package": "fake_pkg",
-            }
+            "alpha": MCPServerRegistration("alpha", "fake_pkg.alpha.server", "fake_pkg"),
         },
     )
 
@@ -281,12 +270,9 @@ def test_main_start_servers_exits_with_error_when_port_is_already_in_use(
             Path to a test-local state file.
     """
     monkeypatch.setattr(
-        "mada_tools.server_management.server_manager.ServerManager._discover_servers",
+        "mada_tools.server_management.server_manager.ExtensionRegistry.get_mcp_server_index",
         lambda self: {
-            "alpha": {
-                "module_path": "fake_pkg.alpha.server",
-                "package": "fake_pkg",
-            }
+            "alpha": MCPServerRegistration("alpha", "fake_pkg.alpha.server", "fake_pkg"),
         },
     )
 

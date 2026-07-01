@@ -81,13 +81,8 @@ mada-mcp-professor = "mada_tools.surrogate.professor.server:main"
 mada-mcp-monitor = "mada_tools.monitor.job_monitor.server:main"
 mada-mcp-maestro-command-executor = "mada_tools.workflow.weave.maestro.server:main"
 
-[project.entry-points."mada_tools.servers"]
-flux = "mada_tools.scheduler.flux.server"
-slurm = "mada_tools.scheduler.slurm.server"
-vertex_cfd = "mada_tools.simulation.vertex_cfd.server"
-professor = "mada_tools.surrogate.professor.server"
-job_monitor = "mada_tools.monitor.job_monitor.server"
-maestro_command_executor = "mada_tools.workflow.weave.maestro.server"
+[project.entry-points."mada_tools.extensions"]
+mada_tools = "mada_tools.extensions.builtins:get_extension_manifest"
 
 [tool.setuptools.packages.find]
 where = ["src"]
