@@ -160,7 +160,7 @@ class SlurmServer(BaseMCPServer):
             Returns:
                 str: Command output and status
             """
-            self.run_tool(
+            return self.run_tool(
                 self.job_manager.submit_command,
                 command,
                 nodes,
@@ -171,7 +171,7 @@ class SlurmServer(BaseMCPServer):
         @self.mcp.tool()
         def list_queue() -> str:
             """List all jobs in the SLURM queue using squeue."""
-            self.run_tool(self.job_manager.list_queue)
+            return self.run_tool(self.job_manager.list_queue)
 
         @self.mcp.tool()
         def get_cluster_info() -> str:
@@ -181,7 +181,7 @@ class SlurmServer(BaseMCPServer):
             Returns:
                 Information about the cluster nodes from `sinfo`.
             """
-            self.run_tool(self.job_manager.get_cluster_info)
+            return self.run_tool(self.job_manager.get_cluster_info)
 
 
 def main():
