@@ -1,6 +1,6 @@
 # MCP Tool Call Evaluation
 
-The `tests/benchmark/mcp_tool_call_eval.py` script evaluates whether an LLM can select
+The `benchmark/mcp_tool_call_eval.py` script evaluates whether an LLM can select
 an MCP tool and generate the expected JSON arguments for that tool. It is
 useful for comparing models, prompts, and OpenAI-compatible backends without
 executing the MCP tool itself.
@@ -132,29 +132,29 @@ Prompt entries can also be strings. In that case the runner assigns IDs like
 The repository includes a shared curated model list for the eval scripts:
 
 ```text
-tests/benchmark/eval_models.txt
+benchmark/eval_models.txt
 ```
 
-Use `tests/benchmark/populate_eval_models.py` to query the OpenAI-compatible `/models`
+Use `benchmark/populate_eval_models.py` to query the OpenAI-compatible `/models`
 endpoint and refresh the discovered snapshot:
 
 ```bash
-python tests/benchmark/populate_eval_models.py
+python benchmark/populate_eval_models.py
 ```
 
 This writes the full discovered model list to:
 
 ```text
-tests/benchmark/eval_models_all.txt
+benchmark/eval_models_all.txt
 ```
 
-If `tests/benchmark/eval_models.txt` does not exist yet, the helper initializes it
-from the discovered list. After that, it leaves `tests/benchmark/eval_models.txt`
+If `benchmark/eval_models.txt` does not exist yet, the helper initializes it
+from the discovered list. After that, it leaves `benchmark/eval_models.txt`
 unchanged so you can manually curate it.
 
 The curated file allows blank lines and `#` comments. Comment out any model you
 want to omit from any testing runs for example, the tests executed by
-`tests/benchmark/testskeleton.sh`.  You can choose different lists with the `--modelfile`
+`benchmark/testskeleton.sh`.  You can choose different lists with the `--modelfile`
 option, e.g., `./testskeleton.sh --modelfile=eval_models_small.txt`
 
 Example `eval_models.txt`:
@@ -166,7 +166,7 @@ gpt-5-mini
 # gpt-4.1-mini
 ```
 
-The scripts consume `tests/benchmark/eval_models.txt`. The `eval_models_all.txt` file
+The scripts consume `benchmark/eval_models.txt`. The `eval_models_all.txt` file
 is only a discovery snapshot and is not used directly for eval runs.
 
 Start the target MCP server before running the evaluator. For the skeleton
@@ -182,15 +182,15 @@ paths you pass on the command line. The timestamped run folders shown later are
 created by the bash wrapper scripts such as `examples/testskeleton.sh`.
 
 ```bash
-python tests/benchmark/mcp_tool_call_eval.py \
-  --cases tests/benchmark/skeleton_tool_call_eval_cases.json \
+python benchmark/mcp_tool_call_eval.py \
+  --cases benchmark/skeleton_tool_call_eval_cases.json \
   --models gpt-5.5 gpt-5-mini gpt-4.1-mini \
   --num-samples 3 \
   --max-concurrency 4 \
-  --results-csv tests/benchmark/results/se_tool_call_rows.csv \
-  --results-json tests/benchmark/results/se_tool_call_rows.json \
-  --summary-csv tests/benchmark/results/se_tool_call_summary.csv \
-  --summary-json tests/benchmark/results/se_tool_call_summary.json
+  --results-csv benchmark/results/se_tool_call_rows.csv \
+  --results-json benchmark/results/se_tool_call_rows.json \
+  --summary-csv benchmark/results/se_tool_call_summary.csv \
+  --summary-json benchmark/results/se_tool_call_summary.json
 ```
 
 The `--models` argument accepts one or more model names. Each prompt variant is
@@ -217,8 +217,8 @@ Connected to 'skeleton_example' with 1 tools in 142ms.
 Use `--quiet` to suppress live progress output:
 
 ```bash
-python tests/benchmark/mcp_tool_call_eval.py \
-  --cases tests/benchmark/skeleton_tool_call_eval_cases.json \
+python benchmark/mcp_tool_call_eval.py \
+  --cases benchmark/skeleton_tool_call_eval_cases.json \
   --models gpt-5-mini \
   --quiet
 ```
@@ -226,10 +226,10 @@ python tests/benchmark/mcp_tool_call_eval.py \
 Use `--no-final-table` when CSV or JSON artifacts are enough:
 
 ```bash
-python tests/benchmark/mcp_tool_call_eval.py \
-  --cases tests/benchmark/skeleton_tool_call_eval_cases.json \
+python benchmark/mcp_tool_call_eval.py \
+  --cases benchmark/skeleton_tool_call_eval_cases.json \
   --models gpt-5-mini \
-  --results-csv tests/benchmark/results/se_tool_call_rows.csv \
+  --results-csv benchmark/results/se_tool_call_rows.csv \
   --no-final-table
 ```
 
@@ -295,20 +295,20 @@ Use `--capture-raw-response` to also include the full OpenAI-compatible API
 response object in `--results-json`:
 
 ```bash
-python tests/benchmark/mcp_tool_call_eval.py \
-  --cases tests/benchmark/skeleton_tool_call_eval_cases.json \
+python benchmark/mcp_tool_call_eval.py \
+  --cases benchmark/skeleton_tool_call_eval_cases.json \
   --models gpt-5-mini \
-  --results-json tests/benchmark/results/se_tool_call_rows.json \
+  --results-json benchmark/results/se_tool_call_rows.json \
   --capture-raw-response
 ```
 
 ## Full Script Example
 
 If you want one command that creates a timestamped output directory, runs the
-evaluation, and writes the plots, use `tests/benchmark/testskeleton.sh`:
+evaluation, and writes the plots, use `benchmark/testskeleton.sh`:
 
 ```bash
-bash tests/benchmark/testskeleton.sh -n3
+bash benchmark/testskeleton.sh -n3
 ```
 
 The core eval invocation inside that wrapper is:
@@ -331,7 +331,7 @@ python examples/mcp_tool_call_eval.py \
 ```
 
 Those `timestamp` and `output_dir` lines are what create the timestamped run
-folder under `tests/benchmark/results/` and keep the CSV, JSON, and plot outputs from
+folder under `benchmark/results/` and keep the CSV, JSON, and plot outputs from
 the same run together. The wrapper then plots the summary CSV and preserves the
 evaluator's original exit status if some prompt cases fail. Use `-n` or
 `--num-samples` with the wrapper script to repeat each prompt flavor.
@@ -341,7 +341,7 @@ evaluator's original exit status if some prompt cases fail. Use `-n` or
 The example outputs below come from the real run directory:
 
 ```text
-tests/benchmark/results/skeleton_2026-06-23_09-37-30/
+benchmark/results/skeleton_2026-06-23_09-37-30/
 ```
 
 That directory contains:
@@ -403,10 +403,10 @@ evaluator uses `dummy` as the API key when the base URL starts with
 Example with a local backend:
 
 ```bash
-python tests/benchmark/mcp_tool_call_eval.py \
+python benchmark/mcp_tool_call_eval.py \
   --base-url http://localhost:8000/v1 \
   --api-key dummy \
-  --cases tests/benchmark/skeleton_tool_call_eval_cases.json \
+  --cases benchmark/skeleton_tool_call_eval_cases.json \
   --models gemma4-12b
 ```
 
@@ -433,8 +433,8 @@ Use `--strict` to require exact argument equality for every test, overriding
 fixture match modes and profiles:
 
 ```bash
-python tests/benchmark/mcp_tool_call_eval.py \
-  --cases tests/benchmark/skeleton_tool_call_eval_cases.json \
+python benchmark/mcp_tool_call_eval.py \
+  --cases benchmark/skeleton_tool_call_eval_cases.json \
   --models gpt-5-mini \
   --strict
 ```
@@ -479,8 +479,8 @@ summary. For example, this requires every prompt-sample attempt in each case to
 pass:
 
 ```bash
-python tests/benchmark/mcp_tool_call_eval.py \
-  --cases tests/benchmark/skeleton_tool_call_eval_cases.json \
+python benchmark/mcp_tool_call_eval.py \
+  --cases benchmark/skeleton_tool_call_eval_cases.json \
   --models gpt-5-mini \
   --min-pass-rate 1.0
 ```
@@ -488,8 +488,8 @@ python tests/benchmark/mcp_tool_call_eval.py \
 For exploratory model comparison, a lower threshold can be useful:
 
 ```bash
-python tests/benchmark/mcp_tool_call_eval.py \
-  --cases tests/benchmark/skeleton_tool_call_eval_cases.json \
+python benchmark/mcp_tool_call_eval.py \
+  --cases benchmark/skeleton_tool_call_eval_cases.json \
   --models gpt-5-mini gemma4-12b \
   --min-pass-rate 0.8
 ```

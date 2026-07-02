@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-os.environ.setdefault("MPLCONFIGDIR", "/tmp/mada_mcp_matplotlib")
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/mada_tools_matplotlib")
 
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.patches import Rectangle  # noqa: E402
