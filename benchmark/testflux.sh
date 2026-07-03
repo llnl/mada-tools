@@ -4,12 +4,15 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 usage() {
-  echo "Usage: ./testflux.sh [--modelfile PATH] [-n NUM_SAMPLES|--num-samples NUM_SAMPLES]"
+  echo "Usage: ./testflux.sh [--modelfile PATH] [-n NUM_SAMPLES|--num-samples NUM_SAMPLES] [-c N|--max-concurrency N] [--shard-count N] [--shard-index N]"
   echo "Model file precedence: --modelfile > MCP_EVAL_MODELS_FILE > eval_models.txt"
 }
 
 cli_models_file=""
 num_samples=1
+max_concurrency=1
+shard_count=1
+shard_index=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --modelfile)
@@ -43,6 +46,60 @@ while [[ $# -gt 0 ]]; do
       num_samples="${1#--num-samples=}"
       if [[ -z "$num_samples" ]]; then
         echo "Missing value for --num-samples" >&2
+        usage >&2
+        exit 1
+      fi
+      shift
+      ;;
+    -c|--max-concurrency)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for $1" >&2
+        usage >&2
+        exit 1
+      fi
+      max_concurrency="$2"
+      shift 2
+      ;;
+    --max-concurrency=*)
+      max_concurrency="${1#--max-concurrency=}"
+      if [[ -z "$max_concurrency" ]]; then
+        echo "Missing value for --max-concurrency" >&2
+        usage >&2
+        exit 1
+      fi
+      shift
+      ;;
+    --shard-count)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for --shard-count" >&2
+        usage >&2
+        exit 1
+      fi
+      shard_count="$2"
+      shift 2
+      ;;
+    --shard-count=*)
+      shard_count="${1#--shard-count=}"
+      if [[ -z "$shard_count" ]]; then
+        echo "Missing value for --shard-count" >&2
+        usage >&2
+        exit 1
+      fi
+      shift
+      ;;
+    --shard-index)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for --shard-index" >&2
+        usage >&2
+        exit 1
+      fi
+      shard_index="$2"
+      shift 2
+      ;;
+    --shard-index=*)
+      shard_index="${1#--shard-index=}"
+      if [[ -z "$shard_index" ]]; then
+        echo "Missing value for --shard-index" >&2
         usage >&2
         exit 1
       fi
@@ -90,6 +147,9 @@ python mcp_tool_call_eval.py \
   --cases flux_tool_call_eval_cases.json \
   --models "${models[@]}" \
   --num-samples "$num_samples" \
+  --max-concurrency "$max_concurrency" \
+  --shard-count "$shard_count" \
+  --shard-index "$shard_index" \
   --results-csv "$output_dir/flux_tool_call_rows.csv" \
   --results-json "$output_dir/flux_tool_call_rows.json" \
   --summary-csv "$output_dir/flux_tool_call_summary.csv" \
