@@ -10,6 +10,11 @@ from typing import Optional
 def get_env_var(var_name: str, default: Optional[str] = None, required: bool = False) -> Optional[str]:
     """Get an environment variable with optional default and required validation.
 
+    Environment variable resolution is OS dependent; for example, on Windows,
+    environment variable names are case-insensitive while on Linux and macOS they
+    are case-sensitive. This function does not perform any normalization of the
+    variable name.
+
     Args:
         var_name: Name of the environment variable to read.
         default: Default value to return when the variable is not set.
