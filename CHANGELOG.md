@@ -5,10 +5,12 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 
 ### Added
+- Support for Windows OS
+- Support for Python 3.14
 - Support for Hubcast
 
 ### Changed
--
+- Dropped support for Python 3.10
 
 ### Fixed
 -

@@ -144,10 +144,16 @@ def test_lock_state_acquires_and_releases_lock(monkeypatch: MonkeyPatch, server_
 
     calls = []
 
-    def fake_flock(fd, op):
-        calls.append((fd, op))
-
-    monkeypatch.setattr(sm.fcntl, "flock", fake_flock)
+    monkeypatch.setattr(
+        ServerStateManager,
+        "_acquire_file_lock",
+        staticmethod(lambda handle: calls.append(("acquire", handle.fileno()))),
+    )
+    monkeypatch.setattr(
+        ServerStateManager,
+        "_release_file_lock",
+        staticmethod(lambda handle: calls.append(("release", handle.fileno()))),
+    )
 
     lock_path = state_file.with_suffix(".lock")
     assert not lock_path.exists()
@@ -156,9 +162,7 @@ def test_lock_state_acquires_and_releases_lock(monkeypatch: MonkeyPatch, server_
         assert lock_path.exists()
         assert lock_path.is_file()
 
-    assert len(calls) == 2
-    assert calls[0][1] == sm.fcntl.LOCK_EX
-    assert calls[1][1] == sm.fcntl.LOCK_UN
+    assert [call[0] for call in calls] == ["acquire", "release"]
 
 
 def test_lock_state_releases_lock_on_exception(monkeypatch: MonkeyPatch, server_management_testing_dir: Path):
@@ -178,16 +182,81 @@ def test_lock_state_releases_lock_on_exception(monkeypatch: MonkeyPatch, server_
 
     calls = []
 
-    def fake_flock(fd, op):
-        calls.append(op)
-
-    monkeypatch.setattr(sm.fcntl, "flock", fake_flock)
+    monkeypatch.setattr(
+        ServerStateManager,
+        "_acquire_file_lock",
+        staticmethod(lambda handle: calls.append("acquire")),
+    )
+    monkeypatch.setattr(
+        ServerStateManager,
+        "_release_file_lock",
+        staticmethod(lambda handle: calls.append("release")),
+    )
 
     with pytest.raises(RuntimeError):
         with mgr._lock_state():
             raise RuntimeError("boom")
 
-    assert calls == [sm.fcntl.LOCK_EX, sm.fcntl.LOCK_UN]
+    assert calls == ["acquire", "release"]
+
+
+def test_acquire_file_lock_uses_fcntl_when_available(monkeypatch: MonkeyPatch, tmp_path: Path):
+    """_acquire_file_lock should use fcntl on Unix-like platforms."""
+    calls = []
+    fake_fcntl = SimpleNamespace(
+        LOCK_EX="lock-ex",
+        LOCK_UN="lock-un",
+        flock=lambda fd, op: calls.append((fd, op)),
+    )
+
+    monkeypatch.setattr(sm, "fcntl", fake_fcntl)
+    monkeypatch.setattr(sm, "msvcrt", None)
+
+    lock_path = tmp_path / "fcntl.lock"
+    with open(lock_path, "a+b") as handle:
+        ServerStateManager._acquire_file_lock(handle)
+
+    assert calls == [(calls[0][0], "lock-ex")]
+
+
+def test_acquire_file_lock_uses_msvcrt_when_fcntl_missing(monkeypatch: MonkeyPatch, tmp_path: Path):
+    """_acquire_file_lock should fall back to msvcrt on Windows."""
+    calls = []
+    fake_msvcrt = SimpleNamespace(
+        LK_LOCK="lock",
+        LK_UNLCK="unlock",
+        locking=lambda fd, op, size: calls.append((fd, op, size)),
+    )
+
+    monkeypatch.setattr(sm, "fcntl", None)
+    monkeypatch.setattr(sm, "msvcrt", fake_msvcrt)
+
+    lock_path = tmp_path / "msvcrt.lock"
+    with open(lock_path, "a+b") as handle:
+        ServerStateManager._acquire_file_lock(handle)
+
+    assert lock_path.read_bytes() == b"\0"
+    assert calls == [(calls[0][0], "lock", 1)]
+
+
+def test_release_file_lock_uses_msvcrt_when_fcntl_missing(monkeypatch: MonkeyPatch, tmp_path: Path):
+    """_release_file_lock should release Windows byte-range locks with msvcrt."""
+    calls = []
+    fake_msvcrt = SimpleNamespace(
+        LK_LOCK="lock",
+        LK_UNLCK="unlock",
+        locking=lambda fd, op, size: calls.append((fd, op, size)),
+    )
+
+    monkeypatch.setattr(sm, "fcntl", None)
+    monkeypatch.setattr(sm, "msvcrt", fake_msvcrt)
+
+    lock_path = tmp_path / "msvcrt-release.lock"
+    lock_path.write_bytes(b"\0")
+    with open(lock_path, "a+b") as handle:
+        ServerStateManager._release_file_lock(handle)
+
+    assert calls == [(calls[0][0], "unlock", 1)]
 
 
 # ---------------------------------------
@@ -342,7 +411,7 @@ def test_save_state_writes_expected_json_and_renames_atomically(
     _save_state should:
       - serialize servers via server.to_dict()
       - write JSON (indent=2) to a .tmp file next to the state_file
-      - rename the tmp file to the final state_file
+      - replace the final state_file with the tmp file atomically
 
     Args:
         monkeypatch (MonkeyPatch):
@@ -361,23 +430,24 @@ def test_save_state_writes_expected_json_and_renames_atomically(
     tmp_path = state_file.with_suffix(".tmp")
 
     write_calls = []
-    rename_calls = []
+    replace_calls = []
 
-    def fake_write_text(self: Path, text: str) -> int:
-        write_calls.append((self, text))
+    def fake_write_text(self: Path, text: str, encoding: str | None = None) -> int:
+        write_calls.append((self, text, encoding))
         return len(text)
 
-    def fake_rename(self: Path, target: Path) -> Path:
-        rename_calls.append((self, target))
+    def fake_replace(self: Path, target: Path) -> Path:
+        replace_calls.append((self, target))
         return target
 
     monkeypatch.setattr(Path, "write_text", fake_write_text, raising=True)
-    monkeypatch.setattr(Path, "rename", fake_rename, raising=True)
+    monkeypatch.setattr(Path, "replace", fake_replace, raising=True)
 
     mgr._save_state(servers)
 
     assert write_calls, "Expected tmp.write_text to be called"
     assert write_calls[0][0] == tmp_path
+    assert write_calls[0][2] == "utf-8"
 
     written_json = write_calls[0][1]
     parsed = json.loads(written_json)
@@ -392,7 +462,7 @@ def test_save_state_writes_expected_json_and_renames_atomically(
     assert "\n" in written_json
     assert '  "servers"' in written_json
 
-    assert rename_calls == [(tmp_path, state_file)]
+    assert replace_calls == [(tmp_path, state_file)]
 
 
 def test_save_state_creates_real_state_file_contents(

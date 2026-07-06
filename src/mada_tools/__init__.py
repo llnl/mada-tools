@@ -25,10 +25,16 @@ Modules:
     main: The entry point to the MADA tools repository.
 """
 
-from mada_tools.server_management.server_manager import ServerManager
 from mada_tools.shared.base_server import BaseMCPServer
 from mada_tools.shared.exceptions import MCPServerError, ToolExecutionError
 from mada_tools.workflow.weave import WEAVEStudyConstructionServer
+
+try:
+    from mada_tools.server_management.server_manager import ServerManager
+except ModuleNotFoundError as exc:
+    if exc.name != "fcntl":
+        raise
+    ServerManager = None
 
 __version__ = "0.1.1"
 
