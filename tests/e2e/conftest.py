@@ -15,10 +15,10 @@ from typing import Any, Callable, List, Tuple
 import pytest
 import pytest_asyncio
 from _pytest.monkeypatch import MonkeyPatch
-from mada_mcp_servers.server_management.server_manager import ServerManager
 
 from examples.simple_agent_loop import MultiServerAgent
 from mada_tools.server_management import ServerInfo, ServerStatus
+from mada_tools.server_management.server_manager import ServerManager
 from mada_tools.server_management.state_manager import ServerStateManager
 from tests.conftest import REPO_DIR
 from tests.utils import (

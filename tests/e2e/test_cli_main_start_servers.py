@@ -177,8 +177,8 @@ def test_main_start_servers_with_specific_server_name_only_starts_requested_serv
     def fake_is_port_in_use(self, host, port):
         port_check_calls["count"] += 1
         if port_check_calls["count"] == 1:
-            return 0
-        return 111
+            return 111
+        return 0
 
     monkeypatch.setattr(
         "mada_tools.server_management.state_manager.ServerStateManager._is_port_in_use",

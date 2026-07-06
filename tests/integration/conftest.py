@@ -12,8 +12,8 @@ from pathlib import Path
 from typing import Callable
 
 import pytest
-from mada_mcp_servers.server_management.server_manager import ServerManager
 
+from mada_tools.server_management.server_manager import ServerManager
 from tests.conftest import REPO_DIR
 from tests.utils import (
     collect_server_tools,

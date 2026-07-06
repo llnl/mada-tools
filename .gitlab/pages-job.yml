@@ -1,0 +1,42 @@
+spec:
+  inputs:
+    zone_extends:
+      type: array
+      description: Zone-specific parents
+
+---
+
+variables:
+  PYTHON_IMAGE: python:3.13  # install_mada_tools needs this variable
+
+
+pages_test:  # Just test the build process
+  stage: test
+  extends:
+    - .install_mada_tools
+    - .retry_settings
+    - $[[ inputs.zone_extends ]]
+  script:
+    - echo "The site would be deployed to $CI_PAGES_URL"
+    - mkdocs build --strict --verbose --site-dir doc_build_test
+  artifacts:
+    paths:
+      - doc_build_test
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
+
+pages:  # Run the actual build
+  stage: deploy
+  extends:
+    - .install_mada_tools
+    - .retry_settings
+    - $[[ inputs.zone_extends ]]
+  script:
+    - echo "The site will be deployed to $CI_PAGES_URL"
+    - mkdocs build --strict --verbose
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: "$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH"

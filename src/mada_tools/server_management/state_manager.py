@@ -255,10 +255,10 @@ class ServerStateManager:
             changed = False
 
             for _, server_info in servers.items():
-                if server_info.pid and self._is_process_running(server_info.pid) == 0:
+                if server_info.pid and self._is_process_running(server_info.pid):
                     # Process is running, check health if we have port info
                     if server_info.port:
-                        if self._is_port_in_use(server_info.host, server_info.port):
+                        if self._is_port_in_use(server_info.host, server_info.port) == 0:
                             if server_info.status != ServerStatus.RUNNING:
                                 server_info.status = ServerStatus.RUNNING
                                 changed = True
