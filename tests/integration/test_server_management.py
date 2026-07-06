@@ -238,8 +238,8 @@ def test_start_server_registers_state_and_marks_running_when_port_becomes_health
     def fake_is_port_in_use(host, port):
         port_check_calls["count"] += 1
         if port_check_calls["count"] == 1:
-            return False
-        return True
+            return 111
+        return 0
 
     monkeypatch.setattr("subprocess.Popen", fake_popen)
     monkeypatch.setattr(manager.state_manager, "_is_port_in_use", fake_is_port_in_use)
@@ -287,7 +287,7 @@ def test_start_server_marks_failed_if_process_exits_immediately(
 
     monkeypatch.setattr(manager, "_discover_servers", lambda: discovered_servers)
     monkeypatch.setattr(manager.state_manager, "get_running_servers", lambda validate=True: {})
-    monkeypatch.setattr(manager.state_manager, "_is_port_in_use", lambda host, port: False)
+    monkeypatch.setattr(manager.state_manager, "_is_port_in_use", lambda host, port: 111)
     monkeypatch.setattr("time.sleep", lambda _: None)
     monkeypatch.setattr(
         "subprocess.Popen",
@@ -327,7 +327,7 @@ def test_start_server_raises_port_in_use_error_before_launch(
 
     monkeypatch.setattr(manager, "_discover_servers", lambda: discovered_servers)
     monkeypatch.setattr(manager.state_manager, "get_running_servers", lambda validate=True: {})
-    monkeypatch.setattr(manager.state_manager, "_is_port_in_use", lambda host, port: True)
+    monkeypatch.setattr(manager.state_manager, "_is_port_in_use", lambda host, port: 0)
 
     servers = manager._load_servers(config_file)
 
@@ -583,7 +583,7 @@ def test_state_manager_validation_updates_running_and_unhealthy_statuses(
     monkeypatch.setattr(
         state_manager,
         "_is_port_in_use",
-        lambda host, port: port == 7001,
+        lambda host, port: 0 if port == 7001 else 111,
     )
 
     servers = state_manager.get_servers(validate=True)

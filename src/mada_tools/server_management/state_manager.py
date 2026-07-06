@@ -15,6 +15,7 @@ import fcntl
 import json
 import logging
 import socket
+import time
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -142,7 +143,7 @@ class ServerStateManager:
         except (psutil.NoSuchProcess, psutil.AccessDenied, ProcessLookupError):
             return False
 
-    def _is_port_in_use(self, host: str, port: int, timeout: int = 1) -> bool:
+    def _is_port_in_use(self, host: str, port: int, timeout: int = 1, retries: int = 10, delay: int = 1) -> int | bool:
         """
         Check whether a TCP service is already listening on the given host and port.
 
@@ -150,14 +151,22 @@ class ServerStateManager:
             host (str): Hostname or IP address.
             port (int): Port number.
             timeout (int): Connection timeout in seconds.
+            retries (int): Number of retries to connect.
+            delay (int): Time between retries in seconds.
 
         Returns:
-            bool: True if a connection to host:port succeeds, meaning the port is in use.
+            int | bool: Socket error code from connect_ex(), or False if an OSError occurs.
         """
         try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.settimeout(timeout)
-                return sock.connect_ex((host, port)) == 0
+            last_code = None
+            for _ in range(retries):
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                    sock.settimeout(timeout)
+                    last_code = sock.connect_ex((host, port))
+                    if last_code == 0:
+                        break
+                time.sleep(delay)
+            return last_code
         except OSError as exc:
             # Covers typical network and socket errors
             LOG.error(f"Port check failed for {host}:{port}, error: {exc}")
@@ -246,7 +255,7 @@ class ServerStateManager:
             changed = False
 
             for _, server_info in servers.items():
-                if server_info.pid and self._is_process_running(server_info.pid):
+                if server_info.pid and self._is_process_running(server_info.pid) == 0:
                     # Process is running, check health if we have port info
                     if server_info.port:
                         if self._is_port_in_use(server_info.host, server_info.port):

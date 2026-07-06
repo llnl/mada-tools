@@ -8,13 +8,22 @@ This module contains pytest fixtures to be used throughout the entire test suite
 import json
 import os
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Generator
 
 import pytest
 from _pytest.tmpdir import TempPathFactory
 
-TESTS_DIR = Path(__file__).parent
+from tests.utils import (
+    get_server_env_vars,
+)
+
+REPO_DIR = Path(__file__).parent.parent
+
+CONFIG_PATH = REPO_DIR / "configs" / "development.json"
+
+TESTS_DIR = REPO_DIR / "tests"
 E2E_DIR = TESTS_DIR / "e2e"
 INTEGRATION_DIR = TESTS_DIR / "integration"
 UNIT_DIR = TESTS_DIR / "unit"
@@ -76,13 +85,41 @@ def pytest_runtest_setup(item):
 
     This hook checks for the presence of required environment variables for tests
     marked with `@pytest.mark.requires_env`. If any required environment variables
-    are missing, the test is skipped.
+    are missing, the test is skipped. If "MCP_SERVER:my_mcp" is passed, it will look
+    through `configs/development.json` to confirm MCP Server paths are available.
 
     Args:
         item: The pytest test item being set up.
     """
     requires_env_mark = item.get_closest_marker("requires_env")
-    if requires_env_mark:
+    if not requires_env_mark:
+        return
+
+    # Needs executable paths from MCP Server configuration
+    if "MCP_SERVER:" in requires_env_mark.args[0]:
+        server_key = requires_env_mark.args[0].split(":")[1]
+        env_vars = get_server_env_vars(CONFIG_PATH, server_key)
+
+        PATH_HINT_KEYS = ("PATH", "DIR", "HOME", "ROOT", "FILE", "LIB")
+
+        def _looks_like_path(key: str, value: str) -> bool:
+            if not isinstance(value, str):
+                return False
+            return any(hint in key.upper() for hint in PATH_HINT_KEYS) or value.startswith(("/", "."))
+
+        def _path_accessible(path_str: str) -> bool:
+            path = Path(path_str)
+            return path.exists() and os.access(path, os.R_OK)
+
+        inaccessible = []
+        for key, value in env_vars.items():
+            if _looks_like_path(key, value) and not _path_accessible(value):
+                inaccessible.append(f"{key}={value}")
+
+        if inaccessible:
+            pytest.skip(f"Skipping {item.name}, inaccessible path(s): {', '.join(inaccessible)}")
+
+    else:
         # marker can be used as @pytest.mark.requires_env("VAR")
         # or @pytest.mark.requires_env("VAR", "OTHER_VAR")
         env_vars = requires_env_mark.args
@@ -197,3 +234,32 @@ def config_file(tmp_path: Path) -> Path:
     path = tmp_path / "config.json"
     path.write_text(json.dumps(config))
     return path
+
+
+@pytest.fixture
+def configure_env():
+    """Provide a context manager that temporarily applies server environment variables.
+
+    The returned context manager loads the requested server configuration from
+    CONFIG_PATH, sets the configured environment variables for the duration of
+    the context, and restores the previous environment afterward.
+    """
+
+    @contextmanager
+    def _configure(server_key: str):
+
+        env_vars = get_server_env_vars(CONFIG_PATH, server_key)
+        old_values = {key: os.environ.get(key) for key in env_vars}
+
+        try:
+            for key, value in env_vars.items():
+                os.environ[key] = value
+            yield
+        finally:
+            for key, old_value in old_values.items():
+                if old_value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = old_value
+
+    return _configure

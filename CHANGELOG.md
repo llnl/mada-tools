@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Support for Hubcast
+- GitLab CI for Hubcast
+- Simulation tests and generic tools for LLM MCP Tool tests
 
 ### Changed
 -

@@ -579,7 +579,7 @@ def test_is_port_in_use_returns_true_when_connect_ex_returns_zero(
 
     ok = mgr._is_port_in_use("127.0.0.1", 9999, timeout=7)
 
-    assert ok is True
+    assert ok == 0
     assert created["af"] == sm.socket.AF_INET
     assert created["socktype"] == sm.socket.SOCK_STREAM
 
@@ -617,7 +617,7 @@ def test_is_port_in_use_returns_false_when_connect_ex_nonzero(
 
     monkeypatch.setattr(sm.socket, "socket", lambda af, socktype: FakeSocket())
 
-    assert mgr._is_port_in_use("localhost", 1234) is False
+    assert mgr._is_port_in_use("localhost", 1234) == 111
 
 
 def test_is_port_in_use_returns_false_on_oserror(
@@ -1121,7 +1121,7 @@ def test_get_servers_sets_running_when_pid_running_and_port_healthy_and_saves_wh
     monkeypatch.setattr(
         ServerStateManager,
         "_is_port_in_use",
-        lambda self, host, port, timeout=2: health_calls.append((host, port, timeout)) or True,
+        lambda self, host, port, timeout=2: health_calls.append((host, port, timeout)) or 0,
     )
 
     save_calls = []
@@ -1167,7 +1167,7 @@ def test_get_servers_sets_unhealthy_when_pid_running_but_port_unhealthy(
     monkeypatch.setattr(ServerStateManager, "_lock_state", lambda self: fake_lock_state())
     monkeypatch.setattr(ServerStateManager, "_load_state", lambda self: servers)
     monkeypatch.setattr(ServerStateManager, "_is_process_running", lambda self, pid: True)
-    monkeypatch.setattr(ServerStateManager, "_is_port_in_use", lambda self, host, port, timeout=2: False)
+    monkeypatch.setattr(ServerStateManager, "_is_port_in_use", lambda self, host, port, timeout=2: 111)
 
     save_calls = []
     monkeypatch.setattr(ServerStateManager, "_save_state", lambda self, s: save_calls.append(s))
@@ -1301,7 +1301,7 @@ def test_get_servers_does_not_save_when_no_status_changes(
     monkeypatch.setattr(ServerStateManager, "_lock_state", lambda self: fake_lock_state())
     monkeypatch.setattr(ServerStateManager, "_load_state", lambda self: servers)
     monkeypatch.setattr(ServerStateManager, "_is_process_running", lambda self, pid: True)
-    monkeypatch.setattr(ServerStateManager, "_is_port_in_use", lambda self, host, port, timeout=2: True)
+    monkeypatch.setattr(ServerStateManager, "_is_port_in_use", lambda self, host, port, timeout=2: 0)
 
     save_calls = []
     monkeypatch.setattr(ServerStateManager, "_save_state", lambda self, s: save_calls.append(s))

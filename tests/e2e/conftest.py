@@ -5,14 +5,26 @@
 Fixtures for end-to-end tests.
 """
 
+import json
+import random
+import uuid
+from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Any, Callable, List, Tuple
 
 import pytest
+import pytest_asyncio
 from _pytest.monkeypatch import MonkeyPatch
+from mada_mcp_servers.server_management.server_manager import ServerManager
 
+from examples.simple_agent_loop import MultiServerAgent
 from mada_tools.server_management import ServerInfo, ServerStatus
 from mada_tools.server_management.state_manager import ServerStateManager
+from tests.conftest import REPO_DIR
+from tests.utils import (
+    load_server_config,
+    validate_server_state,
+)
 
 
 @pytest.fixture
@@ -147,3 +159,128 @@ def register_server() -> Callable:
         state_manager.update_server_status(name, status)
 
     return _register_server
+
+
+class AgentTestRunner:
+    """
+    Async test harness for starting MCP servers, initializing an agent,
+    and running prompt-based integration queries against it.
+    """
+
+    def __init__(
+        self,
+        servers_config_path: Path,
+        agent_config_path: Path,
+        agent_cls,
+    ):
+        """
+        Initialize the test runner with server and agent configuration paths.
+
+        Args:
+            servers_config_path (Path): Path to the MCP servers config file.
+            agent_config_path (Path): Path to the agent config file.
+            agent_cls: Agent class used to create the test agent instance.
+        """
+        self.servers_config_path = Path(servers_config_path)
+        self.agent_config_path = Path(agent_config_path)
+        self.agent_cls = agent_cls
+
+        self.server_manager = ServerManager(
+            state_file=Path.home() / ".mada" / f"server_statuses_{uuid.uuid4().hex}.json"
+        )
+        self.stack: AsyncExitStack | None = None
+        self.agent: Any | None = None
+        self.servers_config: dict[str, Any] | None = None
+
+    async def __aenter__(self):
+        await self.start()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.close()
+
+    async def start(self):
+        if not self.servers_config_path.exists():
+            raise pytest.UsageError(f"Servers config not found: {self.servers_config_path}")
+
+        if not self.agent_config_path.exists():
+            raise pytest.UsageError(f"Agent config not found: {self.agent_config_path}")
+
+        servers_data = json.loads(self.servers_config_path.read_text())
+        agent_data = json.loads(self.agent_config_path.read_text())
+
+        port_map = {}
+
+        for name, server in servers_data.get("servers", {}).items():
+            if "port" in server:
+                port_map[name] = random.randint(1024, 65535)
+                server["port"] = port_map[name]
+
+        for name, mcp_server in agent_data.get("mcp_servers", {}).items():
+            if name in port_map and "url" in mcp_server:
+                mcp_server["url"] = f"http://localhost:{port_map[name]}/mcp"
+
+        servers_randomized_path = self.servers_config_path.with_name(
+            self.servers_config_path.stem + f"_randomized_{uuid.uuid4().hex}.json"
+        )
+        agent_randomized_path = self.agent_config_path.with_name(
+            self.agent_config_path.stem + f"_randomized_{uuid.uuid4().hex}.json"
+        )
+
+        servers_randomized_path.write_text(json.dumps(servers_data, indent=2))
+        agent_randomized_path.write_text(json.dumps(agent_data, indent=2))
+
+        self.servers_config_path = servers_randomized_path
+        self.agent_config_path = agent_randomized_path
+
+        self.servers_config = load_server_config(self.servers_config_path)
+        self.server_manager.start_servers(self.servers_config_path)
+
+        try:
+            active_servers = self.server_manager.state_manager.get_servers(validate=True)
+            validate_server_state(self.servers_config["servers"], active_servers)
+
+            self.agent = self.agent_cls(
+                config_path=str(self.agent_config_path),
+            )
+            self.stack = AsyncExitStack()
+            await self.stack.__aenter__()
+            await self.agent.initialize(self.stack)
+
+        except Exception:
+            await self.close()
+            raise
+
+    async def process_query(self, prompt: str) -> str:
+        assert self.agent is not None, "Call start() first"
+        return await self.agent.process_query(prompt, add_tool_context=True)
+
+    async def close(self):
+        try:
+            if self.stack is not None:
+                await self.stack.aclose()
+                self.stack = None
+        finally:
+            self.server_manager.stop_servers()
+
+
+@pytest_asyncio.fixture
+def agent_test_runner():
+    async def _create(
+        servers_config_file: str,
+        agent_config_file: str,
+    ):
+        """
+        Create an async factory for constructing AgentTestRunner instances
+        from repository-relative config file names.
+        """
+        servers_config_path = REPO_DIR / "configs" / servers_config_file
+        agent_config_path = REPO_DIR / "examples" / agent_config_file
+
+        return AgentTestRunner(
+            servers_config_path=servers_config_path,
+            agent_config_path=agent_config_path,
+            agent_cls=MultiServerAgent,
+        )
+
+    return _create
