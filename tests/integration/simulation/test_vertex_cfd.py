@@ -1,3 +1,6 @@
+# Copyright 2026, Lawrence Livermore National Security, LLC and MADA contributors
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 """
 Integration tests for the Vertex-CFD MCP server to verify required tools are available.
 """

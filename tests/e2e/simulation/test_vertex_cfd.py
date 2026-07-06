@@ -1,3 +1,6 @@
+# Copyright 2026, Lawrence Livermore National Security, LLC and MADA contributors
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 """
 End-to-end tests for Vertex-CFD MCP Server with LLM Interaction
 """
@@ -84,5 +87,3 @@ async def test_vertex_cfd_prompt(
         assert response
         assert "Executed tool: post_process_runs" in response
         assert f"'output_dir': '{sims_dir}'" in response
-
-        # TODO: Add cancel jobs tool to flux and slurm
