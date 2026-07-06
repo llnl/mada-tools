@@ -11,18 +11,27 @@ on disk, and uses a simple file lock to ensure atomic read and write
 operations across multiple processes.
 """
 
-import fcntl
 import json
 import logging
 import socket
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
+from typing import BinaryIO, Dict, Iterator, Optional
 
 import psutil
 
 from mada_tools.server_management import ServerInfo, ServerStatus
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+
+try:
+    import msvcrt
+except ImportError:
+    msvcrt = None
 
 LOG = logging.getLogger(__name__)
 
@@ -83,15 +92,79 @@ class ServerStateManager:
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
 
     @contextmanager
-    def _lock_state(self):
-        """File-based locking for atomic operations"""
+    def _lock_state(self) -> Iterator[None]:
+        """
+        Acquire and release the state file lock around a critical section.
+
+        Args:
+            None.
+
+        Returns:
+            Iterator[None]: Context manager that yields while the lock is held.
+
+        Raises:
+            OSError: If the lock file cannot be opened.
+            RuntimeError: If no supported file locking implementation is available.
+        """
         lock_file = self.state_file.with_suffix(".lock")
-        with open(lock_file, "w") as f:
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        with open(lock_file, "a+b") as f:
+            self._acquire_file_lock(f)
             try:
                 yield
             finally:
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                self._release_file_lock(f)
+
+    @staticmethod
+    def _acquire_file_lock(lock_handle: BinaryIO) -> None:
+        """
+        Acquire an exclusive lock using the platform's file locking API.
+
+        Args:
+            lock_handle (BinaryIO): Open lock file handle.
+
+        Raises:
+            OSError: If the underlying platform lock operation fails.
+            RuntimeError: If no supported file locking implementation is available.
+        """
+        if fcntl is not None:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+            return
+
+        if msvcrt is not None:
+            # Windows locks a byte range, so ensure the file has at least one byte.
+            lock_handle.seek(0, 2)
+            if lock_handle.tell() == 0:
+                lock_handle.write(b"\0")
+                lock_handle.flush()
+
+            lock_handle.seek(0)
+            msvcrt.locking(lock_handle.fileno(), msvcrt.LK_LOCK, 1)
+            return
+
+        raise RuntimeError("No supported file locking implementation is available")
+
+    @staticmethod
+    def _release_file_lock(lock_handle: BinaryIO) -> None:
+        """
+        Release a previously acquired file lock.
+
+        Args:
+            lock_handle (BinaryIO): Open lock file handle.
+
+        Raises:
+            OSError: If the underlying platform unlock operation fails.
+            RuntimeError: If no supported file locking implementation is available.
+        """
+        if fcntl is not None:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+            return
+
+        if msvcrt is not None:
+            lock_handle.seek(0)
+            msvcrt.locking(lock_handle.fileno(), msvcrt.LK_UNLCK, 1)
+            return
+
+        raise RuntimeError("No supported file locking implementation is available")
 
     def _load_state(self) -> Dict[str, ServerInfo]:
         """
@@ -103,7 +176,7 @@ class ServerStateManager:
         if not self.state_file.exists():
             return {}
 
-        data = json.loads(self.state_file.read_text())
+        data = json.loads(self.state_file.read_text(encoding="utf-8"))
         servers = {}
         for name, server_dict in data.get("servers", {}).items():
             try:
@@ -114,18 +187,27 @@ class ServerStateManager:
 
         return servers
 
-    def _save_state(self, servers: Dict[str, ServerInfo]):
+    def _save_state(self, servers: Dict[str, ServerInfo]) -> None:
         """
         Save server state atomically.
 
         Args:
-            servers: Dictionary mapping server names to ServerInfo objects
+            servers (Dict[str, ServerInfo]): Dictionary mapping server names to
+                ServerInfo objects.
+
+        Returns:
+            None.
+
+        Raises:
+            OSError: If writing the temporary state file or replacing the final
+                state file fails.
+            TypeError: If a server entry cannot be serialized to JSON.
         """
         state = {"servers": {name: server.to_dict() for name, server in servers.items()}}
 
         tmp = self.state_file.with_suffix(".tmp")
-        tmp.write_text(json.dumps(state, indent=2))
-        tmp.rename(self.state_file)
+        tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        tmp.replace(self.state_file)
 
     def _is_process_running(self, pid: int) -> bool:
         """
