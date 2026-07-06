@@ -111,12 +111,13 @@ class MultiServerAgent:
     available tools through an OpenAI-compatible interface with tool calling.
     """
 
-    def __init__(self, config_path: str = "config.json"):
+    def __init__(self, config_path: str = "config.json", blocking: bool = False):
         """
         Initialize the multi-server MCP agent.
 
         Args:
             config_path: Path to configuration file
+            blocking: If True, process one query at a time; if False, allow concurrent background queries.
         """
         self.config = self._load_config(config_path)
         # Use all servers defined in mcp_servers
@@ -148,6 +149,7 @@ class MultiServerAgent:
         self.pending_tasks: Dict[str, asyncio.Task] = {}
         self.task_counter = 0
         self.task_results: Dict[str, str] = {}
+        self.blocking = blocking
 
         # Load static context once at startup
         if context_file:
@@ -155,6 +157,7 @@ class MultiServerAgent:
 
         LOGGER.info("Multi-Server Agent initialized")
         LOGGER.info(f"Model: {self.model}")
+        LOGGER.info(f"Blocking mode: {self.blocking}")
         LOGGER.info(f"Target servers: {', '.join(self.selected_servers)}")
 
     def _load_static_context(self, path: str) -> None:
@@ -472,6 +475,7 @@ class MultiServerAgent:
         LOGGER.info("=" * 60)
         LOGGER.info(f"Connected servers: {', '.join(self.sessions.keys())}")
         LOGGER.info("Type your queries or 'quit' to exit.")
+        LOGGER.info(f"Query mode: {'blocking' if self.blocking else 'background'}")
         LOGGER.info("Press Ctrl-C while a query is running to cancel it.")
         LOGGER.info("-" * 60)
 
@@ -530,8 +534,11 @@ class MultiServerAgent:
                         continue
 
                     LOGGER.query(query)
-                    task_id = self.submit_query(query)
-                    LOGGER.info(f"\n[{task_id}] Started in background")
+                    if self.blocking:
+                        await self.run_query_blocking(query, state)
+                    else:
+                        task_id = self.submit_query(query)
+                        LOGGER.info(f"\n[{task_id}] Started in background")
 
                 except KeyboardInterrupt:
                     LOGGER.info("\nGoodbye!")
@@ -559,6 +566,9 @@ class MultiServerAgent:
                 self.task_results[task_id] = result.output
                 self.chat_history.extend(result.history_messages)
                 LOGGER.info(f"\n[{task_id}] Completed:\n{result.output}")
+            except asyncio.CancelledError:
+                self.task_results[task_id] = "Cancelled"
+                LOGGER.info(f"\n[{task_id}] Cancelled.")
             except Exception as e:
                 self.task_results[task_id] = f"Error: {e}"
                 LOGGER.error(f"\n[{task_id}] Failed: {e}")
@@ -567,6 +577,35 @@ class MultiServerAgent:
 
         task.add_done_callback(done_callback)
         return task_id
+
+    async def run_query_blocking(self, query: str, state: Dict[str, Any]) -> str:
+        """Run one query to completion before accepting the next prompt."""
+        self.task_counter += 1
+        task_id = f"task-{self.task_counter}"
+
+        snapshot = copy.deepcopy(self.chat_history)
+        task = asyncio.create_task(self.process_query(query, snapshot, task_id=task_id))
+        self.pending_tasks[task_id] = task
+        state["running_task"] = task
+
+        try:
+            LOGGER.info(f"\n[{task_id}] Running")
+            result = await task
+            self.task_results[task_id] = result.output
+            self.chat_history.extend(result.history_messages)
+            LOGGER.info(f"\n[{task_id}] Completed:\n{result.output}")
+            return task_id
+        except asyncio.CancelledError:
+            self.task_results[task_id] = "Cancelled"
+            LOGGER.info(f"\n[{task_id}] Cancelled.")
+            raise
+        except Exception as e:
+            self.task_results[task_id] = f"Error: {e}"
+            LOGGER.error(f"\n[{task_id}] Failed: {e}")
+            raise
+        finally:
+            state["running_task"] = None
+            self.pending_tasks.pop(task_id, None)
 
 
 async def main():
@@ -580,10 +619,15 @@ async def main():
         default="config.json",
         help="Configuration file path (default: config.json)",
     )
+    parser.add_argument(
+        "--blocking",
+        action="store_true",
+        help="Process one query at a time instead of running queries in the background.",
+    )
     args = parser.parse_args()
 
     # Create and initialize agent
-    agent = MultiServerAgent(config_path=args.config)
+    agent = MultiServerAgent(config_path=args.config, blocking=args.blocking)
 
     try:
         async with AsyncExitStack() as stack:
