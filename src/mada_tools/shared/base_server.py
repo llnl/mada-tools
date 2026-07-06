@@ -4,6 +4,7 @@
 """Base MCP server class for common functionality."""
 
 import argparse
+import asyncio
 import concurrent.futures
 import json
 import logging
@@ -12,6 +13,7 @@ import threading
 import traceback
 from abc import ABC
 from datetime import datetime
+from itertools import count
 from typing import Any, Callable, Dict, Optional
 
 from fastmcp import FastMCP
@@ -38,11 +40,12 @@ class BaseMCPServer(ABC):
         self.mcp = None
         # OAuth configuration (set during run_with_args)
         self.oauth_enabled = False
-        self._tool_executor = concurrent.futures.ThreadPoolExecutor(
-            thread_name_prefix=f"{server_name.lower().replace(' ', '-')}-tool"
-        )
         self._tool_task_lock = threading.Lock()
-        self._tool_task_counter = 0
+        self._tool_task_counter = count(1)
+        self._background_tasks: set[asyncio.Task[Any]] = set()
+        self._background_futures: set[concurrent.futures.Future[Any]] = set()
+        self._background_loop: asyncio.AbstractEventLoop | None = None
+        self._background_loop_thread: threading.Thread | None = None
 
     def get_env_var(self, var_name: str, default: Optional[str] = None, required: bool = False) -> Optional[str]:
         """
@@ -200,6 +203,18 @@ class BaseMCPServer(ABC):
 
     def run_tool(self, func: Callable, *args, **kwargs) -> Any:
         """
+        Execute a tool immediately and return its payload.
+
+        Args:
+            func: The function/method to execute.
+
+        Returns:
+            The normalized tool payload.
+        """
+        return self._execute_tool(func, *args, **kwargs)
+
+    def run_tool_background(self, func: Callable, *args, **kwargs) -> str:
+        """
         Start a tool in the background and return a tracking payload.
 
         Args:
@@ -211,14 +226,32 @@ class BaseMCPServer(ABC):
         task_id = self._next_tool_task_id()
         tool_name = getattr(func, "__name__", repr(func))
         submitted_at = self._utc_now()
-        future = self._tool_executor.submit(self._execute_tool, func, *args, **kwargs)
-        future.add_done_callback(
-            lambda done_future, tracked_task_id=task_id, tracked_tool_name=tool_name: self._log_background_completion(
-                tracked_task_id,
-                tracked_tool_name,
-                done_future,
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            future = self._submit_background_coroutine(self._execute_tool_async(func, *args, **kwargs))
+            with self._tool_task_lock:
+                self._background_futures.add(future)
+            future.add_done_callback(
+                lambda done_future, tracked_task_id=task_id, tracked_tool_name=tool_name: (
+                    self._finalize_background_future(
+                        tracked_task_id,
+                        tracked_tool_name,
+                        done_future,
+                    )
+                )
             )
-        )
+        else:
+            task = loop.create_task(self._execute_tool_async(func, *args, **kwargs))
+            with self._tool_task_lock:
+                self._background_tasks.add(task)
+            task.add_done_callback(
+                lambda done_task, tracked_task_id=task_id, tracked_tool_name=tool_name: self._finalize_background_task(
+                    tracked_task_id,
+                    tracked_tool_name,
+                    done_task,
+                )
+            )
         return json.dumps(
             {
                 "task_id": task_id,
@@ -238,15 +271,66 @@ class BaseMCPServer(ABC):
     def _next_tool_task_id(self) -> str:
         """Generate the next server-local tool task ID."""
         with self._tool_task_lock:
-            self._tool_task_counter += 1
-            return f"tool-task-{self._tool_task_counter}"
+            return f"tool-task-{next(self._tool_task_counter)}"
 
-    def _log_background_completion(self, task_id: str, tool_name: str, future: concurrent.futures.Future) -> None:
-        """Log failures from detached background tool execution."""
+    def _finalize_background_task(self, task_id: str, tool_name: str, task: asyncio.Task[Any]) -> None:
+        """Drop completed background tasks and log detached failures."""
+        with self._tool_task_lock:
+            self._background_tasks.discard(task)
+        try:
+            task.result()
+        except Exception as e:
+            LOG.error("Background tool %s (%s) failed: %s", tool_name, task_id, e)
+
+    def _finalize_background_future(
+        self,
+        task_id: str,
+        tool_name: str,
+        future: concurrent.futures.Future[Any],
+    ) -> None:
+        """Drop completed thread-safe futures and log detached failures."""
+        with self._tool_task_lock:
+            self._background_futures.discard(future)
         try:
             future.result()
         except Exception as e:
             LOG.error("Background tool %s (%s) failed: %s", tool_name, task_id, e)
+
+    def _submit_background_coroutine(self, coro: Any) -> concurrent.futures.Future[Any]:
+        """Schedule a coroutine on a dedicated background event loop."""
+        loop = self._ensure_background_loop()
+        return asyncio.run_coroutine_threadsafe(coro, loop)
+
+    def _ensure_background_loop(self) -> asyncio.AbstractEventLoop:
+        """Create a dedicated event loop for background tool execution when needed."""
+        with self._tool_task_lock:
+            if self._background_loop is not None and self._background_loop.is_running():
+                return self._background_loop
+
+            loop_ready = threading.Event()
+
+            def _run_loop() -> None:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                self._background_loop = loop
+                loop_ready.set()
+                loop.run_forever()
+
+            self._background_loop_thread = threading.Thread(
+                target=_run_loop,
+                name=f"{self.server_name.lower().replace(' ', '-')}-asyncio",
+                daemon=True,
+            )
+            self._background_loop_thread.start()
+
+        loop_ready.wait()
+        if self._background_loop is None:
+            raise RuntimeError("Failed to start background asyncio event loop")
+        return self._background_loop
+
+    async def _execute_tool_async(self, func: Callable, *args, **kwargs) -> Any:
+        """Run one tool function off the event loop and normalize its result."""
+        return await asyncio.to_thread(self._execute_tool, func, *args, **kwargs)
 
     def _execute_tool(self, func: Callable, *args, **kwargs) -> Any:
         """Execute one tool function and normalize `(success, payload)` results."""

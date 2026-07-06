@@ -749,16 +749,34 @@ class TestRunWithArgs:
 
 
 class TestRunTool:
-    """Unit tests for the always-background `BaseMCPServer.run_tool()`."""
+    """Unit tests for `BaseMCPServer.run_tool()` and background execution."""
 
-    def test_run_tool_background_starts_job_and_tracks_result(self, server: BaseMCPServer):
-        """It returns a job descriptor immediately for a background tool."""
+    def test_run_tool_returns_payload_for_successful_tool(self, server: BaseMCPServer):
+        """It returns the payload directly for a successful tool."""
 
         def succeed():
             return True, "background-done"
 
-        started = json.loads(server.run_tool(succeed))
-        assert started["job_id"].startswith("tool-job-")
+        result = server.run_tool(succeed)
+        assert result == "background-done"
+
+    def test_run_tool_raises_for_failed_tool(self, server: BaseMCPServer):
+        """It raises when the wrapped tool reports failure."""
+
+        def fail():
+            return False, "background-boom"
+
+        with pytest.raises(base_mod.ToolExecutionError, match="background-boom"):
+            server.run_tool(fail)
+
+    def test_run_tool_background_starts_job_and_tracks_result(self, server: BaseMCPServer):
+        """It returns a task descriptor immediately for a background tool."""
+
+        def succeed():
+            return True, "background-done"
+
+        started = json.loads(server.run_tool_background(succeed))
+        assert started["task_id"].startswith("tool-task-")
         assert started["tool_name"] == "succeed"
         assert started["status"] == "running"
         assert started["message"] == "Tool started in background."
@@ -769,8 +787,8 @@ class TestRunTool:
         def fail():
             return False, "background-boom"
 
-        started = json.loads(server.run_tool(fail))
-        assert started["job_id"].startswith("tool-job-")
+        started = json.loads(server.run_tool_background(fail))
+        assert started["task_id"].startswith("tool-task-")
         assert started["tool_name"] == "fail"
         assert started["status"] == "running"
 
@@ -780,7 +798,7 @@ class TestRunTool:
         def explode():
             raise RuntimeError("kaboom")
 
-        started = json.loads(server.run_tool(explode))
-        assert started["job_id"].startswith("tool-job-")
+        started = json.loads(server.run_tool_background(explode))
+        assert started["task_id"].startswith("tool-task-")
         assert started["tool_name"] == "explode"
         assert started["status"] == "running"

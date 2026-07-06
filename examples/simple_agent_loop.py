@@ -26,6 +26,7 @@ import re
 import signal
 import sys
 from contextlib import AsyncExitStack
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List
 
@@ -92,6 +93,14 @@ class Tool(BaseModel):
                 "parameters": self.input_schema,
             },
         }
+
+
+@dataclass
+class QueryResult:
+    """User-visible result plus the history messages produced while answering."""
+
+    output: str
+    history_messages: list[dict[str, Any]]
 
 
 class MultiServerAgent:
@@ -358,7 +367,7 @@ class MultiServerAgent:
 
     async def process_query(
         self, query: str, chat_snapshot: List[Dict[str, Any]], task_id: str = "", max_tool_calls: int = 10
-    ) -> str:
+    ) -> QueryResult:
         """
         Process a query using LLM and available MADA MCP tools.
 
@@ -370,8 +379,10 @@ class MultiServerAgent:
         Returns:
             The response from LLM.
         """
+        user_message = {"role": "user", "content": query}
         messages: List[Dict[str, Any]] = list(self._base_context_messages) + list(chat_snapshot)
-        messages.append({"role": "user", "content": query})
+        messages.append(user_message)
+        history_delta: List[Dict[str, Any]] = [user_message]
 
         openai_tools = [tool.to_openai_format() for tool in self.tools]
 
@@ -386,19 +397,21 @@ class MultiServerAgent:
                 )
             except Exception as e:
                 LOGGER.error(f"[{task_id}] Error Details: {type(e).__name__}: {e}")
-                return f"Error calling LLM: {e}"
+                error_message = f"Error calling LLM: {e}"
+                history_delta.append({"role": "assistant", "content": error_message})
+                return QueryResult(output=error_message, history_messages=history_delta)
 
             assistant_message = response.choices[0].message
             tool_calls = assistant_message.tool_calls or []
 
             if tool_calls:
-                messages.append(
-                    {
-                        "role": "assistant",
-                        "content": assistant_message.content or "",
-                        "tool_calls": [tc.model_dump() for tc in tool_calls],
-                    }
-                )
+                assistant_tool_message = {
+                    "role": "assistant",
+                    "content": assistant_message.content or "",
+                    "tool_calls": [tc.model_dump() for tc in tool_calls],
+                }
+                messages.append(assistant_tool_message)
+                history_delta.append(assistant_tool_message)
 
                 started_tasks: List[Dict[str, str]] = []
                 for tool_call in tool_calls:
@@ -418,13 +431,13 @@ class MultiServerAgent:
                             }
                         )
 
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "content": tool_result,
-                            "tool_call_id": tool_call.id,
-                        }
-                    )
+                    tool_message = {
+                        "role": "tool",
+                        "content": tool_result,
+                        "tool_call_id": tool_call.id,
+                    }
+                    messages.append(tool_message)
+                    history_delta.append(tool_message)
 
                 if started_tasks:
                     lines = ["Started background tool tasks:"]
@@ -433,19 +446,24 @@ class MultiServerAgent:
                             f"- {started_task['tool_name']}: {started_task['task_id']} ({started_task['status']})"
                         )
                     lines.append("This query will not wait for completion.")
-                    return "\n".join(lines)
+                    started_tasks_message = "\n".join(lines)
+                    history_delta.append({"role": "assistant", "content": started_tasks_message})
+                    return QueryResult(output=started_tasks_message, history_messages=history_delta)
 
                 continue
 
             final_content = self._stringify_content(assistant_message.content)
-            messages.append({"role": "assistant", "content": final_content})
-            return final_content
+            final_message = {"role": "assistant", "content": final_content}
+            messages.append(final_message)
+            history_delta.append(final_message)
+            return QueryResult(output=final_content, history_messages=history_delta)
 
         max_tool_calls_message = (
             f"Agent stopped after reaching max_tool_calls={max_tool_calls} without producing a final response."
         )
         LOGGER.warning(f"[{task_id}] {max_tool_calls_message}")
-        return max_tool_calls_message
+        history_delta.append({"role": "assistant", "content": max_tool_calls_message})
+        return QueryResult(output=max_tool_calls_message, history_messages=history_delta)
 
     async def chat_loop(self):
         """Run an interactive chat loop with the MADA MCP servers."""
@@ -538,10 +556,9 @@ class MultiServerAgent:
         def done_callback(t: asyncio.Task):
             try:
                 result = t.result()
-                self.task_results[task_id] = result
-                self.chat_history.append({"role": "user", "content": query})
-                self.chat_history.append({"role": "assistant", "content": result})
-                LOGGER.info(f"\n[{task_id}] Completed:\n{result}")
+                self.task_results[task_id] = result.output
+                self.chat_history.extend(result.history_messages)
+                LOGGER.info(f"\n[{task_id}] Completed:\n{result.output}")
             except Exception as e:
                 self.task_results[task_id] = f"Error: {e}"
                 LOGGER.error(f"\n[{task_id}] Failed: {e}")
