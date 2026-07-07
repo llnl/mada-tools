@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 - Support for Hubcast
 
 ### Changed
+- Refactored the `JobMonitorServer` and `ProfessorServer` to utilize `BaseMCPServer.run_tool()`
 - Dropped support for Python 3.10
 
 ### Fixed

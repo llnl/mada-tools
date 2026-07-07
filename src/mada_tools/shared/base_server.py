@@ -36,26 +36,6 @@ class BaseMCPServer(ABC):
         # OAuth configuration (set during run_with_args)
         self.oauth_enabled = False
 
-    def get_env_var(self, var_name: str, default: Optional[str] = None, required: bool = False) -> Optional[str]:
-        """
-        Get environment variable with optional default and required validation.
-
-        Args:
-            var_name: Name of the environment variable
-            default: Default value if not set
-            required: Whether the variable is required
-
-        Returns:
-            The environment variable value
-
-        Raises:
-            ValueError: If required variable is not set
-        """
-        value = os.getenv(var_name, default)
-        if required and value is None:
-            raise ValueError(f"Required environment variable {var_name} is not set")
-        return value
-
     def parse_args(self) -> argparse.Namespace:
         """Parse command line arguments."""
         parser = argparse.ArgumentParser(description=self.description)

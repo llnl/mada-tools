@@ -16,6 +16,7 @@ from _pytest.monkeypatch import MonkeyPatch
 
 import mada_tools.shared.base_server as base_mod
 from mada_tools.shared import BaseMCPServer
+from mada_tools.shared.exceptions import ToolExecutionError
 
 
 class FastMCPStub:
@@ -62,95 +63,6 @@ class TestBaseMCPServerInit:
         """It initializes `mcp` to None (it is expected to be set later)."""
         s = BaseMCPServer("alpha")
         assert s.mcp is None
-
-
-class TestGetEnvVar:
-    """Unit tests for `BaseMCPServer.get_env_var()`."""
-
-    def test_get_env_var_returns_value_when_set(self, server: BaseMCPServer, monkeypatch: MonkeyPatch):
-        """
-        It returns the environment variable value when the variable is present.
-
-        Args:
-            server (BaseMCPServer):
-                An instance of `BaseMCPServer` for testing.
-            monkeypatch (MonkeyPatch):
-                Pytest monkeypatch fixture.
-        """
-        monkeypatch.setenv("FOO", "bar")
-        assert server.get_env_var("FOO") == "bar"
-
-    def test_get_env_var_returns_default_when_not_set(self, server: BaseMCPServer, monkeypatch: MonkeyPatch):
-        """
-        It returns the supplied default when the environment variable is absent.
-
-        Args:
-            server (BaseMCPServer):
-                An instance of `BaseMCPServer` for testing.
-            monkeypatch (MonkeyPatch):
-                Pytest monkeypatch fixture.
-        """
-        monkeypatch.delenv("FOO", raising=False)
-        assert server.get_env_var("FOO", default="zzz") == "zzz"
-
-    def test_get_env_var_returns_none_when_not_set_and_no_default(
-        self, server: BaseMCPServer, monkeypatch: MonkeyPatch
-    ):
-        """
-        It returns None when the variable is absent and no default is provided.
-
-        Args:
-            server (BaseMCPServer):
-                An instance of `BaseMCPServer` for testing.
-            monkeypatch (MonkeyPatch):
-                Pytest monkeypatch fixture.
-        """
-        monkeypatch.delenv("FOO", raising=False)
-        assert server.get_env_var("FOO") is None
-
-    def test_get_env_var_required_true_raises_when_missing_and_no_default(
-        self, server: BaseMCPServer, monkeypatch: MonkeyPatch
-    ):
-        """
-        It raises ValueError when `required=True` and the variable is missing and has no default.
-
-        Args:
-            server (BaseMCPServer):
-                An instance of `BaseMCPServer` for testing.
-            monkeypatch (MonkeyPatch):
-                Pytest monkeypatch fixture.
-        """
-        monkeypatch.delenv("REQ", raising=False)
-        with pytest.raises(ValueError, match=r"Required environment variable REQ is not set"):
-            server.get_env_var("REQ", required=True)
-
-    def test_get_env_var_required_true_does_not_raise_when_set(self, server: BaseMCPServer, monkeypatch: MonkeyPatch):
-        """
-        It does not raise when `required=True` and the variable is present.
-
-        Args:
-            server (BaseMCPServer):
-                An instance of `BaseMCPServer` for testing.
-            monkeypatch (MonkeyPatch):
-                Pytest monkeypatch fixture.
-        """
-        monkeypatch.setenv("REQ", "present")
-        assert server.get_env_var("REQ", required=True) == "present"
-
-    def test_get_env_var_required_true_does_not_raise_when_default_provided(
-        self, server: BaseMCPServer, monkeypatch: MonkeyPatch
-    ):
-        """
-        It does not raise when `required=True` but a non-None default is provided.
-
-        Args:
-            server (BaseMCPServer):
-                An instance of `BaseMCPServer` for testing.
-            monkeypatch (MonkeyPatch):
-                Pytest monkeypatch fixture.
-        """
-        monkeypatch.delenv("REQ", raising=False)
-        assert server.get_env_var("REQ", default="fallback", required=True) == "fallback"
 
 
 class TestParseArgs:
@@ -216,6 +128,42 @@ class TestParseArgs:
         monkeypatch.setattr("sys.argv", ["prog", "--transport", "invalid"])
         with pytest.raises(SystemExit):
             server.parse_args()
+
+
+class TestRunTool:
+    """Unit tests for `BaseMCPServer.run_tool()`."""
+
+    def test_run_tool_returns_payload_when_wrapped_function_succeeds(self, server: BaseMCPServer):
+        """It returns the payload from a successful wrapped function."""
+
+        def tool_impl(*args, **kwargs):
+            assert args == ("alpha",)
+            assert kwargs == {"count": 2}
+            return True, "payload"
+
+        assert server.run_tool(tool_impl, "alpha", count=2) == "payload"
+
+    def test_run_tool_raises_tool_execution_error_when_wrapped_function_reports_failure(self, server: BaseMCPServer):
+        """It raises `ToolExecutionError` when the wrapped function returns `success=False`."""
+
+        def tool_impl():
+            return False, "explicit failure"
+
+        with pytest.raises(
+            ToolExecutionError, match=r"Tool execution failed at .*base_server.py:\d+ in run_tool: explicit failure"
+        ):
+            server.run_tool(tool_impl)
+
+    def test_run_tool_wraps_unexpected_exception_with_location(self, server: BaseMCPServer):
+        """It wraps unexpected exceptions with source location details."""
+
+        def tool_impl():
+            raise RuntimeError("boom")
+
+        with pytest.raises(
+            ToolExecutionError, match=r"Tool execution failed at .*test_base_server.py:.* in tool_impl: boom"
+        ):
+            server.run_tool(tool_impl)
 
 
 class TestLoadConfig:
