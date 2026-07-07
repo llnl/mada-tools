@@ -2104,6 +2104,8 @@
       
         
       
+        
+      
     
     
     
@@ -2171,6 +2173,34 @@
     
   
     failure_patterns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../monitor/job_monitor/job_monitor_helper/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    job_monitor_helper
   
 
     
@@ -2893,6 +2923,8 @@
       
         
       
+        
+      
     
     
     
@@ -3016,6 +3048,34 @@
     
   
     base_settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../shared/env/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    env
   
 
     
@@ -4000,6 +4060,8 @@
       
         
       
+        
+      
     
     
     
@@ -4050,6 +4112,34 @@
           </label>
           <ul class="md-nav__list" data-md-scrollfix="">
             
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../surrogate/professor/professor_helper/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    professor_helper
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
               
             
               
@@ -5021,7 +5111,7 @@ including queued <code>sbatch</code> submission and direct <code>srun</code> exe
 </span><span id="__span-0-160"><a id="__codelineno-0-160" name="__codelineno-0-160"></a><span class="sd">            Returns:</span>
 </span><span id="__span-0-161"><a id="__codelineno-0-161" name="__codelineno-0-161"></a><span class="sd">                str: Command output and status</span>
 </span><span id="__span-0-162"><a id="__codelineno-0-162" name="__codelineno-0-162"></a><span class="sd">            """</span>
-</span><span id="__span-0-163"><a id="__codelineno-0-163" name="__codelineno-0-163"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">run_tool</span><span class="p">(</span>
+</span><span id="__span-0-163"><a id="__codelineno-0-163" name="__codelineno-0-163"></a>            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">run_tool</span><span class="p">(</span>
 </span><span id="__span-0-164"><a id="__codelineno-0-164" name="__codelineno-0-164"></a>                <span class="bp">self</span><span class="o">.</span><span class="n">job_manager</span><span class="o">.</span><span class="n">submit_command</span><span class="p">,</span>
 </span><span id="__span-0-165"><a id="__codelineno-0-165" name="__codelineno-0-165"></a>                <span class="n">command</span><span class="p">,</span>
 </span><span id="__span-0-166"><a id="__codelineno-0-166" name="__codelineno-0-166"></a>                <span class="n">nodes</span><span class="p">,</span>
@@ -5032,7 +5122,7 @@ including queued <code>sbatch</code> submission and direct <code>srun</code> exe
 </span><span id="__span-0-171"><a id="__codelineno-0-171" name="__codelineno-0-171"></a>        <span class="nd">@self</span><span class="o">.</span><span class="n">mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
 </span><span id="__span-0-172"><a id="__codelineno-0-172" name="__codelineno-0-172"></a>        <span class="k">def</span><span class="w"> </span><span class="nf">list_queue</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 </span><span id="__span-0-173"><a id="__codelineno-0-173" name="__codelineno-0-173"></a><span class="w">            </span><span class="sd">"""List all jobs in the SLURM queue using squeue."""</span>
-</span><span id="__span-0-174"><a id="__codelineno-0-174" name="__codelineno-0-174"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">run_tool</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">job_manager</span><span class="o">.</span><span class="n">list_queue</span><span class="p">)</span>
+</span><span id="__span-0-174"><a id="__codelineno-0-174" name="__codelineno-0-174"></a>            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">run_tool</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">job_manager</span><span class="o">.</span><span class="n">list_queue</span><span class="p">)</span>
 </span><span id="__span-0-175"><a id="__codelineno-0-175" name="__codelineno-0-175"></a>
 </span><span id="__span-0-176"><a id="__codelineno-0-176" name="__codelineno-0-176"></a>        <span class="nd">@self</span><span class="o">.</span><span class="n">mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
 </span><span id="__span-0-177"><a id="__codelineno-0-177" name="__codelineno-0-177"></a>        <span class="k">def</span><span class="w"> </span><span class="nf">get_cluster_info</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
@@ -5042,7 +5132,7 @@ including queued <code>sbatch</code> submission and direct <code>srun</code> exe
 </span><span id="__span-0-181"><a id="__codelineno-0-181" name="__codelineno-0-181"></a><span class="sd">            Returns:</span>
 </span><span id="__span-0-182"><a id="__codelineno-0-182" name="__codelineno-0-182"></a><span class="sd">                Information about the cluster nodes from `sinfo`.</span>
 </span><span id="__span-0-183"><a id="__codelineno-0-183" name="__codelineno-0-183"></a><span class="sd">            """</span>
-</span><span id="__span-0-184"><a id="__codelineno-0-184" name="__codelineno-0-184"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">run_tool</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">job_manager</span><span class="o">.</span><span class="n">get_cluster_info</span><span class="p">)</span>
+</span><span id="__span-0-184"><a id="__codelineno-0-184" name="__codelineno-0-184"></a>            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">run_tool</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">job_manager</span><span class="o">.</span><span class="n">get_cluster_info</span><span class="p">)</span>
 </span></code></pre></div></td></tr></tbody></table></div>
               </details>
 
