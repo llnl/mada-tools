@@ -46,11 +46,13 @@ Depending on which test type (e2e, integration, etc.) you put a test file under,
 - `integration`: Marks tests as integration tests
 - `e2e`: Marks tests as end-to-end tests
 
-If you create a test that requires an allocation, mark the test with `@pytest.mark.allocation_required`.
+Additional markers are below. You'll see how these markers are utilized in the [Running Tests](#running-tests) section.
 
-If you create a test that requires a specific environment variable, mark the test with `@pytest.mark.requires_env("MY_VAR")`.
-
-You'll see how these marks are utilized in the [Running Tests](#running-tests) section.
+| Condition | Marker |
+|---|---|
+| Requires an allocation | `@pytest.mark.allocation_required` |
+| Requires a specific server environment variable. If "MCP_SERVER:my_mcp" is passed, it will look through `configs/development.json` to confirm MCP Server paths are available. | `@pytest.mark.requires_env("MY_VAR")` |
+| Requires an HPC GitLab runner | `@pytest.mark.requires_gitlab_runner` |
 
 ### Fixture Architecture
 
@@ -94,4 +96,10 @@ You can also choose to run *only* the tests that require an allocation using:
 
 ```bash
 flux alloc -N 1 -q pdebug -t 60  pytest -m allocation_required --include-allocation-required tests/
+```
+
+Some tests require a connection to an llm, thus you will need an environment file `${HOME}/.mada_env` with your `API_KEY`.
+
+```
+API_KEY=##############
 ```

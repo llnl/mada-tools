@@ -67,7 +67,8 @@ tests = [
     "pytest",
     "pytest-mock",
     "pre-commit",
-    "ruff"
+    "ruff",
+    "pytest-asyncio"
 ]
 
 all = ["mada_tools[docs, examples, flux, tests]"]
@@ -105,5 +106,6 @@ markers = [
     "integration: marks tests as integration tests",
     "e2e: marks tests as end-to-end tests",
     "allocation_required: marks tests that require an allocation",
-    "requires_env(var): skip test if the given env var is not set",
+    "requires_env(var): skip test if the given server env var is not set or available",
+    "requires_gitlab_runner: marks tests that need an HPC GitLab runner",
 ]

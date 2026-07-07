@@ -26,6 +26,7 @@ import signal
 import sys
 from contextlib import AsyncExitStack
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List
 
 from mcp.client.session import ClientSession
@@ -116,7 +117,9 @@ class MultiServerAgent:
         model_config = self.config["model"]
         api_key = self._expand_env_var(model_config["api_key"])
         base_url = self._expand_env_var(model_config["base_url"])
-        context_file = self._expand_env_var(model_config["context_file"])
+        context_file = Path(self._expand_env_var(model_config["context_file"]))
+        if not context_file.is_absolute():
+            context_file = Path(config_path).resolve().parent / context_file
 
         LOGGER.info(f"API Base URL: {base_url}")
         LOGGER.info(f"API Key: {'*' * (len(api_key) - 4) + api_key[-4:] if api_key else 'Not set'}")
@@ -338,18 +341,20 @@ class MultiServerAgent:
 
         self.messages.append(message)
 
-    async def process_query(self, query: str, max_tool_calls: int = 10) -> str:
+    async def process_query(self, query: str, max_tool_calls: int = 10, add_tool_context: bool = False) -> str:
         """
         Process a query using LLM and available MADA MCP tools.
 
         Args:
             query: The user query.
             max_tool_calls: Maximum number of LLM/tool-call rounds before aborting.
+            add_tool_context: Add tool execution context to response.
 
         Returns:
             The response from LLM.
         """
         self.add_message("user", query)
+        tool_context = ""
 
         # Convert tools to OpenAI format
         openai_tools = [tool.to_openai_format() for tool in self.tools]
@@ -385,11 +390,18 @@ class MultiServerAgent:
                         tool_name=tool_call.function.name,
                         tool_input=json.loads(tool_call.function.arguments),
                     )
+                    if add_tool_context:
+                        tool_context += (
+                            f"\nExecuted tool: {tool_call.function.name} "
+                            f"with arguments: {json.loads(tool_call.function.arguments)}"
+                        )
                     self.add_message("tool", content=result, tool_call_id=tool_call.id)
 
                 continue
 
             final_content = self._stringify_content(assistant_message.content)
+            if add_tool_context:
+                final_content += tool_context
             self.add_message("assistant", content=final_content)
             return final_content
 

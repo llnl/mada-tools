@@ -1,0 +1,18 @@
+spec:
+  inputs:
+    zone_extends:
+      type: array
+      description: Zone-specific parents
+
+---
+
+precommit:
+  stage: test
+  variables:
+    PYTHON_IMAGE: python:3.13
+  extends:
+    - .install_mada_tools
+    - .retry_settings
+    - $[[ inputs.zone_extends ]]
+  script:
+    - pre-commit run --all-files
