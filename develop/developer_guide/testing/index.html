@@ -4807,9 +4807,29 @@
 <li><code>integration</code>: Marks tests as integration tests</li>
 <li><code>e2e</code>: Marks tests as end-to-end tests</li>
 </ul>
-<p>If you create a test that requires an allocation, mark the test with <code>@pytest.mark.allocation_required</code>.</p>
-<p>If you create a test that requires a specific environment variable, mark the test with <code>@pytest.mark.requires_env("MY_VAR")</code>.</p>
-<p>You'll see how these marks are utilized in the <a href="#running-tests">Running Tests</a> section.</p>
+<p>Additional markers are below. You'll see how these markers are utilized in the <a href="#running-tests">Running Tests</a> section.</p>
+<table>
+<thead>
+<tr>
+<th>Condition</th>
+<th>Marker</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Requires an allocation</td>
+<td><code>@pytest.mark.allocation_required</code></td>
+</tr>
+<tr>
+<td>Requires a specific server environment variable. If "MCP_SERVER:my_mcp" is passed, it will look through <code>configs/development.json</code> to confirm MCP Server paths are available.</td>
+<td><code>@pytest.mark.requires_env("MY_VAR")</code></td>
+</tr>
+<tr>
+<td>Requires an HPC GitLab runner</td>
+<td><code>@pytest.mark.requires_gitlab_runner</code></td>
+</tr>
+</tbody>
+</table>
 <h3 id="fixture-architecture">Fixture Architecture</h3>
 <p>Fixtures can be defined at different levels of a test suite by using <code>conftest.py</code> files, and they can also be defined directly inside individual test modules. Where you define a fixture determines how broadly it is available. In general, fixtures defined in a test module are only available in that module, while fixtures defined in a <code>conftest.py</code> file are available to tests in that directory and its subdirectories. Because fixture discovery is scoped this way, fixture names should still be chosen carefully to avoid confusion or unintended overriding.</p>
 <h2 id="running-tests">Running Tests</h2>
@@ -4841,6 +4861,9 @@
 </span></code></pre></div>
 <p>You can also choose to run <em>only</em> the tests that require an allocation using:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>flux<span class="w"> </span>alloc<span class="w"> </span>-N<span class="w"> </span><span class="m">1</span><span class="w"> </span>-q<span class="w"> </span>pdebug<span class="w"> </span>-t<span class="w"> </span><span class="m">60</span><span class="w">  </span>pytest<span class="w"> </span>-m<span class="w"> </span>allocation_required<span class="w"> </span>--include-allocation-required<span class="w"> </span>tests/
+</span></code></pre></div>
+<p>Some tests require a connection to an llm, thus you will need an environment file <code>${HOME}/.mada_env</code> with your <code>API_KEY</code>.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>API_KEY=##############
 </span></code></pre></div>
 
 
