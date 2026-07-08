@@ -71,7 +71,7 @@ def test_main_servers_status_shows_running_servers_from_state(
     )
     monkeypatch.setattr(
         "mada_tools.server_management.state_manager.ServerStateManager._is_port_in_use",
-        lambda self, host, port: True if port == 8011 else False,
+        lambda self, host, port: 0 if port == 8011 else 111,
     )
 
     monkeypatch.setattr(
@@ -148,7 +148,7 @@ def test_main_servers_status_filters_to_requested_server_names(
     )
     monkeypatch.setattr(
         "mada_tools.server_management.state_manager.ServerStateManager._is_port_in_use",
-        lambda self, host, port: True,
+        lambda self, host, port: 0,
     )
 
     monkeypatch.setattr(
@@ -235,7 +235,7 @@ def test_main_servers_status_with_config_includes_stopped_servers_from_config(
     )
     monkeypatch.setattr(
         "mada_tools.server_management.state_manager.ServerStateManager._is_port_in_use",
-        lambda self, host, port: True if port == 8011 else False,
+        lambda self, host, port: 0 if port == 8011 else 111,
     )
 
     monkeypatch.setattr(
@@ -335,7 +335,7 @@ def test_main_servers_status_with_config_and_server_filter_only_targets_matching
     )
     monkeypatch.setattr(
         "mada_tools.server_management.state_manager.ServerStateManager._is_port_in_use",
-        lambda self, host, port: port in {8011, 8013},
+        lambda self, host, port: 0 if port in {8011, 8013} else 111,
     )
 
     monkeypatch.setattr(
@@ -506,7 +506,7 @@ def test_main_servers_status_ignores_unknown_server_names_in_filter(
     )
     monkeypatch.setattr(
         "mada_tools.server_management.state_manager.ServerStateManager._is_port_in_use",
-        lambda self, host, port: True,
+        lambda self, host, port: 0,
     )
 
     monkeypatch.setattr(

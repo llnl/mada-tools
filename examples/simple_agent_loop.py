@@ -28,6 +28,7 @@ import sys
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List
 
 from mcp.client.session import ClientSession
@@ -127,7 +128,9 @@ class MultiServerAgent:
         model_config = self.config["model"]
         api_key = self._expand_env_var(model_config["api_key"])
         base_url = self._expand_env_var(model_config["base_url"])
-        context_file = self._expand_env_var(model_config["context_file"])
+        context_file = Path(self._expand_env_var(model_config["context_file"]))
+        if not context_file.is_absolute():
+            context_file = Path(config_path).resolve().parent / context_file
 
         LOGGER.info(f"API Base URL: {base_url}")
         LOGGER.info(f"API Key: {'*' * (len(api_key) - 4) + api_key[-4:] if api_key else 'Not set'}")
@@ -369,7 +372,12 @@ class MultiServerAgent:
         self.chat_history.append(message)
 
     async def process_query(
-        self, query: str, chat_snapshot: List[Dict[str, Any]], task_id: str = "", max_tool_calls: int = 10
+        self,
+        query: str,
+        chat_snapshot: List[Dict[str, Any]],
+        task_id: str = "",
+        max_tool_calls: int = 10,
+        add_tool_context: bool = False,
     ) -> QueryResult:
         """
         Process a query using LLM and available MADA MCP tools.
@@ -378,6 +386,7 @@ class MultiServerAgent:
             query: The user query.
             task_id: Background task id for logging.
             max_tool_calls: Maximum number of LLM/tool-call rounds before aborting.
+            add_tool_context: Add tool execution context to response.
 
         Returns:
             The response from LLM.
@@ -386,6 +395,7 @@ class MultiServerAgent:
         messages: List[Dict[str, Any]] = list(self._base_context_messages) + list(chat_snapshot)
         messages.append(user_message)
         history_delta: List[Dict[str, Any]] = [user_message]
+        tool_context: List[str] = []
 
         openai_tools = [tool.to_openai_format() for tool in self.tools]
 
@@ -424,6 +434,9 @@ class MultiServerAgent:
                         tool_call.function.name,
                         tool_args,
                     )
+                    if add_tool_context:
+                        tool_context.append(f"Executed tool: {tool_call.function.name} with arguments: {tool_args}")
+
                     tool_task = self._extract_tool_task(tool_result)
                     if tool_task and tool_task.get("status") in {"queued", "running"}:
                         started_tasks.append(
@@ -456,6 +469,8 @@ class MultiServerAgent:
                 continue
 
             final_content = self._stringify_content(assistant_message.content)
+            if add_tool_context and tool_context:
+                final_content += "\n" + "\n".join(tool_context)
             final_message = {"role": "assistant", "content": final_content}
             messages.append(final_message)
             history_delta.append(final_message)

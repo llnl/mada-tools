@@ -15,8 +15,7 @@
       "port": 8107,
       "transport": "streamable-http",
       "env_vars": {
-        "VERTEX_CFD_PATH": "/usr/workspace/mada/vertex-cfd/tuo/vertexcfd-installation/",
-        "VERTEX_CFD_RESULTS_DIR": "/tmp/vertex_cfd_results"
+        "VERTEX_CFD_PATH": "/usr/workspace/mada/vertex-cfd/tuo/vertexcfd-installation/"
       }
     }
   },

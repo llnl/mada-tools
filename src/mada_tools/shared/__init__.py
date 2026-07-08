@@ -3,11 +3,13 @@
 
 """Shared utilities for MADA MCP servers."""
 
-from .base_server import BaseMCPServer
-from .exceptions import MCPServerError, PortInUseError, TemplateContextError, ToolExecutionError
+from mada_tools.shared.base_server import BaseMCPServer
+from mada_tools.shared.env import get_env_var
+from mada_tools.shared.exceptions import MCPServerError, PortInUseError, TemplateContextError, ToolExecutionError
 
 __all__ = [
     "BaseMCPServer",
+    "get_env_var",
     "MCPServerError",
     "PortInUseError",
     "TemplateContextError",

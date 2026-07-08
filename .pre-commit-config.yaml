@@ -17,6 +17,7 @@ repos:
         exclude: ^src/mada_tools/cli/ascii_art\.py$
       - id: name-tests-test
         args: [--pytest-test-first]
+        exclude: ^tests/utils\.py$
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.11

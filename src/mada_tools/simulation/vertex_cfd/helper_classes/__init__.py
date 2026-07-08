@@ -4,9 +4,3 @@
 """
 Helper classes for the Vertex-CFD MCP Server.
 """
-
-from mada_tools.simulation.vertex_cfd.helper_classes.vertex_cfd_helper import (
-    VertexCFDHelper,
-)
-
-__all__ = ["VertexCFDHelper"]
