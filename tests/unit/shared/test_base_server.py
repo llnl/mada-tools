@@ -158,7 +158,8 @@ class TestRunTool:
             return False, "explicit failure"
 
         with pytest.raises(
-            ToolExecutionError, match=r"Tool execution failed at .*base_server.py:\d+ in run_tool: explicit failure"
+            ToolExecutionError,
+            match=r"Tool execution failed at .*base_server.py:\d+ in _execute_tool: explicit failure",
         ):
             server.run_tool(tool_impl)
 

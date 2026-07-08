@@ -5,6 +5,7 @@
 Fixtures for end-to-end tests.
 """
 
+import copy
 import json
 import random
 import uuid
@@ -253,7 +254,10 @@ class AgentTestRunner:
 
     async def process_query(self, prompt: str) -> str:
         assert self.agent is not None, "Call start() first"
-        return await self.agent.process_query(prompt, add_tool_context=True)
+        snapshot = copy.deepcopy(self.agent.chat_history)
+        result = await self.agent.process_query(prompt, snapshot, add_tool_context=True)
+        self.agent.chat_history.extend(result.history_messages)
+        return result.output
 
     async def close(self):
         try:
