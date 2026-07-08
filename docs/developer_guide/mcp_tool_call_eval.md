@@ -179,7 +179,7 @@ mada-mcp-skeleton-example --transport streamable-http --host localhost --port 82
 Then run the evaluator from the repository root. This direct Python invocation
 does not create a timestamped directory by itself; it writes to the explicit
 paths you pass on the command line. The timestamped run folders shown later are
-created by the bash wrapper scripts such as `examples/testskeleton.sh`.
+created by the bash wrapper scripts such as `benchmark/testskeleton.sh`.
 
 ```bash
 python benchmark/mcp_tool_call_eval.py \
@@ -244,8 +244,8 @@ processes, not a single high-concurrency process. Use sharding to divide the
 full eval matrix across allocated tasks or cores:
 
 ```bash
-python examples/mcp_tool_call_eval.py \
-  --cases examples/skeleton_tool_call_eval_cases.json \
+python benchmark/mcp_tool_call_eval.py \
+  --cases benchmark/skeleton_tool_call_eval_cases.json \
   --models gpt-5.5 gpt-5-mini \
   --num-samples 3 \
   --max-concurrency 2 \
@@ -263,12 +263,12 @@ and summarize after collection.
 
 ### Merging Shards
 
-Use `examples/merge_tool_call_eval_results.py` after all shard jobs finish to
+Use `benchmark/merge_tool_call_eval_results.py` after all shard jobs finish to
 restore canonical row order and regenerate full-run summaries:
 
 ```bash
-python examples/merge_tool_call_eval_results.py \
-  --cases examples/skeleton_tool_call_eval_cases.json \
+python benchmark/merge_tool_call_eval_results.py \
+  --cases benchmark/skeleton_tool_call_eval_cases.json \
   --models gpt-5.5 gpt-5-mini \
   --num-samples 3 \
   --rows-json shard0_rows.json shard1_rows.json shard2_rows.json shard3_rows.json \
@@ -319,7 +319,7 @@ output_dir="results/skeleton_${timestamp}"
 mkdir -p "$output_dir"
 
 num_samples=3
-python examples/mcp_tool_call_eval.py \
+python benchmark/mcp_tool_call_eval.py \
   --cases skeleton_tool_call_eval_cases.json \
   --models "${models[@]}" \
   --num-samples "$num_samples" \

@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPT_PATH = REPO_ROOT / "examples" / "mcp_tool_call_eval.py"
+SCRIPT_PATH = REPO_ROOT / "benchmark" / "mcp_tool_call_eval.py"
 
 spec = importlib.util.spec_from_file_location("mcp_tool_call_eval", SCRIPT_PATH)
 assert spec is not None
