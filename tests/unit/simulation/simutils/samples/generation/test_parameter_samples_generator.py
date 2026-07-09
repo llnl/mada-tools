@@ -2,9 +2,6 @@
 Unit tests for shared structured parameter sample generation.
 """
 
-import sys
-import types
-
 import pytest
 
 from mada_tools.simulation.simutils.samples.generation.parameter_samples_generator import (
@@ -12,20 +9,6 @@ from mada_tools.simulation.simutils.samples.generation.parameter_samples_generat
     create_sampling_rngs,
     normalize_cli_value,
 )
-
-fastmcp_module = types.ModuleType("fastmcp")
-fastmcp_module.FastMCP = object
-sys.modules.setdefault("fastmcp", fastmcp_module)
-
-openai_module = types.ModuleType("openai")
-openai_module.OpenAI = object
-sys.modules.setdefault("openai", openai_module)
-
-pydv_module = types.ModuleType("pydv")
-pydv_module.pydvpy = types.SimpleNamespace()
-sys.modules.setdefault("pydv", pydv_module)
-sys.modules.setdefault("pydv.pydvpy", pydv_module.pydvpy)
-sys.modules.setdefault("pyvista", types.ModuleType("pyvista"))
 
 
 def collect_values(result, parameter_name: str) -> list:
