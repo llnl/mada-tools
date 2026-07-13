@@ -1,6 +1,10 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+## Unreleased
+
+### Added
+- Added common parameter_samples_generator and associated documentation.
 
 ## Unreleased
 
