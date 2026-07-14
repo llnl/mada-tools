@@ -2,13 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+
 ## Unreleased
+
 ### Added
 - Benchmarking Tools to evaluate performance of MCP server prompts, docstrings, against the LLMs
-
-## Unreleased
-
-### Added
 - Added common parameter_samples_generator and associated documentation.
 - Support for Windows OS
 - Support for Python 3.14
