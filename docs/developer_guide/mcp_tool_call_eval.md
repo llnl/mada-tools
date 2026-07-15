@@ -524,14 +524,16 @@ model,server,case_id,prompt_id,sample_index,passed,error_type,error,expected_too
 Per-case summary CSV fields:
 
 ```text
-model,server,case_id,num_flavors,num_samples,flavor_order,score_passed,score_total,score_rate,prompts_passed,prompts_total,pass_rate,all_passed,any_passed,<flavor>_passed,<flavor>_total,<flavor>_rate,avg_prompt_tokens,avg_completion_tokens,avg_total_tokens,avg_latency_ms
+model,server,case_id,num_flavors,num_samples,flavor_order,score_passed,score_total,score_rate,prompts_passed,prompts_total,pass_rate,all_passed,any_passed,<flavor>_passed,<flavor>_total,<flavor>_rate,<flavor>_avg_prompt_tokens,<flavor>_avg_completion_tokens,<flavor>_avg_total_tokens,<flavor>_avg_latency_ms,avg_prompt_tokens,avg_completion_tokens,avg_total_tokens,avg_latency_ms
 ```
 
 `score_passed` and `score_total` are raw counts across all prompt-sample
 attempts. `pass_rate` is retained as a compatibility alias for the aggregate
 normalized score. `flavor_order` stores the prompt-id order for the row, and
 the per-flavor columns follow that order for example `direct_passed`,
-`natural_passed`, and `terse_passed`.
+`natural_passed`, and `terse_passed`. Per-flavor token and latency averages are
+also emitted so token plots can draw flavor partitions by observed token share
+instead of only by prompt/sample count.
 
 Use `--min-pass-rate` to set the process exit criteria from the per-case
 summary. For example, this requires every prompt-sample attempt in each case to

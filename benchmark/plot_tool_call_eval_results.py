@@ -143,7 +143,16 @@ def flavor_legend_handles(color_by_flavor: dict[str, str]) -> tuple[str, list[An
     return "Prompt flavors", handles
 
 
+def axis_label_with_case_count(rows: list[dict[str, Any]], xlabel: str) -> str:
+    case_count = len(ordered_values(rows, "case_id"))
+    if case_count < 1 or "test cases" not in xlabel:
+        return xlabel
+    suffix = "case" if case_count == 1 else "cases"
+    return xlabel.replace("test cases", f"{case_count} test {suffix}")
+
+
 def score_axis_label(rows: list[dict[str, Any]], value_field: str, xlabel: str) -> str:
+    xlabel = axis_label_with_case_count(rows, xlabel)
     if value_field.endswith("_rate") or value_field == "pass_rate":
         return xlabel
 
@@ -186,6 +195,36 @@ def score_axis_label(rows: list[dict[str, Any]], value_field: str, xlabel: str) 
     return f"{xlabel} ({', '.join(notes)})"
 
 
+def flavor_boundary_values(row: dict[str, Any], value_field: str, total_value: float) -> list[tuple[str, float]]:
+    flavor_ids = flavor_ids_for_row(row)
+    if value_field in {"score_passed", "prompts_passed"}:
+        return [(flavor_id, as_float(row.get(f"{flavor_id}_passed"))) for flavor_id in flavor_ids]
+    if value_field in {"score_total", "prompts_total"}:
+        return [(flavor_id, as_float(row.get(f"{flavor_id}_total"))) for flavor_id in flavor_ids]
+
+    flavor_metric_suffix = value_field.removeprefix("avg_")
+    flavor_metric_values = [
+        (flavor_id, as_float(row.get(f"{flavor_id}_avg_{flavor_metric_suffix}")))
+        for flavor_id in flavor_ids
+    ]
+    total_flavor_metric = sum(value for _flavor_id, value in flavor_metric_values)
+    if total_flavor_metric > 0:
+        return [
+            (flavor_id, total_value * (flavor_metric / total_flavor_metric))
+            for flavor_id, flavor_metric in flavor_metric_values
+        ]
+
+    flavor_totals = [(flavor_id, as_float(row.get(f"{flavor_id}_total"))) for flavor_id in flavor_ids]
+    total_flavor_count = sum(value for _flavor_id, value in flavor_totals)
+    if total_flavor_count <= 0:
+        equal_width = total_value / len(flavor_ids) if flavor_ids else 0.0
+        return [(flavor_id, equal_width) for flavor_id in flavor_ids]
+    return [
+        (flavor_id, total_value * (flavor_total / total_flavor_count))
+        for flavor_id, flavor_total in flavor_totals
+    ]
+
+
 def draw_flavor_outlines(
     ax: Any,
     row: dict[str, Any],
@@ -195,13 +234,13 @@ def draw_flavor_outlines(
     total_value: float,
     axis_span: float,
     color_by_flavor: dict[str, str],
+    value_field: str,
 ) -> None:
     cumulative = 0.0
     marker_width = max(axis_span * 0.004, 0.06)
     y_bottom = y_center - (bar_height / 2)
-    for prompt_id in flavor_ids_for_row(row):
+    for prompt_id, flavor_value in flavor_boundary_values(row, value_field, total_value):
         outline_color = color_by_flavor.get(prompt_id, FLAVOR_OUTLINE_COLORS[0])
-        flavor_value = as_float(row.get(f"{prompt_id}_passed"))
         flavor_left = segment_left + cumulative
         if flavor_value > 0:
             ax.add_patch(
@@ -291,6 +330,7 @@ def plot_stacked(
                     total_value=case_values[model_index],
                     axis_span=axis_span,
                     color_by_flavor=color_by_flavor,
+                    value_field=value_field,
                 )
         left = [base + value for base, value in zip(left, case_values)]
 
@@ -303,27 +343,33 @@ def plot_stacked(
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
-    fig.suptitle(title, x=0.08, y=0.96, ha="left", fontweight="bold")
+    title_y = 1.0 - (0.32 / fig_height)
+    legend_y = 1.0 - (0.78 / fig_height)
+    flavor_legend_y = 1.0 - (0.24 / fig_height)
+    fig.suptitle(title, x=0.08, y=title_y, ha="left", fontweight="bold")
     handles, labels = ax.get_legend_handles_labels()
     case_legend = fig.legend(
         handles=handles,
         labels=labels,
         loc="upper center",
-        bbox_to_anchor=(0.5, 0.9),
+        bbox_to_anchor=(0.5, legend_y),
         ncol=case_legend_columns,
         frameon=False,
         title=legend_title,
     )
     case_legend._legend_box.align = "left"
 
-    axes_top = max(0.3, 0.82 - (0.08 * case_legend_rows))
+    top_band_inches = 1.0 + (0.24 * case_legend_rows)
+    bottom_band_inches = 0.72
+    axes_top = max(0.35, 1.0 - (top_band_inches / fig_height))
+    axes_bottom = min(0.28, bottom_band_inches / fig_height)
     if flavor_legend is not None:
         flavor_title, flavor_handles = flavor_legend
         legend_columns = min(3, len(flavor_handles))
         flavor_order_legend = fig.legend(
             handles=flavor_handles,
             loc="upper right",
-            bbox_to_anchor=(0.985, 0.985),
+            bbox_to_anchor=(0.985, flavor_legend_y),
             ncol=legend_columns,
             frameon=False,
             title=flavor_title,
@@ -335,7 +381,7 @@ def plot_stacked(
         flavor_order_legend._legend_box.align = "left"
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.tight_layout(rect=(0, 0, 1, axes_top))
+    fig.subplots_adjust(top=axes_top, bottom=axes_bottom, left=0.08, right=0.985)
     fig.savefig(output_path, dpi=200)
     plt.close(fig)
 
@@ -399,9 +445,11 @@ def main() -> int:
         value_field=args.token_field,
         output_path=args.tokens_output,
         title="MCP Tool-Call Evaluation Token Use By Model",
-        xlabel="Stacked average total tokens across test cases",
+        xlabel=axis_label_with_case_count(rows, "Stacked average total tokens across test cases"),
         value_format="{:.0f}",
         legend_title="Test case (mean block value)",
+        draw_flavor_boundaries=True,
+        show_flavor_order_box=True,
     )
 
     print(f"Wrote {args.score_output}")
