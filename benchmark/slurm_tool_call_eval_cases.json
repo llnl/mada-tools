@@ -41,24 +41,24 @@
       "prompts": [
         {
           "id": "direct",
-          "text": "Use Slurm submit_command for one single ad hoc command. Run command \"python simulate.py --case blast --steps 10\" with nodes=2, tasks=8, and working_directory=/tmp/mada_slurm_eval/blast_job. This is not a generated-runs manifest."
+          "text": "Use Slurm submit_command for one single ad hoc command. Run command \"python simulate.py --case fluid_test --steps 10\" with nodes=2, tasks=8, and working_directory=/tmp/mada_slurm_eval/fluid_test_job. This is not a generated-runs manifest."
         },
         {
           "id": "natural",
-          "text": "I need one ad hoc Slurm command submission, not submit_jobs. Launch python simulate.py --case blast --steps 10 from /tmp/mada_slurm_eval/blast_job, request two nodes and eight total tasks."
+          "text": "I need one ad hoc Slurm command submission, not submit_jobs. Launch python simulate.py --case fluid_test --steps 10 from /tmp/mada_slurm_eval/fluid_test_job, request two nodes and eight total tasks."
         },
         {
           "id": "terse",
-          "text": "Slurm submit_command: command=\"python simulate.py --case blast --steps 10\", nodes=2, tasks=8, working_directory=/tmp/mada_slurm_eval/blast_job."
+          "text": "Slurm submit_command: command=\"python simulate.py --case fluid_test --steps 10\", nodes=2, tasks=8, working_directory=/tmp/mada_slurm_eval/fluid_test_job."
         }
       ],
       "expected_call": {
         "tool": "submit_command",
         "arguments": {
-          "command": "python simulate.py --case blast --steps 10",
+          "command": "python simulate.py --case fluid_test --steps 10",
           "nodes": 2,
           "tasks": 8,
-          "working_directory": "/tmp/mada_slurm_eval/blast_job"
+          "working_directory": "/tmp/mada_slurm_eval/fluid_test_job"
         },
         "match": {
           "mode": "subset"

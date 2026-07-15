@@ -215,7 +215,9 @@ The runner also supports `--shard-count`, `--shard-index`, `--output-dir`,
 
 ### Run Config Shape
 
-The Flux and Slurm run configs use the same shape:
+The checked-in `benchmark/flux_tool_call_eval_run.json` and
+`benchmark/slurm_tool_call_eval_run.json` files are complete examples. The Flux
+and Slurm run configs use the same shape:
 
 ```json
 {
@@ -376,20 +378,15 @@ python benchmark/mcp_tool_call_eval.py \
 
 ## Configured Run Example
 
-The configured runner replaces the old helper shell scripts. It creates a
-timestamped output directory, runs the evaluation, writes requested CSV/JSON
-artifacts, generates plots from the summary CSV, and preserves the evaluator's
-exit status if prompt cases fail:
+The configured runner creates a timestamped output directory, runs the
+evaluation, writes requested CSV/JSON artifacts, generates plots from the
+summary CSV, and preserves the evaluator's exit status if prompt cases fail:
 
 ```bash
 python benchmark/run_tool_call_eval.py \
   --run-config benchmark/flux_tool_call_eval_run.json \
   --num-samples 3
 ```
-
-The deprecated `benchmark/testflux.sh` wrapper is now a compatibility shim that
-forwards to this Python runner. New benchmark workflows should add or edit JSON
-run config files instead of adding shell wrappers.
 
 The Slurm suite covers ad hoc `submit_command`, queued and blocking
 `submit_jobs`, local `job_set_id` status, real `slurm_job_id` status, bounded
@@ -524,14 +521,16 @@ model,server,case_id,prompt_id,sample_index,passed,error_type,error,expected_too
 Per-case summary CSV fields:
 
 ```text
-model,server,case_id,num_flavors,num_samples,flavor_order,score_passed,score_total,score_rate,prompts_passed,prompts_total,pass_rate,all_passed,any_passed,<flavor>_passed,<flavor>_total,<flavor>_rate,avg_prompt_tokens,avg_completion_tokens,avg_total_tokens,avg_latency_ms
+model,server,case_id,num_flavors,num_samples,flavor_order,score_passed,score_total,score_rate,prompts_passed,prompts_total,pass_rate,all_passed,any_passed,<flavor>_passed,<flavor>_total,<flavor>_rate,<flavor>_avg_prompt_tokens,<flavor>_avg_completion_tokens,<flavor>_avg_total_tokens,<flavor>_avg_latency_ms,avg_prompt_tokens,avg_completion_tokens,avg_total_tokens,avg_latency_ms
 ```
 
 `score_passed` and `score_total` are raw counts across all prompt-sample
 attempts. `pass_rate` is retained as a compatibility alias for the aggregate
 normalized score. `flavor_order` stores the prompt-id order for the row, and
 the per-flavor columns follow that order for example `direct_passed`,
-`natural_passed`, and `terse_passed`.
+`natural_passed`, and `terse_passed`. Per-flavor token and latency averages are
+also emitted so token plots can draw flavor partitions by observed token share
+instead of only by prompt/sample count.
 
 Use `--min-pass-rate` to set the process exit criteria from the per-case
 summary. For example, this requires every prompt-sample attempt in each case to

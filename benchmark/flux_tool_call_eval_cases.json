@@ -43,26 +43,26 @@
       "prompts": [
         {
           "id": "direct",
-          "text": "Use Flux submit_command for one single ad hoc command. Run command \"python simulate.py --case blast --steps 10\" with nodes=2, tasks=8, time_limit=30m, job_name=blast_eval, and working_directory=/tmp/mada_flux_eval/blast_job. This is not a generated-runs manifest."
+          "text": "Use Flux submit_command for one single ad hoc command. Run command \"python simulate.py --case fluid_test --steps 10\" with nodes=2, tasks=8, time_limit=30m, job_name=fluid_test_eval, and working_directory=/tmp/mada_flux_eval/fluid_test_job. This is not a generated-runs manifest."
         },
         {
           "id": "natural",
-          "text": "I need one ad hoc Flux command submission, not submit_jobs. Launch python simulate.py --case blast --steps 10 from /tmp/mada_flux_eval/blast_job, request two nodes and eight total tasks, cap it at 30 minutes, and name the job blast_eval."
+          "text": "I need one ad hoc Flux command submission, not submit_jobs. Launch python simulate.py --case fluid_test --steps 10 from /tmp/mada_flux_eval/fluid_test_job, request two nodes and eight total tasks, cap it at 30 minutes, and name the job fluid_test_eval."
         },
         {
           "id": "terse",
-          "text": "Flux submit_command: command=\"python simulate.py --case blast --steps 10\", nodes=2, tasks=8, time_limit=30m, job_name=blast_eval, working_directory=/tmp/mada_flux_eval/blast_job."
+          "text": "Flux submit_command: command=\"python simulate.py --case fluid_test --steps 10\", nodes=2, tasks=8, time_limit=30m, job_name=fluid_test_eval, working_directory=/tmp/mada_flux_eval/fluid_test_job."
         }
       ],
       "expected_call": {
         "tool": "submit_command",
         "arguments": {
-          "command": "python simulate.py --case blast --steps 10",
+          "command": "python simulate.py --case fluid_test --steps 10",
           "nodes": 2,
           "tasks": 8,
           "time_limit": "30m",
-          "job_name": "blast_eval",
-          "working_directory": "/tmp/mada_flux_eval/blast_job"
+          "job_name": "fluid_test_eval",
+          "working_directory": "/tmp/mada_flux_eval/fluid_test_job"
         },
         "match": {
           "mode": "subset"

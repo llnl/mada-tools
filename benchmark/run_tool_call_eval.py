@@ -27,7 +27,7 @@ from mcp_tool_call_eval import (  # noqa: E402
 from mcp_tool_call_eval import (  # noqa: E402
     run as run_evaluator,
 )
-from plot_tool_call_eval_results import load_rows, plot_stacked, score_axis_label  # noqa: E402
+from plot_tool_call_eval_results import axis_label_with_case_count, load_rows, plot_stacked, score_axis_label  # noqa: E402
 
 from mada_tools.shared.env import expand_env_vars  # noqa: E402
 
@@ -238,9 +238,11 @@ def generate_plots(config: dict[str, Any], output_dir: Path, summary_csv: Path, 
         value_field=token_field,
         output_path=tokens_output,
         title="MCP Tool-Call Evaluation Token Use By Model",
-        xlabel="Stacked average total tokens across test cases",
+        xlabel=axis_label_with_case_count(rows, "Stacked average total tokens across test cases"),
         value_format="{:.0f}",
         legend_title="Test case (mean block value)",
+        draw_flavor_boundaries=True,
+        show_flavor_order_box=True,
     )
 
     if not quiet:

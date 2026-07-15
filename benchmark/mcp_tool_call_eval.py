@@ -193,6 +193,15 @@ def flavor_field_names(prompt_id: str) -> tuple[str, str, str]:
     return (f"{prompt_id}_passed", f"{prompt_id}_total", f"{prompt_id}_rate")
 
 
+def flavor_metric_field_names(prompt_id: str) -> tuple[str, str, str, str]:
+    return (
+        f"{prompt_id}_avg_prompt_tokens",
+        f"{prompt_id}_avg_completion_tokens",
+        f"{prompt_id}_avg_total_tokens",
+        f"{prompt_id}_avg_latency_ms",
+    )
+
+
 def summary_fields_for_fixture(fixture: dict[str, Any]) -> list[str]:
     flavor_fields: list[str] = []
     seen_prompt_ids: set[str] = set()
@@ -203,6 +212,7 @@ def summary_fields_for_fixture(fixture: dict[str, Any]) -> list[str]:
                 continue
             seen_prompt_ids.add(prompt_id)
             flavor_fields.extend(flavor_field_names(prompt_id))
+            flavor_fields.extend(flavor_metric_field_names(prompt_id))
     return SUMMARY_BASE_FIELDS + flavor_fields + SUMMARY_METRIC_FIELDS
 
 
@@ -980,6 +990,16 @@ def summarize(fixture: dict[str, Any], rows: list[dict[str, Any]], num_samples: 
             summary_row[passed_field] = prompt_passed
             summary_row[total_field] = prompt_total or num_samples
             summary_row[rate_field] = prompt_rate
+            (
+                avg_prompt_tokens_field,
+                avg_completion_tokens_field,
+                avg_total_tokens_field,
+                avg_latency_ms_field,
+            ) = flavor_metric_field_names(prompt_id)
+            summary_row[avg_prompt_tokens_field] = average([row["prompt_tokens"] for row in prompt_rows])
+            summary_row[avg_completion_tokens_field] = average([row["completion_tokens"] for row in prompt_rows])
+            summary_row[avg_total_tokens_field] = average([row["total_tokens"] for row in prompt_rows])
+            summary_row[avg_latency_ms_field] = average([row["latency_ms"] for row in prompt_rows])
 
         summary_row["avg_prompt_tokens"] = average([row["prompt_tokens"] for row in case_rows])
         summary_row["avg_completion_tokens"] = average([row["completion_tokens"] for row in case_rows])
