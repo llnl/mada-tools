@@ -3,7 +3,7 @@
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
 
-from mada_tools.shared.env import get_env_var
+from mada_tools.shared.env import expand_env_vars, get_env_var
 
 
 class TestGetEnvVar:
@@ -75,3 +75,28 @@ class TestGetEnvVar:
         """
         monkeypatch.delenv("REQ", raising=False)
         assert get_env_var("REQ", default="fallback", required=True) == "fallback"
+
+
+class TestExpandEnvVars:
+    """Unit tests for `shared.env.expand_env_vars()`."""
+
+    def test_expand_env_vars_replaces_simple_var_when_set(self, monkeypatch: MonkeyPatch):
+        monkeypatch.setenv("FOO", "bar")
+        assert expand_env_vars("value=${FOO}") == "value=bar"
+
+    def test_expand_env_vars_uses_default_when_missing(self, monkeypatch: MonkeyPatch):
+        monkeypatch.delenv("FOO", raising=False)
+        assert expand_env_vars("value=${FOO:-fallback}") == "value=fallback"
+
+    def test_expand_env_vars_raises_for_missing_var_by_default(self, monkeypatch: MonkeyPatch):
+        monkeypatch.delenv("FOO", raising=False)
+        with pytest.raises(ValueError, match="Environment variable FOO is not set"):
+            expand_env_vars("value=${FOO}")
+
+    def test_expand_env_vars_preserves_missing_var_when_requested(self, monkeypatch: MonkeyPatch):
+        monkeypatch.delenv("FOO", raising=False)
+        assert expand_env_vars("value=${FOO}", missing="preserve") == "value=${FOO}"
+
+    def test_expand_env_vars_can_preserve_placeholder_whitespace(self, monkeypatch: MonkeyPatch):
+        monkeypatch.setenv("FOO", "bar")
+        assert expand_env_vars("value=${ FOO }", missing="preserve", strip_names=False) == "value=${ FOO }"

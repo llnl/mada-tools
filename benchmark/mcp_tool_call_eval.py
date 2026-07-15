@@ -9,7 +9,6 @@ import copy
 import csv
 import json
 import os
-import re
 import shlex
 import sys
 import time
@@ -17,6 +16,13 @@ from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+REPO_SRC = Path(__file__).resolve().parents[1] / "src"
+if str(REPO_SRC) not in sys.path:
+    sys.path.insert(0, str(REPO_SRC))
+
+from mada_tools.shared.config import get_config_value, load_json_object_config  # noqa: E402
+from mada_tools.shared.env import expand_env_vars  # noqa: E402
 
 if TYPE_CHECKING:
     from mcp.client.session import ClientSession
@@ -116,18 +122,7 @@ class CompletedWorkItem:
 
 def expand_env_var(value: str) -> str:
     """Expand ${VAR} and ${VAR:-default} in config values."""
-
-    def replace_env_var(match: re.Match[str]) -> str:
-        var_expr = match.group(1)
-        if ":-" in var_expr:
-            var_name, default_value = var_expr.split(":-", 1)
-            return os.getenv(var_name.strip(), default_value.strip())
-        env_value = os.getenv(var_expr.strip())
-        if env_value is None:
-            raise ValueError(f"Environment variable {var_expr} is not set")
-        return env_value
-
-    return re.sub(r"\$\{([^}]+)\}", replace_env_var, value)
+    return expand_env_vars(value, missing="error")
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -146,23 +141,7 @@ def load_json(path: Path) -> dict[str, Any]:
     return loaded
 
 
-def load_config(path: Path | None) -> dict[str, Any]:
-    if path is None:
-        return {}
-    with path.open("r", encoding="utf-8") as f:
-        loaded = json.load(f)
-    if not isinstance(loaded, dict):
-        raise ValueError("Config file must be a JSON object")
-    return loaded
-
-
-def get_config_value(config: dict[str, Any], key: str) -> str | None:
-    model_config = config.get("model", {})
-    if isinstance(model_config, dict) and isinstance(model_config.get(key), str):
-        return expand_env_var(model_config[key])
-    if isinstance(config.get(key), str):
-        return expand_env_var(config[key])
-    return None
+load_config = load_json_object_config
 
 
 def normalize_prompts(test_case: dict[str, Any]) -> list[dict[str, str]]:

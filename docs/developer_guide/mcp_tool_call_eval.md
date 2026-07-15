@@ -5,9 +5,9 @@ an MCP tool and generate the expected JSON arguments for that tool. It is
 useful for comparing models, prompts, and OpenAI-compatible backends without
 executing the MCP tool itself.
 
-The script is generic. This guide uses the `skeleton_example` server as the
-concrete example because it is lightweight and purpose-built for testing and
-documentation of `generate_parameter_runs` style tools.
+The script is generic. This guide uses a `generate_parameter_runs` style fixture
+to explain the fixture format and the checked-in Flux fixture for runnable
+benchmark examples.
 
 ## What It Tests
 
@@ -153,9 +153,9 @@ from the discovered list. After that, it leaves `benchmark/eval_models.txt`
 unchanged so you can manually curate it.
 
 The curated file allows blank lines and `#` comments. Comment out any model you
-want to omit from any testing runs for example, the tests executed by
-`benchmark/testskeleton.sh`.  You can choose different lists with the `--modelfile`
-option, e.g., `./testskeleton.sh --modelfile=eval_models_small.txt`
+want to omit from testing runs. You can choose different lists with the JSON
+runner's `--models-file` option, for example
+`--models-file benchmark/eval_models_small.txt`.
 
 Example `eval_models.txt`:
 
@@ -169,28 +169,100 @@ gpt-5-mini
 The scripts consume `benchmark/eval_models.txt`. The `eval_models_all.txt` file
 is only a discovery snapshot and is not used directly for eval runs.
 
-Start the target MCP server before running the evaluator. For the skeleton
-example server:
+Start the target MCP server before running the evaluator. For the checked-in
+Flux eval fixture:
 
 ```bash
-mada-mcp-skeleton-example --transport streamable-http --host localhost --port 8220
+mada-mcp-flux --transport streamable-http --host localhost --port 8101
 ```
 
-Then run the evaluator from the repository root. This direct Python invocation
-does not create a timestamped directory by itself; it writes to the explicit
-paths you pass on the command line. The timestamped run folders shown later are
-created by the bash wrapper scripts such as `benchmark/testskeleton.sh`.
+Then run the configured Flux benchmark from the repository root:
+
+```bash
+python benchmark/run_tool_call_eval.py \
+  --run-config benchmark/flux_tool_call_eval_run.json
+```
+
+For the checked-in Slurm eval fixture, start Slurm on port `8102` and use the
+Slurm run config:
+
+```bash
+mada-mcp-slurm --transport streamable-http --host localhost --port 8102
+
+python benchmark/run_tool_call_eval.py \
+  --run-config benchmark/slurm_tool_call_eval_run.json
+```
+
+The run config supplies the fixture, model source, eval options, output artifact
+types, timestamped output directory behavior, and plot generation settings. The
+runner resolves relative paths from the JSON config file's directory, so the
+checked-in configs can refer to files such as `flux_tool_call_eval_cases.json`,
+`slurm_tool_call_eval_cases.json`, `eval_models_small.txt`, and `results`
+without repeating the `benchmark/` prefix.
+
+Use CLI overrides for common run-time changes:
+
+```bash
+python benchmark/run_tool_call_eval.py \
+  --run-config benchmark/slurm_tool_call_eval_run.json \
+  --models-file benchmark/eval_models_small.txt \
+  --num-samples 3 \
+  --max-concurrency 4
+```
+
+The runner also supports `--shard-count`, `--shard-index`, `--output-dir`,
+`--no-plots`, and `--quiet` overrides.
+
+### Run Config Shape
+
+The Flux and Slurm run configs use the same shape:
+
+```json
+{
+  "name": "slurm",
+  "cases": "slurm_tool_call_eval_cases.json",
+  "models_file": "eval_models_small.txt",
+  "output": {
+    "directory": "results",
+    "prefix": "slurm_tool_call",
+    "timestamped": true,
+    "results_csv": true,
+    "results_json": true,
+    "summary_csv": true,
+    "summary_json": true,
+    "plots": true,
+    "capture_raw_response": true
+  },
+  "eval": {
+    "num_samples": 3,
+    "max_concurrency": 36,
+    "shard_count": 1,
+    "shard_index": 0,
+    "strict": false
+  }
+}
+```
+
+String values may use `${VAR}` and `${VAR:-default}` environment expansion.
+Missing variables without defaults are errors. API settings can be supplied in
+the run config under `model_api`, or left to the lower-level evaluator's normal
+`API_KEY` / `API_BASE_URL` resolution.
+
+### Direct Evaluator Usage
+
+The lower-level evaluator remains available when you want to provide all paths
+explicitly:
 
 ```bash
 python benchmark/mcp_tool_call_eval.py \
-  --cases benchmark/skeleton_tool_call_eval_cases.json \
+  --cases benchmark/flux_tool_call_eval_cases.json \
   --models gpt-5.5 gpt-5-mini gpt-4.1-mini \
   --num-samples 3 \
   --max-concurrency 4 \
-  --results-csv benchmark/results/se_tool_call_rows.csv \
-  --results-json benchmark/results/se_tool_call_rows.json \
-  --summary-csv benchmark/results/se_tool_call_summary.csv \
-  --summary-json benchmark/results/se_tool_call_summary.json
+  --results-csv benchmark/results/flux_tool_call_rows.csv \
+  --results-json benchmark/results/flux_tool_call_rows.json \
+  --summary-csv benchmark/results/flux_tool_call_summary.csv \
+  --summary-json benchmark/results/flux_tool_call_summary.json
 ```
 
 The `--models` argument accepts one or more model names. Each prompt variant is
@@ -208,17 +280,17 @@ Example progress lines:
 ```text
 Evaluating 162 logical tool-call attempts across 3 models, 6 test cases, 1 configured MCP servers, and 3 sample(s) per prompt flavor.
 Executing 162 attempt(s) with max_concurrency=4.
-Connecting to MCP server 'skeleton_example' at http://localhost:8220/mcp ...
-Connected to 'skeleton_example' with 1 tools in 142ms.
-[12/162] START model=gpt-5-mini server=skeleton_example case=mixed_lhs_discrete_random_cli prompt=natural sample=2
-[12/162] FAIL sample=2 latency_ms=19320 tokens=2114 error_type=arg_mismatch error=missing $.parameters.restart_args
+Connecting to MCP server 'flux' at http://localhost:8101/mcp ...
+Connected to 'flux' with 5 tools in 142ms.
+[12/162] START model=gpt-5-mini server=flux case=submit_command_full_options prompt=natural sample=2
+[12/162] FAIL sample=2 latency_ms=19320 tokens=2114 error_type=arg_mismatch error=missing $.time_limit
 ```
 
 Use `--quiet` to suppress live progress output:
 
 ```bash
 python benchmark/mcp_tool_call_eval.py \
-  --cases benchmark/skeleton_tool_call_eval_cases.json \
+  --cases benchmark/flux_tool_call_eval_cases.json \
   --models gpt-5-mini \
   --quiet
 ```
@@ -227,9 +299,9 @@ Use `--no-final-table` when CSV or JSON artifacts are enough:
 
 ```bash
 python benchmark/mcp_tool_call_eval.py \
-  --cases benchmark/skeleton_tool_call_eval_cases.json \
+  --cases benchmark/flux_tool_call_eval_cases.json \
   --models gpt-5-mini \
-  --results-csv benchmark/results/se_tool_call_rows.csv \
+  --results-csv benchmark/results/flux_tool_call_rows.csv \
   --no-final-table
 ```
 
@@ -245,7 +317,7 @@ full eval matrix across allocated tasks or cores:
 
 ```bash
 python benchmark/mcp_tool_call_eval.py \
-  --cases benchmark/skeleton_tool_call_eval_cases.json \
+  --cases benchmark/flux_tool_call_eval_cases.json \
   --models gpt-5.5 gpt-5-mini \
   --num-samples 3 \
   --max-concurrency 2 \
@@ -268,7 +340,7 @@ restore canonical row order and regenerate full-run summaries:
 
 ```bash
 python benchmark/merge_tool_call_eval_results.py \
-  --cases benchmark/skeleton_tool_call_eval_cases.json \
+  --cases benchmark/flux_tool_call_eval_cases.json \
   --models gpt-5.5 gpt-5-mini \
   --num-samples 3 \
   --rows-json shard0_rows.json shard1_rows.json shard2_rows.json shard3_rows.json \
@@ -296,79 +368,66 @@ response object in `--results-json`:
 
 ```bash
 python benchmark/mcp_tool_call_eval.py \
-  --cases benchmark/skeleton_tool_call_eval_cases.json \
+  --cases benchmark/flux_tool_call_eval_cases.json \
   --models gpt-5-mini \
-  --results-json benchmark/results/se_tool_call_rows.json \
+  --results-json benchmark/results/flux_tool_call_rows.json \
   --capture-raw-response
 ```
 
-## Full Script Example
+## Configured Run Example
 
-If you want one command that creates a timestamped output directory, runs the
-evaluation, and writes the plots, use `benchmark/testskeleton.sh`:
-
-```bash
-bash benchmark/testskeleton.sh -n3
-```
-
-The core eval invocation inside that wrapper is:
+The configured runner replaces the old helper shell scripts. It creates a
+timestamped output directory, runs the evaluation, writes requested CSV/JSON
+artifacts, generates plots from the summary CSV, and preserves the evaluator's
+exit status if prompt cases fail:
 
 ```bash
-timestamp="$(date '+%Y-%m-%d_%H-%M-%S')"
-output_dir="results/skeleton_${timestamp}"
-mkdir -p "$output_dir"
-
-num_samples=3
-python benchmark/mcp_tool_call_eval.py \
-  --cases skeleton_tool_call_eval_cases.json \
-  --models "${models[@]}" \
-  --num-samples "$num_samples" \
-  --results-csv "$output_dir/se_tool_call_rows.csv" \
-  --results-json "$output_dir/se_tool_call_rows.json" \
-  --summary-csv "$output_dir/se_tool_call_summary.csv" \
-  --summary-json "$output_dir/se_tool_call_summary.json" \
-  --capture-raw-response
+python benchmark/run_tool_call_eval.py \
+  --run-config benchmark/flux_tool_call_eval_run.json \
+  --num-samples 3
 ```
 
-Those `timestamp` and `output_dir` lines are what create the timestamped run
-folder under `benchmark/results/` and keep the CSV, JSON, and plot outputs from
-the same run together. The wrapper then plots the summary CSV and preserves the
-evaluator's original exit status if some prompt cases fail. Use `-n` or
-`--num-samples` with the wrapper script to repeat each prompt flavor.
+The deprecated `benchmark/testflux.sh` wrapper is now a compatibility shim that
+forwards to this Python runner. New benchmark workflows should add or edit JSON
+run config files instead of adding shell wrappers.
+
+The Slurm suite covers ad hoc `submit_command`, queued and blocking
+`submit_jobs`, local `job_set_id` status, real `slurm_job_id` status, bounded
+continuous status polling, queue listing, and cluster information.
 
 ## Example Output
 
 The example outputs below come from the real run directory:
 
 ```text
-benchmark/results/skeleton_2026-06-23_09-37-30/
+benchmark/results/flux_2026-06-23_09-37-30/
 ```
 
 That directory contains:
 
 ```text
-skeleton_2026-06-23_09-37-30/
-├── se_tool_call_rows.csv
-├── se_tool_call_rows.json
-├── se_tool_call_score.png
-├── se_tool_call_summary.csv
-├── se_tool_call_summary.json
-└── se_tool_call_tokens.png
+flux_2026-06-23_09-37-30/
+├── flux_tool_call_rows.csv
+├── flux_tool_call_rows.json
+├── flux_tool_call_score.png
+├── flux_tool_call_summary.csv
+├── flux_tool_call_summary.json
+└── flux_tool_call_tokens.png
 ```
 
-Excerpt from `se_tool_call_summary.csv`:
+Excerpt from `flux_tool_call_summary.csv`:
 
 ```csv
 model,server,case_id,num_flavors,num_samples,flavor_order,score_passed,score_total,score_rate,prompts_passed,prompts_total,pass_rate,all_passed,any_passed,direct_passed,direct_total,direct_rate,natural_passed,natural_total,natural_rate,terse_passed,terse_total,terse_rate,avg_prompt_tokens,avg_completion_tokens,avg_total_tokens,avg_latency_ms
-gpt-4.1-mini,skeleton_example,continuous_lhs_with_seed,3,1,"[""direct"", ""natural"", ""terse""]",3,3,1.0,3,3,1.0,True,True,1,1,1.0,1,1,1.0,1,1,1.0,731.333,126.0,857.333,2379.667
-gpt-4.1-mini,skeleton_example,discrete_grid_material_and_mesh,3,1,"[""direct"", ""natural"", ""terse""]",1,3,0.333,1,3,0.333,False,True,0,1,0.0,1,1,1.0,0,1,0.0,702.667,109.667,812.333,1921.0
+gpt-4.1-mini,flux,submit_command_simple_ad_hoc,3,1,"[""direct"", ""natural"", ""terse""]",3,3,1.0,3,3,1.0,True,True,1,1,1.0,1,1,1.0,1,1,1.0,731.333,126.0,857.333,2379.667
+gpt-4.1-mini,flux,submit_command_full_options,3,1,"[""direct"", ""natural"", ""terse""]",1,3,0.333,1,3,0.333,False,True,0,1,0.0,1,1,1.0,0,1,0.0,702.667,109.667,812.333,1921.0
 ```
 
-Score plot:
+Score plot example:
 
 ![Skeleton tool-call score plot](../assets/images/mcp-tool-call-eval-skeleton-score.png)
 
-Token plot:
+Token plot example:
 
 ![Skeleton tool-call token plot](../assets/images/mcp-tool-call-eval-skeleton-tokens.png)
 
@@ -406,7 +465,7 @@ Example with a local backend:
 python benchmark/mcp_tool_call_eval.py \
   --base-url http://localhost:8000/v1 \
   --api-key dummy \
-  --cases benchmark/skeleton_tool_call_eval_cases.json \
+  --cases benchmark/flux_tool_call_eval_cases.json \
   --models gemma4-12b
 ```
 
@@ -434,7 +493,7 @@ fixture match modes and profiles:
 
 ```bash
 python benchmark/mcp_tool_call_eval.py \
-  --cases benchmark/skeleton_tool_call_eval_cases.json \
+  --cases benchmark/flux_tool_call_eval_cases.json \
   --models gpt-5-mini \
   --strict
 ```
@@ -480,7 +539,7 @@ pass:
 
 ```bash
 python benchmark/mcp_tool_call_eval.py \
-  --cases benchmark/skeleton_tool_call_eval_cases.json \
+  --cases benchmark/flux_tool_call_eval_cases.json \
   --models gpt-5-mini \
   --min-pass-rate 1.0
 ```
@@ -489,7 +548,7 @@ For exploratory model comparison, a lower threshold can be useful:
 
 ```bash
 python benchmark/mcp_tool_call_eval.py \
-  --cases benchmark/skeleton_tool_call_eval_cases.json \
+  --cases benchmark/flux_tool_call_eval_cases.json \
   --models gpt-5-mini gemma4-12b \
   --min-pass-rate 0.8
 ```

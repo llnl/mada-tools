@@ -6,12 +6,17 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
+
+REPO_SRC = Path(__file__).resolve().parents[1] / "src"
+if str(REPO_SRC) not in sys.path:
+    sys.path.insert(0, str(REPO_SRC))
+
+from mada_tools.shared.config import get_config_value, load_json_object_config  # noqa: E402
 
 DEFAULT_BASE_URL = "https://livai-api.llnl.gov/v1"
 DEFAULT_TIMEOUT = 30.0
@@ -20,45 +25,10 @@ DEFAULT_ALL_OUTPUT = SCRIPT_DIR / "eval_models_all.txt"
 DEFAULT_ENABLED_OUTPUT = SCRIPT_DIR / "eval_models.txt"
 
 
-def expand_env_var(value: str) -> str:
-    """Expand ${VAR} and ${VAR:-default} in config values."""
-
-    def replace_env_var(match: re.Match[str]) -> str:
-        var_expr = match.group(1)
-        if ":-" in var_expr:
-            var_name, default_value = var_expr.split(":-", 1)
-            return os.getenv(var_name.strip(), default_value.strip())
-        env_value = os.getenv(var_expr.strip())
-        if env_value is None:
-            raise ValueError(f"Environment variable {var_expr} is not set")
-        return env_value
-
-    return re.sub(r"\$\{([^}]+)\}", replace_env_var, value)
-
-
-def load_config(path: Path | None) -> dict[str, Any]:
-    if path is None:
-        return {}
-    with path.open("r", encoding="utf-8") as f:
-        loaded = json.load(f)
-    if not isinstance(loaded, dict):
-        raise ValueError("Config file must be a JSON object")
-    return loaded
-
-
-def get_config_value(config: dict[str, Any], key: str) -> str | None:
-    model_config = config.get("model", {})
-    if isinstance(model_config, dict) and isinstance(model_config.get(key), str):
-        return expand_env_var(model_config[key])
-    if isinstance(config.get(key), str):
-        return expand_env_var(config[key])
-    return None
-
-
 def resolve_api_settings(args: argparse.Namespace) -> tuple[str, str]:
     """Resolve API key and base URL with the same precedence as the eval script."""
 
-    config = load_config(args.config)
+    config = load_json_object_config(args.config)
     base_url = args.base_url or get_config_value(config, "base_url") or os.getenv("API_BASE_URL", DEFAULT_BASE_URL)
     api_key = args.api_key or get_config_value(config, "api_key") or os.getenv("API_KEY")
 

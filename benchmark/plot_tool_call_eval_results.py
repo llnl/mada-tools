@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import os
 from pathlib import Path
@@ -13,7 +12,9 @@ from typing import Any
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/mada_tools_matplotlib")
 
 import matplotlib.pyplot as plt  # noqa: E402
+from eval_io import load_csv_or_json_rows  # noqa: E402
 from matplotlib.patches import Rectangle  # noqa: E402
+from matplotlib.lines import Line2D  # noqa: E402
 
 DEFAULT_COLORS = [
     "#4C78A8",
@@ -48,21 +49,17 @@ AGGREGATE_SUMMARY_FIELDS = {
 
 
 def load_rows(path: Path) -> list[dict[str, Any]]:
-    if path.suffix.lower() == ".json":
-        with path.open("r", encoding="utf-8") as f:
-            rows = json.load(f)
-        if not isinstance(rows, list):
-            raise ValueError("Summary JSON must contain a list of row objects")
-        return rows
-
-    with path.open("r", newline="", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
+    return load_csv_or_json_rows(path, description="Summary")
 
 
 def as_float(value: Any, default: float = 0.0) -> float:
     if value in (None, ""):
         return default
     return float(value)
+
+
+def format_number(value: float) -> str:
+    return str(int(value)) if value.is_integer() else f"{value:g}"
 
 
 def case_label(case_id: str) -> str:
@@ -112,42 +109,81 @@ def flavor_ids_for_row(row: dict[str, Any]) -> list[str]:
     return flavor_ids
 
 
-def shared_flavor_order(rows: list[dict[str, Any]]) -> tuple[str, list[str]] | None:
-    flavor_orders = [flavor_ids_for_row(row) for row in rows]
-    flavor_orders = [order for order in flavor_orders if order]
-    if not flavor_orders:
+def ordered_flavor_ids(rows: list[dict[str, Any]]) -> list[str]:
+    flavor_ids = []
+    for row in rows:
+        for flavor_id in flavor_ids_for_row(row):
+            if flavor_id not in flavor_ids:
+                flavor_ids.append(flavor_id)
+    return flavor_ids
+
+
+def flavor_color_map(rows: list[dict[str, Any]]) -> dict[str, str]:
+    return {
+        flavor_id: FLAVOR_OUTLINE_COLORS[index % len(FLAVOR_OUTLINE_COLORS)]
+        for index, flavor_id in enumerate(ordered_flavor_ids(rows))
+    }
+
+
+def flavor_legend_handles(color_by_flavor: dict[str, str]) -> tuple[str, list[Any]] | None:
+    if not color_by_flavor:
         return None
-    first_order = flavor_orders[0]
-    if all(order == first_order for order in flavor_orders[1:]):
-        return "Flavor order", first_order
-    return "Flavor order (summary row 1)", first_order
+
+    handles = []
+    for flavor_id, color in color_by_flavor.items():
+        handles.append(
+            Line2D(
+                [0],
+                [0],
+                color=color,
+                linewidth=2.2,
+                label=flavor_id,
+            )
+        )
+    return "Prompt flavors", handles
 
 
-def add_flavor_order_box(ax: Any, rows: list[dict[str, Any]]) -> None:
-    flavor_order_info = shared_flavor_order(rows)
-    if flavor_order_info is None:
-        return
+def score_axis_label(rows: list[dict[str, Any]], value_field: str, xlabel: str) -> str:
+    if value_field.endswith("_rate") or value_field == "pass_rate":
+        return xlabel
 
-    label, flavor_order = flavor_order_info
-    lines = [label]
-    for index, flavor_id in enumerate(flavor_order, start=1):
-        color = FLAVOR_OUTLINE_COLORS[(index - 1) % len(FLAVOR_OUTLINE_COLORS)]
-        lines.append(f"{index}. {flavor_id} [{color}]")
-    ax.text(
-        0.985,
-        0.985,
-        "\n".join(lines),
-        transform=ax.transAxes,
-        ha="right",
-        va="top",
-        fontsize=9,
-        bbox={
-            "boxstyle": "round,pad=0.35",
-            "facecolor": "white",
-            "edgecolor": "#cccccc",
-            "alpha": 0.92,
-        },
+    total_field = None
+    if value_field.startswith("score_"):
+        total_field = "score_total"
+    elif value_field.startswith("prompts_"):
+        total_field = "prompts_total"
+    if total_field is None:
+        return xlabel
+
+    notes = []
+    sample_counts = sorted(
+        {
+            int(as_float(row["num_samples"]))
+            for row in rows
+            if row.get("num_samples") not in (None, "")
+        }
     )
+    if len(sample_counts) == 1:
+        suffix = "repetition" if sample_counts[0] == 1 else "repetitions"
+        notes.append(f"{sample_counts[0]} {suffix}")
+    elif len(sample_counts) > 1:
+        notes.append(f"{sample_counts[0]}-{sample_counts[-1]} repetitions")
+
+    totals_by_model: dict[str, float] = {}
+    for row in rows:
+        model = str(row["model"])
+        totals_by_model[model] = totals_by_model.get(model, 0.0) + as_float(row.get(total_field))
+    possible_totals = sorted(set(totals_by_model.values()))
+    if len(possible_totals) == 1:
+        notes.append(f"total possible {format_number(possible_totals[0])}")
+    elif len(possible_totals) > 1:
+        notes.append(
+            f"total possible {format_number(possible_totals[0])}-{format_number(possible_totals[-1])}"
+        )
+
+    if not notes:
+        return xlabel
+    return f"{xlabel} ({', '.join(notes)})"
 
 
 def draw_flavor_outlines(
@@ -158,12 +194,13 @@ def draw_flavor_outlines(
     bar_height: float,
     total_value: float,
     axis_span: float,
+    color_by_flavor: dict[str, str],
 ) -> None:
     cumulative = 0.0
     marker_width = max(axis_span * 0.004, 0.06)
     y_bottom = y_center - (bar_height / 2)
-    for flavor_index, prompt_id in enumerate(flavor_ids_for_row(row)):
-        outline_color = FLAVOR_OUTLINE_COLORS[flavor_index % len(FLAVOR_OUTLINE_COLORS)]
+    for prompt_id in flavor_ids_for_row(row):
+        outline_color = color_by_flavor.get(prompt_id, FLAVOR_OUTLINE_COLORS[0])
         flavor_value = as_float(row.get(f"{prompt_id}_passed"))
         flavor_left = segment_left + cumulative
         if flavor_value > 0:
@@ -210,7 +247,12 @@ def plot_stacked(
     if not models or not cases:
         raise ValueError("No rows available to plot")
 
-    fig_height = max(3.0, 0.55 * len(models) + 1.9)
+    case_legend_columns = min(3, len(cases))
+    case_legend_rows = (len(cases) + case_legend_columns - 1) // case_legend_columns
+    color_by_flavor = flavor_color_map(rows) if show_flavor_order_box else {}
+    flavor_legend = flavor_legend_handles(color_by_flavor) if show_flavor_order_box else None
+
+    fig_height = max(3.0, 0.55 * len(models) + 1.9 + (0.2 * case_legend_rows))
     fig_width = max(10.0, 1.5 * len(cases) + 5.0)
     fig, ax = plt.subplots(figsize=(fig_width, fig_height))
 
@@ -248,6 +290,7 @@ def plot_stacked(
                     bar_height=bar_height,
                     total_value=case_values[model_index],
                     axis_span=axis_span,
+                    color_by_flavor=color_by_flavor,
                 )
         left = [base + value for base, value in zip(left, case_values)]
 
@@ -255,26 +298,44 @@ def plot_stacked(
     ax.set_yticklabels(models)
     ax.invert_yaxis()
     ax.set_xlabel(xlabel)
-    ax.set_title(title, loc="left", fontweight="bold", pad=22)
     ax.grid(axis="x", color="#dddddd", linewidth=0.8)
     ax.set_axisbelow(True)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
-    if show_flavor_order_box:
-        add_flavor_order_box(ax, rows)
-
-    legend = ax.legend(
-        loc="lower center",
-        bbox_to_anchor=(0.5, 1.08),
-        ncol=min(3, len(cases)),
+    fig.suptitle(title, x=0.08, y=0.96, ha="left", fontweight="bold")
+    handles, labels = ax.get_legend_handles_labels()
+    case_legend = fig.legend(
+        handles=handles,
+        labels=labels,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.9),
+        ncol=case_legend_columns,
         frameon=False,
         title=legend_title,
     )
-    legend._legend_box.align = "left"
+    case_legend._legend_box.align = "left"
+
+    axes_top = max(0.3, 0.82 - (0.08 * case_legend_rows))
+    if flavor_legend is not None:
+        flavor_title, flavor_handles = flavor_legend
+        legend_columns = min(3, len(flavor_handles))
+        flavor_order_legend = fig.legend(
+            handles=flavor_handles,
+            loc="upper right",
+            bbox_to_anchor=(0.985, 0.985),
+            ncol=legend_columns,
+            frameon=False,
+            title=flavor_title,
+            handlelength=1.8,
+            columnspacing=0.9,
+            fontsize=9,
+            title_fontsize=9,
+        )
+        flavor_order_legend._legend_box.align = "left"
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.tight_layout(rect=(0, 0, 1, 0.84))
+    fig.tight_layout(rect=(0, 0, 1, axes_top))
     fig.savefig(output_path, dpi=200)
     plt.close(fig)
 
@@ -327,7 +388,7 @@ def main() -> int:
         value_field=args.score_field,
         output_path=args.score_output,
         title="MCP Tool-Call Evaluation Score By Model",
-        xlabel=score_xlabel,
+        xlabel=score_axis_label(rows, args.score_field, score_xlabel),
         value_format=score_value_format,
         legend_title="Test case (mean block score)",
         draw_flavor_boundaries=True,

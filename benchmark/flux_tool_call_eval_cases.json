@@ -1,7 +1,7 @@
 {
   "mcp_servers": {
     "flux": {
-      "url": "http://localhost:8202/mcp"
+      "url": "http://localhost:8101/mcp"
     }
   },
   "tests": [

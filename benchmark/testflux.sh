@@ -3,167 +3,41 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-usage() {
-  echo "Usage: ./testflux.sh [--modelfile PATH] [-n NUM_SAMPLES|--num-samples NUM_SAMPLES] [-c N|--max-concurrency N] [--shard-count N] [--shard-index N]"
-  echo "Model file precedence: --modelfile > MCP_EVAL_MODELS_FILE > eval_models.txt"
-}
+echo "benchmark/testflux.sh is deprecated; use:" >&2
+echo "  python benchmark/run_tool_call_eval.py --run-config benchmark/flux_tool_call_eval_run.json" >&2
 
-cli_models_file=""
-num_samples=1
-max_concurrency=1
-shard_count=1
-shard_index=0
+args=(--run-config flux_tool_call_eval_run.json)
+has_models_file=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --modelfile)
       if [[ $# -lt 2 ]]; then
         echo "Missing value for --modelfile" >&2
-        usage >&2
         exit 1
       fi
-      cli_models_file="$2"
+      args+=(--models-file "$2")
+      has_models_file=1
       shift 2
       ;;
     --modelfile=*)
-      cli_models_file="${1#--modelfile=}"
-      if [[ -z "$cli_models_file" ]]; then
+      value="${1#--modelfile=}"
+      if [[ -z "$value" ]]; then
         echo "Missing value for --modelfile" >&2
-        usage >&2
         exit 1
       fi
+      args+=(--models-file "$value")
+      has_models_file=1
       shift
-      ;;
-    -n|--num-samples)
-      if [[ $# -lt 2 ]]; then
-        echo "Missing value for $1" >&2
-        usage >&2
-        exit 1
-      fi
-      num_samples="$2"
-      shift 2
-      ;;
-    --num-samples=*)
-      num_samples="${1#--num-samples=}"
-      if [[ -z "$num_samples" ]]; then
-        echo "Missing value for --num-samples" >&2
-        usage >&2
-        exit 1
-      fi
-      shift
-      ;;
-    -c|--max-concurrency)
-      if [[ $# -lt 2 ]]; then
-        echo "Missing value for $1" >&2
-        usage >&2
-        exit 1
-      fi
-      max_concurrency="$2"
-      shift 2
-      ;;
-    --max-concurrency=*)
-      max_concurrency="${1#--max-concurrency=}"
-      if [[ -z "$max_concurrency" ]]; then
-        echo "Missing value for --max-concurrency" >&2
-        usage >&2
-        exit 1
-      fi
-      shift
-      ;;
-    --shard-count)
-      if [[ $# -lt 2 ]]; then
-        echo "Missing value for --shard-count" >&2
-        usage >&2
-        exit 1
-      fi
-      shard_count="$2"
-      shift 2
-      ;;
-    --shard-count=*)
-      shard_count="${1#--shard-count=}"
-      if [[ -z "$shard_count" ]]; then
-        echo "Missing value for --shard-count" >&2
-        usage >&2
-        exit 1
-      fi
-      shift
-      ;;
-    --shard-index)
-      if [[ $# -lt 2 ]]; then
-        echo "Missing value for --shard-index" >&2
-        usage >&2
-        exit 1
-      fi
-      shard_index="$2"
-      shift 2
-      ;;
-    --shard-index=*)
-      shard_index="${1#--shard-index=}"
-      if [[ -z "$shard_index" ]]; then
-        echo "Missing value for --shard-index" >&2
-        usage >&2
-        exit 1
-      fi
-      shift
-      ;;
-    --help)
-      usage
-      exit 0
       ;;
     *)
-      echo "Unknown argument: $1" >&2
-      usage >&2
-      exit 1
+      args+=("$1")
+      shift
       ;;
   esac
 done
 
-models_file="${cli_models_file:-${MCP_EVAL_MODELS_FILE:-eval_models.txt}}"
-if [[ ! -f "$models_file" ]]; then
-  echo "Model list file not found: $models_file" >&2
-  exit 1
+if [[ "$has_models_file" -eq 0 && -n "${MCP_EVAL_MODELS_FILE:-}" ]]; then
+  args+=(--models-file "$MCP_EVAL_MODELS_FILE")
 fi
 
-models=()
-while IFS= read -r line; do
-  line="${line#"${line%%[![:space:]]*}"}"
-  line="${line%"${line##*[![:space:]]}"}"
-  if [[ -z "$line" || "${line:0:1}" == "#" ]]; then
-    continue
-  fi
-  models+=("$line")
-done < "$models_file"
-
-if [[ "${#models[@]}" -eq 0 ]]; then
-  echo "No enabled models found in $models_file" >&2
-  exit 1
-fi
-
-timestamp="$(date '+%Y-%m-%d_%H-%M-%S')"
-output_dir="results/flux_${timestamp}"
-mkdir -p "$output_dir"
-
-eval_status=0
-python mcp_tool_call_eval.py \
-  --cases flux_tool_call_eval_cases.json \
-  --models "${models[@]}" \
-  --num-samples "$num_samples" \
-  --max-concurrency "$max_concurrency" \
-  --shard-count "$shard_count" \
-  --shard-index "$shard_index" \
-  --results-csv "$output_dir/flux_tool_call_rows.csv" \
-  --results-json "$output_dir/flux_tool_call_rows.json" \
-  --summary-csv "$output_dir/flux_tool_call_summary.csv" \
-  --summary-json "$output_dir/flux_tool_call_summary.json" \
-  --capture-raw-response || eval_status=$?
-
-if [[ -f "$output_dir/flux_tool_call_summary.csv" ]]; then
-  python plot_tool_call_eval_results.py \
-    --summary "$output_dir/flux_tool_call_summary.csv" \
-    --score-output "$output_dir/flux_tool_call_score.png" \
-    --tokens-output "$output_dir/flux_tool_call_tokens.png"
-else
-  echo "Skipping plot generation because $output_dir/flux_tool_call_summary.csv was not created." >&2
-fi
-
-echo "Wrote Flux eval results and plots to $output_dir"
-exit "$eval_status"
+exec "${PYTHON:-python3}" run_tool_call_eval.py "${args[@]}"

@@ -4,12 +4,11 @@
 from __future__ import annotations
 
 import argparse
-import csv
-import json
 import sys
 from pathlib import Path
 from typing import Any
 
+from eval_io import load_csv_rows, load_json_rows, load_models_file
 from mcp_tool_call_eval import (
     ROW_FIELDS,
     build_work_items,
@@ -28,19 +27,6 @@ KEY_FIELDS = ("model", "server", "case_id", "prompt_id", "sample_index")
 OPTIONAL_INT_FIELDS = ("prompt_tokens", "completion_tokens", "total_tokens", "latency_ms")
 TRUE_VALUES = {"1", "true", "t", "yes", "y"}
 FALSE_VALUES = {"0", "false", "f", "no", "n"}
-
-
-def load_models_file(path: Path) -> list[str]:
-    models = []
-    with path.open("r", encoding="utf-8") as f:
-        for raw_line in f:
-            line = raw_line.strip()
-            if not line or line.startswith("#"):
-                continue
-            models.append(line)
-    if not models:
-        raise ValueError(f"No enabled models found in {path}")
-    return models
 
 
 def parse_optional_int(value: Any, field_name: str, source: Path) -> int | None:
@@ -94,27 +80,6 @@ def normalize_base_row(row: dict[str, Any], source: Path) -> dict[str, Any]:
     for field in OPTIONAL_INT_FIELDS:
         normalized[field] = parse_optional_int(row[field], field, source)
     return normalized
-
-
-def load_json_rows(path: Path) -> list[dict[str, Any]]:
-    with path.open("r", encoding="utf-8") as f:
-        loaded = json.load(f)
-    if not isinstance(loaded, list):
-        raise ValueError(f"{path}: expected a JSON list of row objects")
-    rows: list[dict[str, Any]] = []
-    for index, row in enumerate(loaded, start=1):
-        if not isinstance(row, dict):
-            raise ValueError(f"{path}: row {index} must be a JSON object")
-        rows.append(row)
-    return rows
-
-
-def load_csv_rows(path: Path) -> list[dict[str, Any]]:
-    with path.open("r", newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        if reader.fieldnames is None:
-            raise ValueError(f"{path}: CSV input is missing a header row")
-        return list(reader)
 
 
 def row_key(row: dict[str, Any]) -> tuple[str, str, str, str, int]:
