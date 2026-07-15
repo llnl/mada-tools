@@ -13,8 +13,8 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/mada_tools_matplotlib")
 
 import matplotlib.pyplot as plt  # noqa: E402
 from eval_io import load_csv_or_json_rows  # noqa: E402
-from matplotlib.patches import Rectangle  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
+from matplotlib.patches import Rectangle  # noqa: E402
 
 DEFAULT_COLORS = [
     "#4C78A8",

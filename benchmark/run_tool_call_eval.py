@@ -27,7 +27,12 @@ from mcp_tool_call_eval import (  # noqa: E402
 from mcp_tool_call_eval import (  # noqa: E402
     run as run_evaluator,
 )
-from plot_tool_call_eval_results import axis_label_with_case_count, load_rows, plot_stacked, score_axis_label  # noqa: E402
+from plot_tool_call_eval_results import (  # noqa: E402
+    axis_label_with_case_count,
+    load_rows,
+    plot_stacked,
+    score_axis_label,
+)
 
 from mada_tools.shared.env import expand_env_vars  # noqa: E402
 
