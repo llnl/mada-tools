@@ -8,3 +8,6 @@ There are two ways to contribute new servers to MADA:
 This section of the developer guide will discuss how to add servers for either option.
 
 Additionally, this section of the developer guide will cover how to create [WEAVE Study Construction Servers](./weave_study_servers.md).
+
+Simulation servers that generate parameter sweeps can use the shared
+[`ParameterSampleGenerator`](./parameter_samples_generator.md) utility.
