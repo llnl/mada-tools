@@ -1289,6 +1289,8 @@
       
         
       
+        
+      
     
     
     
@@ -1356,6 +1358,34 @@
     
   
     Adding New MCP Servers to MADA Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../server_creation/parameter_samples_generator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parameter Samples Generator
   
 
     
@@ -3305,6 +3335,8 @@
       
         
       
+        
+      
     
     
     
@@ -3400,6 +3432,34 @@
     
   
     lhs_sample_generator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../samples/generation/parameter_samples_generator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    parameter_samples_generator
   
 
     
@@ -4819,7 +4879,17 @@ converts it into a list of RunInstance objects.</p>
 <span class="normal"><a href="#__codelineno-0-54">54</a></span>
 <span class="normal"><a href="#__codelineno-0-55">55</a></span>
 <span class="normal"><a href="#__codelineno-0-56">56</a></span>
-<span class="normal"><a href="#__codelineno-0-57">57</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17"></a><span class="k">def</span><span class="w"> </span><span class="nf">get_run_instances</span><span class="p">(</span><span class="n">run_instances_json_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">RunInstance</span><span class="p">]:</span>
+<span class="normal"><a href="#__codelineno-0-57">57</a></span>
+<span class="normal"><a href="#__codelineno-0-58">58</a></span>
+<span class="normal"><a href="#__codelineno-0-59">59</a></span>
+<span class="normal"><a href="#__codelineno-0-60">60</a></span>
+<span class="normal"><a href="#__codelineno-0-61">61</a></span>
+<span class="normal"><a href="#__codelineno-0-62">62</a></span>
+<span class="normal"><a href="#__codelineno-0-63">63</a></span>
+<span class="normal"><a href="#__codelineno-0-64">64</a></span>
+<span class="normal"><a href="#__codelineno-0-65">65</a></span>
+<span class="normal"><a href="#__codelineno-0-66">66</a></span>
+<span class="normal"><a href="#__codelineno-0-67">67</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17"></a><span class="k">def</span><span class="w"> </span><span class="nf">get_run_instances</span><span class="p">(</span><span class="n">run_instances_json_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">RunInstance</span><span class="p">]:</span>
 </span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18"></a><span class="w">    </span><span class="sd">"""</span>
 </span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19"></a><span class="sd">    Reads the run_instances.json file from the specified study directory and</span>
 </span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20"></a><span class="sd">    converts it into a list of RunInstance objects.</span>
@@ -4841,25 +4911,35 @@ converts it into a list of RunInstance objects.</p>
 </span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36"></a>    <span class="c1"># Read the JSON file and convert it into RunInstance objects</span>
 </span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37"></a>    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">run_instances_json_path</span><span class="p">,</span> <span class="s2">"r"</span><span class="p">)</span> <span class="k">as</span> <span class="n">json_file</span><span class="p">:</span>
 </span><span id="__span-0-38"><a id="__codelineno-0-38" name="__codelineno-0-38"></a>        <span class="k">try</span><span class="p">:</span>
-</span><span id="__span-0-39"><a id="__codelineno-0-39" name="__codelineno-0-39"></a>            <span class="n">run_instances_data</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">json_file</span><span class="p">)</span>  <span class="c1"># Load the JSON data as a list of dictionaries</span>
-</span><span id="__span-0-40"><a id="__codelineno-0-40" name="__codelineno-0-40"></a>            <span class="n">run_instances</span> <span class="o">=</span> <span class="p">[]</span>
-</span><span id="__span-0-41"><a id="__codelineno-0-41" name="__codelineno-0-41"></a>            <span class="k">for</span> <span class="n">data</span> <span class="ow">in</span> <span class="n">run_instances_data</span><span class="p">:</span>
-</span><span id="__span-0-42"><a id="__codelineno-0-42" name="__codelineno-0-42"></a>                <span class="n">run_instance</span> <span class="o">=</span> <span class="n">RunInstance</span><span class="p">(</span><span class="n">run_location</span><span class="o">=</span><span class="n">data</span><span class="p">[</span><span class="s2">"run_location"</span><span class="p">],</span> <span class="nb">id</span><span class="o">=</span><span class="n">data</span><span class="p">[</span><span class="s2">"id"</span><span class="p">])</span>
-</span><span id="__span-0-43"><a id="__codelineno-0-43" name="__codelineno-0-43"></a>                <span class="c1"># Set command and args if present</span>
-</span><span id="__span-0-44"><a id="__codelineno-0-44" name="__codelineno-0-44"></a>                <span class="k">if</span> <span class="s2">"command"</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
-</span><span id="__span-0-45"><a id="__codelineno-0-45" name="__codelineno-0-45"></a>                    <span class="n">run_instance</span><span class="o">.</span><span class="n">command</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s2">"command"</span><span class="p">]</span>
-</span><span id="__span-0-46"><a id="__codelineno-0-46" name="__codelineno-0-46"></a>                <span class="k">if</span> <span class="s2">"args"</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
-</span><span id="__span-0-47"><a id="__codelineno-0-47" name="__codelineno-0-47"></a>                    <span class="n">run_instance</span><span class="o">.</span><span class="n">args</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s2">"args"</span><span class="p">]</span>
-</span><span id="__span-0-48"><a id="__codelineno-0-48" name="__codelineno-0-48"></a>                <span class="n">run_instances</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">run_instance</span><span class="p">)</span>
-</span><span id="__span-0-49"><a id="__codelineno-0-49" name="__codelineno-0-49"></a>            <span class="nb">print</span><span class="p">(</span><span class="s2">"Successfully retrieved run instances."</span><span class="p">)</span>
-</span><span id="__span-0-50"><a id="__codelineno-0-50" name="__codelineno-0-50"></a>            <span class="k">return</span> <span class="n">run_instances</span>
-</span><span id="__span-0-51"><a id="__codelineno-0-51" name="__codelineno-0-51"></a>        <span class="k">except</span> <span class="n">json</span><span class="o">.</span><span class="n">JSONDecodeError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-</span><span id="__span-0-52"><a id="__codelineno-0-52" name="__codelineno-0-52"></a>            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"ERROR: Failed to parse JSON file: </span><span class="si">{</span><span class="n">run_instances_json_path</span><span class="si">}</span><span class="s2">."</span><span class="p">)</span>
-</span><span id="__span-0-53"><a id="__codelineno-0-53" name="__codelineno-0-53"></a>            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Details: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
-</span><span id="__span-0-54"><a id="__codelineno-0-54" name="__codelineno-0-54"></a>            <span class="k">return</span> <span class="p">[]</span>
-</span><span id="__span-0-55"><a id="__codelineno-0-55" name="__codelineno-0-55"></a>        <span class="k">except</span> <span class="ne">KeyError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-</span><span id="__span-0-56"><a id="__codelineno-0-56" name="__codelineno-0-56"></a>            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"ERROR: Missing expected key in JSON data: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
-</span><span id="__span-0-57"><a id="__codelineno-0-57" name="__codelineno-0-57"></a>            <span class="k">return</span> <span class="p">[]</span>
+</span><span id="__span-0-39"><a id="__codelineno-0-39" name="__codelineno-0-39"></a>            <span class="n">run_info</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">json_file</span><span class="p">)</span>
+</span><span id="__span-0-40"><a id="__codelineno-0-40" name="__codelineno-0-40"></a>            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">run_info</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+</span><span id="__span-0-41"><a id="__codelineno-0-41" name="__codelineno-0-41"></a>                <span class="n">run_instances_data</span> <span class="o">=</span> <span class="n">run_info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"runs"</span><span class="p">,</span> <span class="p">[])</span>
+</span><span id="__span-0-42"><a id="__codelineno-0-42" name="__codelineno-0-42"></a>            <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-43"><a id="__codelineno-0-43" name="__codelineno-0-43"></a>                <span class="n">run_instances_data</span> <span class="o">=</span> <span class="n">run_info</span>
+</span><span id="__span-0-44"><a id="__codelineno-0-44" name="__codelineno-0-44"></a>            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">run_instances_data</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+</span><span id="__span-0-45"><a id="__codelineno-0-45" name="__codelineno-0-45"></a>                <span class="nb">print</span><span class="p">(</span><span class="s2">"ERROR: Run instances JSON must be a list or an object with a 'runs' list."</span><span class="p">)</span>
+</span><span id="__span-0-46"><a id="__codelineno-0-46" name="__codelineno-0-46"></a>                <span class="k">return</span> <span class="p">[]</span>
+</span><span id="__span-0-47"><a id="__codelineno-0-47" name="__codelineno-0-47"></a>            <span class="n">run_instances</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="__span-0-48"><a id="__codelineno-0-48" name="__codelineno-0-48"></a>            <span class="k">for</span> <span class="n">data</span> <span class="ow">in</span> <span class="n">run_instances_data</span><span class="p">:</span>
+</span><span id="__span-0-49"><a id="__codelineno-0-49" name="__codelineno-0-49"></a>                <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+</span><span id="__span-0-50"><a id="__codelineno-0-50" name="__codelineno-0-50"></a>                    <span class="nb">print</span><span class="p">(</span><span class="s2">"ERROR: Run instance entries must be JSON objects."</span><span class="p">)</span>
+</span><span id="__span-0-51"><a id="__codelineno-0-51" name="__codelineno-0-51"></a>                    <span class="k">return</span> <span class="p">[]</span>
+</span><span id="__span-0-52"><a id="__codelineno-0-52" name="__codelineno-0-52"></a>                <span class="n">run_instance</span> <span class="o">=</span> <span class="n">RunInstance</span><span class="p">(</span><span class="n">run_location</span><span class="o">=</span><span class="n">data</span><span class="p">[</span><span class="s2">"run_location"</span><span class="p">],</span> <span class="nb">id</span><span class="o">=</span><span class="n">data</span><span class="p">[</span><span class="s2">"id"</span><span class="p">])</span>
+</span><span id="__span-0-53"><a id="__codelineno-0-53" name="__codelineno-0-53"></a>                <span class="c1"># Set command and args if present</span>
+</span><span id="__span-0-54"><a id="__codelineno-0-54" name="__codelineno-0-54"></a>                <span class="k">if</span> <span class="s2">"command"</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+</span><span id="__span-0-55"><a id="__codelineno-0-55" name="__codelineno-0-55"></a>                    <span class="n">run_instance</span><span class="o">.</span><span class="n">command</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s2">"command"</span><span class="p">]</span>
+</span><span id="__span-0-56"><a id="__codelineno-0-56" name="__codelineno-0-56"></a>                <span class="k">if</span> <span class="s2">"args"</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+</span><span id="__span-0-57"><a id="__codelineno-0-57" name="__codelineno-0-57"></a>                    <span class="n">run_instance</span><span class="o">.</span><span class="n">args</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s2">"args"</span><span class="p">]</span>
+</span><span id="__span-0-58"><a id="__codelineno-0-58" name="__codelineno-0-58"></a>                <span class="n">run_instances</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">run_instance</span><span class="p">)</span>
+</span><span id="__span-0-59"><a id="__codelineno-0-59" name="__codelineno-0-59"></a>            <span class="nb">print</span><span class="p">(</span><span class="s2">"Successfully retrieved run instances."</span><span class="p">)</span>
+</span><span id="__span-0-60"><a id="__codelineno-0-60" name="__codelineno-0-60"></a>            <span class="k">return</span> <span class="n">run_instances</span>
+</span><span id="__span-0-61"><a id="__codelineno-0-61" name="__codelineno-0-61"></a>        <span class="k">except</span> <span class="n">json</span><span class="o">.</span><span class="n">JSONDecodeError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+</span><span id="__span-0-62"><a id="__codelineno-0-62" name="__codelineno-0-62"></a>            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"ERROR: Failed to parse JSON file: </span><span class="si">{</span><span class="n">run_instances_json_path</span><span class="si">}</span><span class="s2">."</span><span class="p">)</span>
+</span><span id="__span-0-63"><a id="__codelineno-0-63" name="__codelineno-0-63"></a>            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Details: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</span><span id="__span-0-64"><a id="__codelineno-0-64" name="__codelineno-0-64"></a>            <span class="k">return</span> <span class="p">[]</span>
+</span><span id="__span-0-65"><a id="__codelineno-0-65" name="__codelineno-0-65"></a>        <span class="k">except</span> <span class="ne">KeyError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+</span><span id="__span-0-66"><a id="__codelineno-0-66" name="__codelineno-0-66"></a>            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"ERROR: Missing expected key in JSON data: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</span><span id="__span-0-67"><a id="__codelineno-0-67" name="__codelineno-0-67"></a>            <span class="k">return</span> <span class="p">[]</span>
 </span></code></pre></div></td></tr></tbody></table></div>
             </details>
     </div>
