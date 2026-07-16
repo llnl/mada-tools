@@ -5,8 +5,9 @@
 Unit tests for WEAVEStudyConstructionServer.
 """
 
+import asyncio
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
@@ -253,7 +254,7 @@ class TestRegisterJinjaStudyTool:
         monkeypatch.setattr(server.study_constructor, "build_context", build_context_mock)
         monkeypatch.setattr(server.study_constructor, "write_yaml_tool", write_yaml_mock)
 
-        result = tool(overrides={"required_value": 123}, output_dir=tmp_path)
+        result = asyncio.run(tool(overrides={"required_value": 123}, output_dir=tmp_path))
 
         assert "Wrote Maestro study YAML to" in result
         build_context_mock.assert_called_once()
@@ -330,10 +331,10 @@ class TestRegisterPathTools:
         server._register_path_tools()
         tool = next(t for t in server.mcp.registered_tools if t.__name__ == "abspath")
 
-        run_tool_mock = MagicMock(return_value="/tmp/output.yaml")
+        run_tool_mock = AsyncMock(return_value="/tmp/output.yaml")
         monkeypatch.setattr(server, "run_tool", run_tool_mock)
 
-        result = tool("relative/path.yaml")
+        result = asyncio.run(tool("relative/path.yaml"))
 
         assert result == "/tmp/output.yaml"
         run_tool_mock.assert_called_once()

@@ -5,7 +5,6 @@
 
 import argparse
 import asyncio
-import concurrent.futures
 import json
 import logging
 import os
@@ -42,10 +41,6 @@ class BaseMCPServer(ABC):
         self.oauth_enabled = False
         self._tool_task_lock = threading.Lock()
         self._tool_task_counter = count(1)
-        self._background_tasks: set[asyncio.Task[Any]] = set()
-        self._background_futures: set[concurrent.futures.Future[Any]] = set()
-        self._background_loop: asyncio.AbstractEventLoop | None = None
-        self._background_loop_thread: threading.Thread | None = None
 
     def parse_args(self) -> argparse.Namespace:
         """Parse command line arguments."""
@@ -181,88 +176,36 @@ class BaseMCPServer(ABC):
         else:
             raise ValueError(f"Unsupported transport: {transport}")
 
-    def run_tool(self, func: Callable, *args, **kwargs) -> Any:
+    async def run_tool(self, func: Callable, *args, background: bool = True, **kwargs) -> Any:
         """
-        Execute a tool immediately and return its payload.
+        Execute a tool and return either a background task descriptor or its payload.
 
         Args:
             func: The function/method to execute.
+            background: Whether to run the tool in the background. Defaults to True.
 
         Returns:
-            The normalized tool payload.
+            A JSON task descriptor when running in the background, otherwise the normalized tool payload.
         """
-        return self._execute_tool(func, *args, **kwargs)
+        if not background:
+            return await asyncio.to_thread(self._execute_tool, func, *args, **kwargs)
 
-    def run_tool_background(self, func: Callable, *args, **kwargs) -> str:
-        """
-        Start a tool in the background and return a tracking payload.
-
-        Args:
-            func: The function/method to execute.
-
-        Returns:
-            A JSON task descriptor for the started background tool.
-        """
         with self._tool_task_lock:
             task_id = f"tool-task-{next(self._tool_task_counter)}"
         tool_name = getattr(func, "__name__", repr(func))
         submitted_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop_ready: threading.Event | None = None
-            with self._tool_task_lock:
-                background_loop = self._background_loop
-                if background_loop is None or not background_loop.is_running():
-                    loop_ready = threading.Event()
-                    self._background_loop_thread = threading.Thread(
-                        target=lambda: (
-                            (loop := asyncio.new_event_loop()),
-                            asyncio.set_event_loop(loop),
-                            setattr(self, "_background_loop", loop),
-                            loop_ready.set(),
-                            loop.run_forever(),
-                        ),
-                        name=f"{self.server_name.lower().replace(' ', '-')}-asyncio",
-                        daemon=True,
-                    )
-                    self._background_loop_thread.start()
-
-            if loop_ready is not None:
-                loop_ready.wait()
-                background_loop = self._background_loop
-            if background_loop is None:
-                raise RuntimeError("Failed to start background asyncio event loop")
-            future = asyncio.run_coroutine_threadsafe(
-                self._execute_tool_async(func, *args, **kwargs),
-                background_loop,
-            )
-            with self._tool_task_lock:
-                self._background_futures.add(future)
-            future.add_done_callback(
-                lambda done_future: (
-                    self._tool_task_lock.acquire(),
-                    self._background_futures.discard(done_future),
-                    self._tool_task_lock.release(),
-                    LOG.error("Background tool %s (%s) failed: %s", tool_name, task_id, error)
-                    if (error := done_future.exception()) is not None
-                    else None,
-                )
-            )
-        else:
-            task = loop.create_task(self._execute_tool_async(func, *args, **kwargs))
-            with self._tool_task_lock:
-                self._background_tasks.add(task)
-            task.add_done_callback(
-                lambda done_task: (
-                    self._tool_task_lock.acquire(),
-                    self._background_tasks.discard(done_task),
-                    self._tool_task_lock.release(),
+        task = asyncio.create_task(asyncio.to_thread(self._execute_tool, func, *args, **kwargs))
+        task.add_done_callback(
+            lambda done_task: (
+                LOG.error("Background tool %s (%s) was cancelled", tool_name, task_id)
+                if done_task.cancelled()
+                else (
                     LOG.error("Background tool %s (%s) failed: %s", tool_name, task_id, error)
                     if (error := done_task.exception()) is not None
-                    else None,
+                    else None
                 )
             )
+        )
         return json.dumps(
             {
                 "task_id": task_id,
@@ -273,10 +216,6 @@ class BaseMCPServer(ABC):
             },
             indent=2,
         )
-
-    async def _execute_tool_async(self, func: Callable, *args, **kwargs) -> Any:
-        """Run one tool function off the event loop and normalize its result."""
-        return await asyncio.to_thread(self._execute_tool, func, *args, **kwargs)
 
     def _execute_tool(self, func: Callable, *args, **kwargs) -> Any:
         """Execute one tool function and normalize `(success, payload)` results."""

@@ -5,8 +5,9 @@
 Unit tests for MaestroCommandExecutionServer.
 """
 
+import asyncio
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
@@ -154,10 +155,10 @@ class TestRegisterTools:
         server._register_tools()
         tool = next(t for t in server.mcp.registered_tools if t.__name__ == "run_workflow")
 
-        run_tool_mock = MagicMock(return_value="workflow started")
+        run_tool_mock = AsyncMock(return_value="workflow started")
         monkeypatch.setattr(server, "run_tool", run_tool_mock)
 
-        result = tool("workflow.yaml", attempts=2, dry=True)
+        result = asyncio.run(tool("workflow.yaml", attempts=2, dry=True))
 
         assert result == "workflow started"
         run_tool_mock.assert_called_once()
@@ -175,10 +176,10 @@ class TestRegisterTools:
         server._register_tools()
         tool = next(t for t in server.mcp.registered_tools if t.__name__ == "get_statuses")
 
-        run_tool_mock = MagicMock(return_value="status output")
+        run_tool_mock = AsyncMock(return_value="status output")
         monkeypatch.setattr(server, "run_tool", run_tool_mock)
 
-        result = tool(["/tmp/study1"], layout="narrow", disable_theme=True)
+        result = asyncio.run(tool(["/tmp/study1"], layout="narrow", disable_theme=True))
 
         assert result == "status output"
         run_tool_mock.assert_called_once()
@@ -200,10 +201,10 @@ class TestRegisterTools:
         server._register_tools()
         tool = next(t for t in server.mcp.registered_tools if t.__name__ == "cancel_workflows")
 
-        run_tool_mock = MagicMock(return_value="cancelled")
+        run_tool_mock = AsyncMock(return_value="cancelled")
         monkeypatch.setattr(server, "run_tool", run_tool_mock)
 
-        result = tool(["/tmp/study1"])
+        result = asyncio.run(tool(["/tmp/study1"]))
 
         assert result == "cancelled"
         run_tool_mock.assert_called_once()
@@ -225,10 +226,10 @@ class TestRegisterTools:
         server._register_tools()
         tool = next(t for t in server.mcp.registered_tools if t.__name__ == "update_workflows")
 
-        run_tool_mock = MagicMock(return_value="updated")
+        run_tool_mock = AsyncMock(return_value="updated")
         monkeypatch.setattr(server, "run_tool", run_tool_mock)
 
-        result = tool(["/tmp/study1"], throttle=5)
+        result = asyncio.run(tool(["/tmp/study1"], throttle=5))
 
         assert result == "updated"
         run_tool_mock.assert_called_once()

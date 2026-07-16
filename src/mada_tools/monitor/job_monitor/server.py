@@ -62,7 +62,7 @@ class JobMonitorServer(BaseMCPServer):
         """
 
         @self.mcp.tool()
-        def read_logs(run_location: str, stdout_file: str, stderr_file: str) -> str:
+        async def read_logs(run_location: str, stdout_file: str, stderr_file: str) -> str:
             """
             Read and return the tailed stdout and stderr logs for a job.
 
@@ -79,10 +79,10 @@ class JobMonitorServer(BaseMCPServer):
             Raises:
                 ToolExecutionError: If log reading fails for any reason.
             """
-            return self.run_tool(self.job_monitor_helper.read_logs, run_location, stdout_file, stderr_file)
+            return await self.run_tool(self.job_monitor_helper.read_logs, run_location, stdout_file, stderr_file)
 
         @self.mcp.tool()
-        def summarize_status(
+        async def summarize_status(
             run_location: str,
             stdout_file: str,
             stderr_file: str,
@@ -118,7 +118,7 @@ class JobMonitorServer(BaseMCPServer):
                 aborts, scheduler preemption signatures, missing output, and
                 other known error indicators.
             """
-            return self.run_tool(
+            return await self.run_tool(
                 self.job_monitor_helper.summarize_status,
                 run_location,
                 stdout_file,

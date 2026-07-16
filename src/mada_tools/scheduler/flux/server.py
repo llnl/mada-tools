@@ -49,7 +49,7 @@ class FluxServer(BaseMCPServer):
         self.job_manager = FluxJobManager()
 
         @self.mcp.tool()
-        def submit_command(
+        async def submit_command(
             command: str,
             nodes: int = 1,
             tasks: int = 1,
@@ -86,7 +86,7 @@ class FluxServer(BaseMCPServer):
             Returns:
                 str: JSON describing the submitted Flux job
             """
-            return self.run_tool(
+            return await self.run_tool(
                 self.job_manager.submit_command,
                 command,
                 working_directory=working_directory,
@@ -103,7 +103,7 @@ class FluxServer(BaseMCPServer):
             )
 
         @self.mcp.tool()
-        def submit_jobs(
+        async def submit_jobs(
             run_info_json: str,
             blocking: bool = False,
             nodes: int = 1,
@@ -144,7 +144,7 @@ class FluxServer(BaseMCPServer):
             Returns:
                 str: JSON containing submission results and job IDs.
             """
-            return self.run_tool(
+            return await self.run_tool(
                 self.job_manager.submit_jobs,
                 run_info_json,
                 blocking=blocking,
@@ -161,7 +161,7 @@ class FluxServer(BaseMCPServer):
             )
 
         @self.mcp.tool()
-        def check_job_status(job_id: str = None, flux_job_id: str = None) -> str:
+        async def check_job_status(job_id: str = None, flux_job_id: str = None) -> str:
             """
             Check the status of tracked jobs or one real Flux job ID.
 
@@ -172,10 +172,10 @@ class FluxServer(BaseMCPServer):
             Returns:
                 str: JSON containing job status information
             """
-            return self.run_tool(self.job_manager.get_job_status, job_id=job_id, flux_job_id=flux_job_id)
+            return await self.run_tool(self.job_manager.get_job_status, job_id=job_id, flux_job_id=flux_job_id)
 
         @self.mcp.tool()
-        def continuously_check_job_status(
+        async def continuously_check_job_status(
             job_id: str = None,
             flux_job_id: str = None,
             wait_until: str = "terminal",
@@ -202,7 +202,7 @@ class FluxServer(BaseMCPServer):
             Returns:
                 str: JSON containing polling metadata plus the last status response.
             """
-            return self.run_tool(
+            return await self.run_tool(
                 self.job_manager.continuously_check_job_status,
                 job_id=job_id,
                 flux_job_id=flux_job_id,
