@@ -121,6 +121,125 @@ def test_exception_messages_flattens_exception_group_shape():
     ]
 
 
+def test_load_model_prices_extracts_token_prices(tmp_path: Path):
+    prices_path = tmp_path / "prices.json"
+    prices_path.write_text(
+        json.dumps(
+            {
+                "sample_spec": {"input_cost_per_token": 0},
+                "gpt-test": {
+                    "input_cost_per_token": 0.001,
+                    "output_cost_per_token": 0.002,
+                    "mode": "chat",
+                },
+                "image-test": {"output_cost_per_image": 0.01},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    prices = mcp_tool_call_eval.load_model_prices(prices_path)
+
+    assert set(prices) == {"gpt-test"}
+    assert prices["gpt-test"].input_cost_per_token == 0.001
+    assert prices["gpt-test"].output_cost_per_token == 0.002
+
+
+def test_build_row_adds_actual_cost_fields():
+    case = make_test_case({"command": "hostname"}, tool="submit_job", profile=None)
+    prompt = {"id": "direct", "text": "test"}
+    result = mcp_tool_call_eval.ToolCallResult(
+        tool_name="submit_job",
+        tool_arguments={"command": "hostname"},
+        tool_arguments_raw=None,
+        assistant_text=None,
+        raw_message=None,
+        raw_tool_calls=[],
+        raw_response=None,
+        usage={"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
+        latency_ms=15,
+    )
+    prices = {"gpt-test": mcp_tool_call_eval.ModelPricing(0.001, 0.002)}
+
+    row = mcp_tool_call_eval.build_row("gpt-test", case, prompt, 1, result, True, None, None, prices)
+
+    assert row["input_token_price_usd"] == 0.001
+    assert row["output_token_price_usd"] == 0.002
+    assert row["input_cost_usd"] == 0.1
+    assert row["output_cost_usd"] == 0.04
+    assert row["total_cost_usd"] == 0.14
+
+
+def test_build_row_leaves_costs_empty_without_tokens_or_price():
+    case = make_test_case({"command": "hostname"}, tool="submit_job", profile=None)
+    prompt = {"id": "direct", "text": "test"}
+    result = mcp_tool_call_eval.ToolCallResult(
+        tool_name="submit_job",
+        tool_arguments={"command": "hostname"},
+        tool_arguments_raw=None,
+        assistant_text=None,
+        raw_message=None,
+        raw_tool_calls=[],
+        raw_response=None,
+        usage={"prompt_tokens": None, "completion_tokens": 20, "total_tokens": None},
+        latency_ms=15,
+    )
+
+    row = mcp_tool_call_eval.build_row("unknown", case, prompt, 1, result, True, None, None, {})
+
+    assert row["input_token_price_usd"] is None
+    assert row["output_token_price_usd"] is None
+    assert row["input_cost_usd"] is None
+    assert row["output_cost_usd"] is None
+    assert row["total_cost_usd"] is None
+
+
+def test_summarize_adds_total_tokens_and_costs():
+    case = make_test_case({"command": "hostname"}, tool="submit_job", profile=None)
+    fixture = fixture_with(case)
+    rows = [
+        {
+            "model": "gpt-test",
+            "server": "server",
+            "case_id": "case",
+            "prompt_id": "direct",
+            "sample_index": 1,
+            "passed": True,
+            "prompt_tokens": 100,
+            "completion_tokens": 20,
+            "total_tokens": 120,
+            "input_cost_usd": 0.1,
+            "output_cost_usd": 0.04,
+            "total_cost_usd": 0.14,
+            "latency_ms": 10,
+        },
+        {
+            "model": "gpt-test",
+            "server": "server",
+            "case_id": "case",
+            "prompt_id": "direct",
+            "sample_index": 2,
+            "passed": False,
+            "prompt_tokens": 110,
+            "completion_tokens": 25,
+            "total_tokens": 135,
+            "input_cost_usd": 0.11,
+            "output_cost_usd": 0.05,
+            "total_cost_usd": 0.16,
+            "latency_ms": 20,
+        },
+    ]
+
+    summary = mcp_tool_call_eval.summarize(fixture, rows, num_samples=2)[0]
+
+    assert summary["total_prompt_tokens"] == 210
+    assert summary["total_completion_tokens"] == 45
+    assert summary["total_tokens"] == 255
+    assert summary["input_cost_usd"] == 0.21
+    assert summary["output_cost_usd"] == 0.09
+    assert summary["total_cost_usd"] == 0.3
+
+
 def test_evaluate_result_accepts_generic_subset_extra_arguments():
     case = make_test_case({"command": "hostname"}, tool="submit_job", profile=None)
     result = tool_result({"command": "hostname", "nodes": 1}, tool_name="submit_job")

@@ -47,6 +47,11 @@ ROW_FIELDS = [
     "prompt_tokens",
     "completion_tokens",
     "total_tokens",
+    "input_token_price_usd",
+    "output_token_price_usd",
+    "input_cost_usd",
+    "output_cost_usd",
+    "total_cost_usd",
     "latency_ms",
 ]
 
@@ -68,6 +73,12 @@ SUMMARY_BASE_FIELDS = [
 ]
 
 SUMMARY_METRIC_FIELDS = [
+    "total_prompt_tokens",
+    "total_completion_tokens",
+    "total_tokens",
+    "input_cost_usd",
+    "output_cost_usd",
+    "total_cost_usd",
     "avg_prompt_tokens",
     "avg_completion_tokens",
     "avg_total_tokens",
@@ -76,6 +87,13 @@ SUMMARY_METRIC_FIELDS = [
 
 MATCH_MODES = {"subset", "exact"}
 MATCH_PROFILES = {"parameter_runs"}
+DEFAULT_MODEL_PRICES_PATH = Path(__file__).resolve().with_name("model_prices_and_context_window.json")
+
+
+@dataclass(frozen=True)
+class ModelPricing:
+    input_cost_per_token: float
+    output_cost_per_token: float
 
 
 @dataclass
@@ -142,6 +160,60 @@ def load_json(path: Path) -> dict[str, Any]:
 
 
 load_config = load_json_object_config
+
+
+def load_model_prices(path: Path | None) -> dict[str, ModelPricing]:
+    if path is None:
+        return {}
+    if not path.exists():
+        raise ValueError(f"Model prices file does not exist: {path}")
+
+    with path.open("r", encoding="utf-8") as f:
+        loaded = json.load(f)
+    if not isinstance(loaded, dict):
+        raise ValueError(f"{path}: model prices file must contain a JSON object")
+
+    prices = {}
+    for model, metadata in loaded.items():
+        if model in {"sample_spec", "fallback_generalizations"}:
+            continue
+        if not isinstance(metadata, dict):
+            continue
+        input_price = metadata.get("input_cost_per_token")
+        output_price = metadata.get("output_cost_per_token")
+        if isinstance(input_price, (int, float)) and isinstance(output_price, (int, float)):
+            prices[str(model)] = ModelPricing(
+                input_cost_per_token=float(input_price),
+                output_cost_per_token=float(output_price),
+            )
+    return prices
+
+
+def calculate_costs(
+    model: str,
+    prompt_tokens: int | None,
+    completion_tokens: int | None,
+    model_prices: dict[str, ModelPricing],
+) -> dict[str, float | None]:
+    pricing = model_prices.get(model)
+    if pricing is None or prompt_tokens is None or completion_tokens is None:
+        return {
+            "input_token_price_usd": pricing.input_cost_per_token if pricing else None,
+            "output_token_price_usd": pricing.output_cost_per_token if pricing else None,
+            "input_cost_usd": None,
+            "output_cost_usd": None,
+            "total_cost_usd": None,
+        }
+
+    input_cost = prompt_tokens * pricing.input_cost_per_token
+    output_cost = completion_tokens * pricing.output_cost_per_token
+    return {
+        "input_token_price_usd": pricing.input_cost_per_token,
+        "output_token_price_usd": pricing.output_cost_per_token,
+        "input_cost_usd": round(input_cost, 10),
+        "output_cost_usd": round(output_cost, 10),
+        "total_cost_usd": round(input_cost + output_cost, 10),
+    }
 
 
 def normalize_prompts(test_case: dict[str, Any]) -> list[dict[str, str]]:
@@ -900,9 +972,16 @@ def build_row(
     passed: bool,
     error_type: str | None,
     error: str | None,
+    model_prices: dict[str, ModelPricing] | None = None,
 ) -> dict[str, Any]:
     usage = result.usage
     expected_call = expected_call_from_test_case(test_case)
+    cost_fields = calculate_costs(
+        model=model,
+        prompt_tokens=usage["prompt_tokens"],
+        completion_tokens=usage["completion_tokens"],
+        model_prices=model_prices or {},
+    )
     return {
         "model": model,
         "server": test_case["server"],
@@ -917,6 +996,7 @@ def build_row(
         "prompt_tokens": usage["prompt_tokens"],
         "completion_tokens": usage["completion_tokens"],
         "total_tokens": usage["total_tokens"],
+        **cost_fields,
         "latency_ms": result.latency_ms,
     }
 
@@ -946,6 +1026,16 @@ def average(values: list[int | None]) -> float | None:
     if not present:
         return None
     return round(sum(present) / len(present), 3)
+
+
+def sum_present(values: list[int | float | None]) -> int | float | None:
+    present = [value for value in values if value is not None]
+    if not present:
+        return None
+    total = sum(present)
+    if isinstance(total, float):
+        return round(total, 10)
+    return total
 
 
 def summarize(fixture: dict[str, Any], rows: list[dict[str, Any]], num_samples: int) -> list[dict[str, Any]]:
@@ -1005,6 +1095,12 @@ def summarize(fixture: dict[str, Any], rows: list[dict[str, Any]], num_samples: 
         summary_row["avg_completion_tokens"] = average([row["completion_tokens"] for row in case_rows])
         summary_row["avg_total_tokens"] = average([row["total_tokens"] for row in case_rows])
         summary_row["avg_latency_ms"] = average([row["latency_ms"] for row in case_rows])
+        summary_row["total_prompt_tokens"] = sum_present([row.get("prompt_tokens") for row in case_rows])
+        summary_row["total_completion_tokens"] = sum_present([row.get("completion_tokens") for row in case_rows])
+        summary_row["total_tokens"] = sum_present([row.get("total_tokens") for row in case_rows])
+        summary_row["input_cost_usd"] = sum_present([row.get("input_cost_usd") for row in case_rows])
+        summary_row["output_cost_usd"] = sum_present([row.get("output_cost_usd") for row in case_rows])
+        summary_row["total_cost_usd"] = sum_present([row.get("total_cost_usd") for row in case_rows])
         summary_rows.append(summary_row)
     return summary_rows
 
@@ -1069,6 +1165,7 @@ async def execute_work_item(
     strict: bool,
     capture_raw_response: bool,
     semaphore: asyncio.Semaphore,
+    model_prices: dict[str, ModelPricing],
 ) -> CompletedWorkItem:
     async with semaphore:
         _session, tools = connected_servers[work_item.test_case["server"]]
@@ -1092,6 +1189,7 @@ async def execute_work_item(
         passed,
         error_type,
         error,
+        model_prices,
     )
     detailed_row = build_detailed_row(row, work_item.prompt["text"], work_item.test_case["expected_call"], result)
     return CompletedWorkItem(
@@ -1119,6 +1217,7 @@ async def execute_work_items(
     max_concurrency: int,
     csv_writer: csv.DictWriter | None,
     csv_file: Any,
+    model_prices: dict[str, ModelPricing],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     rows: list[dict[str, Any]] = []
     detailed_rows: list[dict[str, Any]] = []
@@ -1151,6 +1250,7 @@ async def execute_work_items(
                     strict=strict,
                     capture_raw_response=capture_raw_response,
                     semaphore=semaphore,
+                    model_prices=model_prices,
                 )
             )
         )
@@ -1201,14 +1301,15 @@ def print_rows(rows: list[dict[str, Any]], summary_rows: list[dict[str, Any]]) -
         )
 
     print("\nSummary")
-    print("model | server | case | score | pass_rate | avg_tokens | avg_latency_ms")
-    print("-" * 96)
+    print("model | server | case | score | pass_rate | avg_tokens | total_cost_usd | avg_latency_ms")
+    print("-" * 116)
     for row in summary_rows:
         avg_tokens = row["avg_total_tokens"] if row["avg_total_tokens"] is not None else "n/a"
+        total_cost = row["total_cost_usd"] if row.get("total_cost_usd") is not None else "n/a"
         print(
             f"{row['model']} | {row['server']} | {row['case_id']} | "
             f"{row['score_passed']}/{row['score_total']} | {row['pass_rate']} | "
-            f"{avg_tokens} | {row['avg_latency_ms']}"
+            f"{avg_tokens} | {total_cost} | {row['avg_latency_ms']}"
         )
 
 
@@ -1222,6 +1323,7 @@ async def run(args: argparse.Namespace) -> int:
     validate_shard_args(args)
     fixture = load_json(args.cases)
     config = load_config(args.config)
+    model_prices = load_model_prices(args.model_prices)
     system_prompt = args.system_prompt or DEFAULT_SYSTEM_PROMPT
     api_key = args.api_key or get_config_value(config, "api_key") or os.getenv("API_KEY")
     base_url = (
@@ -1289,6 +1391,7 @@ async def run(args: argparse.Namespace) -> int:
                 max_concurrency=args.max_concurrency,
                 csv_writer=csv_writer,
                 csv_file=csv_file,
+                model_prices=model_prices,
             )
     finally:
         if csv_file:
@@ -1362,6 +1465,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--results-json", type=Path, help="Write detailed per-prompt JSON results")
     parser.add_argument("--summary-csv", type=Path, help="Write per-case summary CSV results")
     parser.add_argument("--summary-json", type=Path, help="Write per-case summary JSON results")
+    parser.add_argument(
+        "--model-prices",
+        type=Path,
+        default=DEFAULT_MODEL_PRICES_PATH if DEFAULT_MODEL_PRICES_PATH.exists() else None,
+        help="JSON model pricing file used to compute token costs",
+    )
     parser.add_argument("--quiet", action="store_true", help="Suppress live progress output")
     parser.add_argument("--no-final-table", action="store_true", help="Skip final console result tables")
     parser.add_argument(

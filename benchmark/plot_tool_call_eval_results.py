@@ -58,6 +58,38 @@ def as_float(value: Any, default: float = 0.0) -> float:
     return float(value)
 
 
+def has_numeric_value(rows: list[dict[str, Any]], field: str) -> bool:
+    for row in rows:
+        value = row.get(field)
+        if value in (None, ""):
+            continue
+        try:
+            float(value)
+        except (TypeError, ValueError):
+            continue
+        return True
+    return False
+
+
+def sum_numeric_values(rows: list[dict[str, Any]], field: str) -> float:
+    total = 0.0
+    for row in rows:
+        value = row.get(field)
+        if value in (None, ""):
+            continue
+        try:
+            total += float(value)
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
+def format_usd(value: float) -> str:
+    if value >= 1:
+        return f"${value:,.2f}"
+    return f"${value:,.6f}"
+
+
 def format_number(value: float) -> str:
     return str(int(value)) if value.is_integer() else f"{value:g}"
 
@@ -281,6 +313,7 @@ def plot_stacked(
     legend_title: str,
     draw_flavor_boundaries: bool = False,
     show_flavor_order_box: bool = False,
+    show_legend_values: bool = True,
 ) -> None:
     models, cases, values, row_map = matrix_for(rows, value_field)
     if not models or not cases:
@@ -305,7 +338,9 @@ def plot_stacked(
         color = DEFAULT_COLORS[case_index % len(DEFAULT_COLORS)]
         total = sum(case_values)
         nonzero = sum(1 for value in case_values if value > 0)
-        label = f"{case_label(case_id)} ({value_format.format(total / nonzero) if nonzero else value_format.format(0)})"
+        label = case_label(case_id)
+        if show_legend_values:
+            label = f"{label} ({value_format.format(total / nonzero) if nonzero else value_format.format(0)})"
         ax.barh(
             y_positions,
             case_values,
@@ -407,6 +442,11 @@ def parse_args() -> argparse.Namespace:
         help="Output image path for token stacked bar chart",
     )
     parser.add_argument(
+        "--cost-output",
+        type=Path,
+        help="Output image path for cost stacked bar chart",
+    )
+    parser.add_argument(
         "--score-field",
         default="score_passed",
         help="Summary field to plot for score blocks (default: score_passed)",
@@ -415,6 +455,11 @@ def parse_args() -> argparse.Namespace:
         "--token-field",
         default="avg_total_tokens",
         help="Summary field to plot for token blocks (default: avg_total_tokens)",
+    )
+    parser.add_argument(
+        "--cost-field",
+        default="total_cost_usd",
+        help="Summary field to plot for cost blocks (default: total_cost_usd)",
     )
     return parser.parse_args()
 
@@ -451,9 +496,23 @@ def main() -> int:
         draw_flavor_boundaries=True,
         show_flavor_order_box=True,
     )
+    if args.cost_output and has_numeric_value(rows, args.cost_field):
+        total_cost = sum_numeric_values(rows, args.cost_field)
+        plot_stacked(
+            rows=rows,
+            value_field=args.cost_field,
+            output_path=args.cost_output,
+            title=f"MCP Tool-Call Evaluation Cost By Model (Total: {format_usd(total_cost)})",
+            xlabel=axis_label_with_case_count(rows, "Stacked actual cost across test cases (USD)"),
+            value_format="{:.6f}",
+            legend_title="Test case",
+            show_legend_values=False,
+        )
 
     print(f"Wrote {args.score_output}")
     print(f"Wrote {args.tokens_output}")
+    if args.cost_output and has_numeric_value(rows, args.cost_field):
+        print(f"Wrote {args.cost_output}")
     return 0
 
 

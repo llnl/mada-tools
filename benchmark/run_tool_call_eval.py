@@ -29,15 +29,20 @@ from mcp_tool_call_eval import (  # noqa: E402
 )
 from plot_tool_call_eval_results import (  # noqa: E402
     axis_label_with_case_count,
+    format_usd,
+    has_numeric_value,
     load_rows,
     plot_stacked,
     score_axis_label,
+    sum_numeric_values,
 )
 
 from mada_tools.shared.env import expand_env_vars  # noqa: E402
 
 DEFAULT_SCORE_FIELD = "score_passed"
 DEFAULT_TOKEN_FIELD = "avg_total_tokens"
+DEFAULT_COST_FIELD = "total_cost_usd"
+DEFAULT_MODEL_PRICES_PATH = Path(__file__).resolve().with_name("model_prices_and_context_window.json")
 
 
 def expand_config_env(value: Any) -> Any:
@@ -161,6 +166,11 @@ def build_eval_args(
     prefix = str(output_config.get("prefix") or "tool_call")
     cases = path_from_config(config_dir, config.get("cases"), "cases", required=True)
     api_config = path_from_config(config_dir, model_api_config.get("config"), "model_api.config")
+    model_prices = path_from_config(
+        config_dir,
+        config.get("model_prices", str(DEFAULT_MODEL_PRICES_PATH)),
+        "model_prices",
+    )
 
     return argparse.Namespace(
         cases=cases,
@@ -193,6 +203,7 @@ def build_eval_args(
                                  bool_config(output_config.get("summary_csv"), True)),
         summary_json=output_path(output_dir, prefix, "summary.json",
                                   bool_config(output_config.get("summary_json"), True)),
+        model_prices=model_prices,
         quiet=cli_args.quiet or bool_config(output_config.get("quiet"), False),
         no_final_table=bool_config(output_config.get("no_final_table"), False),
         capture_raw_response=bool_config(output_config.get("capture_raw_response"), False),
@@ -216,8 +227,10 @@ def generate_plots(config: dict[str, Any], output_dir: Path, summary_csv: Path, 
     prefix = str(output_config.get("prefix") or "tool_call")
     score_field = str(output_config.get("score_field") or DEFAULT_SCORE_FIELD)
     token_field = str(output_config.get("token_field") or DEFAULT_TOKEN_FIELD)
+    cost_field = str(output_config.get("cost_field") or DEFAULT_COST_FIELD)
     score_output = output_dir / f"{prefix}_score.png"
     tokens_output = output_dir / f"{prefix}_tokens.png"
+    cost_output = output_dir / f"{prefix}_cost.png"
 
     rows = load_rows(summary_csv)
     score_value_format = "{:.2f}" if score_field.endswith("_rate") or score_field == "pass_rate" else "{:.0f}"
@@ -249,10 +262,28 @@ def generate_plots(config: dict[str, Any], output_dir: Path, summary_csv: Path, 
         draw_flavor_boundaries=True,
         show_flavor_order_box=True,
     )
+    wrote_cost_plot = False
+    if has_numeric_value(rows, cost_field):
+        total_cost = sum_numeric_values(rows, cost_field)
+        plot_stacked(
+            rows=rows,
+            value_field=cost_field,
+            output_path=cost_output,
+            title=f"MCP Tool-Call Evaluation Cost By Model (Total: {format_usd(total_cost)})",
+            xlabel=axis_label_with_case_count(rows, "Stacked actual cost across test cases (USD)"),
+            value_format="{:.6f}",
+            legend_title="Test case",
+            show_legend_values=False,
+        )
+        wrote_cost_plot = True
 
     if not quiet:
         print(f"Wrote {score_output}")
         print(f"Wrote {tokens_output}")
+        if wrote_cost_plot:
+            print(f"Wrote {cost_output}")
+        else:
+            print(f"Skipping cost plot because {cost_field!r} has no numeric values.")
 
 
 def parse_args() -> argparse.Namespace:

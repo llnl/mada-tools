@@ -224,6 +224,7 @@ and Slurm run configs use the same shape:
   "name": "slurm",
   "cases": "slurm_tool_call_eval_cases.json",
   "models_file": "eval_models_small.txt",
+  "model_prices": "model_prices_and_context_window.json",
   "output": {
     "directory": "results",
     "prefix": "slurm_tool_call",
@@ -272,6 +273,15 @@ evaluated independently for each model. `--num-samples` repeats each prompt
 flavor and adds a 1-based `sample_index` field to the detailed outputs.
 `--max-concurrency` overlaps multiple API requests inside one process while
 preserving deterministic output row order.
+
+By default, token costs are computed from
+`benchmark/model_prices_and_context_window.json` (which must be downloaded from
+[https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json) )
+when the model has exact
+`input_cost_per_token` and `output_cost_per_token` entries and the backend
+returns prompt/completion token usage. Use `--model-prices` to point at a
+different pricing JSON file. Missing pricing or missing token usage leaves cost
+fields empty for that attempt.
 
 During a run, the evaluator prints live progress by default. It reports MCP
 server connection status, the current prompt counter, model, server, case ID,
@@ -406,6 +416,7 @@ That directory contains:
 flux_2026-06-23_09-37-30/
 ├── flux_tool_call_rows.csv
 ├── flux_tool_call_rows.json
+├── flux_tool_call_cost.png
 ├── flux_tool_call_score.png
 ├── flux_tool_call_summary.csv
 ├── flux_tool_call_summary.json
@@ -515,13 +526,13 @@ JSON outputs and summary outputs are written at the end of the run.
 Per-prompt CSV fields:
 
 ```text
-model,server,case_id,prompt_id,sample_index,passed,error_type,error,expected_tool,actual_tool,prompt_tokens,completion_tokens,total_tokens,latency_ms
+model,server,case_id,prompt_id,sample_index,passed,error_type,error,expected_tool,actual_tool,prompt_tokens,completion_tokens,total_tokens,input_token_price_usd,output_token_price_usd,input_cost_usd,output_cost_usd,total_cost_usd,latency_ms
 ```
 
 Per-case summary CSV fields:
 
 ```text
-model,server,case_id,num_flavors,num_samples,flavor_order,score_passed,score_total,score_rate,prompts_passed,prompts_total,pass_rate,all_passed,any_passed,<flavor>_passed,<flavor>_total,<flavor>_rate,<flavor>_avg_prompt_tokens,<flavor>_avg_completion_tokens,<flavor>_avg_total_tokens,<flavor>_avg_latency_ms,avg_prompt_tokens,avg_completion_tokens,avg_total_tokens,avg_latency_ms
+model,server,case_id,num_flavors,num_samples,flavor_order,score_passed,score_total,score_rate,prompts_passed,prompts_total,pass_rate,all_passed,any_passed,<flavor>_passed,<flavor>_total,<flavor>_rate,<flavor>_avg_prompt_tokens,<flavor>_avg_completion_tokens,<flavor>_avg_total_tokens,<flavor>_avg_latency_ms,total_prompt_tokens,total_completion_tokens,total_tokens,input_cost_usd,output_cost_usd,total_cost_usd,avg_prompt_tokens,avg_completion_tokens,avg_total_tokens,avg_latency_ms
 ```
 
 `score_passed` and `score_total` are raw counts across all prompt-sample
@@ -531,6 +542,9 @@ the per-flavor columns follow that order for example `direct_passed`,
 `natural_passed`, and `terse_passed`. Per-flavor token and latency averages are
 also emitted so token plots can draw flavor partitions by observed token share
 instead of only by prompt/sample count.
+`input_cost_usd`, `output_cost_usd`, and `total_cost_usd` are summed from the
+actual per-attempt token counts and model prices; they are empty when pricing
+or token usage is unavailable.
 
 Use `--min-pass-rate` to set the process exit criteria from the per-case
 summary. For example, this requires every prompt-sample attempt in each case to

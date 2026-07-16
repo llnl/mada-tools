@@ -25,6 +25,13 @@ from mcp_tool_call_eval import (
 
 KEY_FIELDS = ("model", "server", "case_id", "prompt_id", "sample_index")
 OPTIONAL_INT_FIELDS = ("prompt_tokens", "completion_tokens", "total_tokens", "latency_ms")
+OPTIONAL_FLOAT_FIELDS = (
+    "input_token_price_usd",
+    "output_token_price_usd",
+    "input_cost_usd",
+    "output_cost_usd",
+    "total_cost_usd",
+)
 TRUE_VALUES = {"1", "true", "t", "yes", "y"}
 FALSE_VALUES = {"0", "false", "f", "no", "n"}
 
@@ -47,6 +54,17 @@ def parse_required_int(value: Any, field_name: str, source: Path) -> int:
     return parsed
 
 
+def parse_optional_float(value: Any, field_name: str, source: Path) -> float | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        raise ValueError(f"{source}: field {field_name!r} must be a number or empty, not boolean")
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{source}: field {field_name!r} must be a number or empty") from exc
+
+
 def parse_passed(value: Any, source: Path) -> bool:
     if isinstance(value, bool):
         return value
@@ -60,7 +78,8 @@ def parse_passed(value: Any, source: Path) -> bool:
 
 
 def normalize_base_row(row: dict[str, Any], source: Path) -> dict[str, Any]:
-    missing_fields = [field for field in ROW_FIELDS if field not in row]
+    required_fields = [field for field in ROW_FIELDS if field not in OPTIONAL_FLOAT_FIELDS]
+    missing_fields = [field for field in required_fields if field not in row]
     if missing_fields:
         missing = ", ".join(missing_fields)
         raise ValueError(f"{source}: row is missing required fields: {missing}")
@@ -79,6 +98,8 @@ def normalize_base_row(row: dict[str, Any], source: Path) -> dict[str, Any]:
     }
     for field in OPTIONAL_INT_FIELDS:
         normalized[field] = parse_optional_int(row[field], field, source)
+    for field in OPTIONAL_FLOAT_FIELDS:
+        normalized[field] = parse_optional_float(row.get(field), field, source)
     return normalized
 
 
