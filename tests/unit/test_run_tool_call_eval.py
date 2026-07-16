@@ -22,6 +22,7 @@ spec.loader.exec_module(run_tool_call_eval)
 def cli_overrides(**overrides):
     defaults = {
         "models_file": None,
+        "level": None,
         "num_samples": None,
         "max_concurrency": None,
         "shard_count": None,
@@ -131,6 +132,36 @@ def test_build_eval_args_allows_model_prices_override(tmp_path: Path):
     eval_args = run_tool_call_eval.build_eval_args(config, tmp_path, cli_overrides(), output_dir, ["gpt-test"])
 
     assert eval_args.model_prices == prices.resolve()
+
+
+def test_models_from_config_filters_level_aware_file(tmp_path: Path):
+    models_file = tmp_path / "models.tsv"
+    models_file.write_text("0 model-zero\n1 model-one\n2 model-two\n", encoding="utf-8")
+    config = {"models_file": "models.tsv"}
+
+    assert run_tool_call_eval.models_from_config(config, tmp_path, None, level=1) == ["model-zero", "model-one"]
+
+
+def test_models_from_config_explicit_models_bypass_level_filtering(tmp_path: Path):
+    config = {"models": ["model-two"]}
+
+    assert run_tool_call_eval.models_from_config(config, tmp_path, None, level=0) == ["model-two"]
+
+
+def test_models_from_config_override_file_uses_level_filtering(tmp_path: Path):
+    override_models_file = tmp_path / "override.tsv"
+    override_models_file.write_text("0 model-zero\n1 model-one\n", encoding="utf-8")
+    config = {"models": ["model-explicit"]}
+
+    assert run_tool_call_eval.models_from_config(config, tmp_path, override_models_file, level=0) == ["model-zero"]
+
+
+def test_level_from_config_defaults_to_zero():
+    assert run_tool_call_eval.level_from_config({}, cli_overrides()) == 0
+
+
+def test_level_from_config_cli_overrides_config():
+    assert run_tool_call_eval.level_from_config({"level": 1}, cli_overrides(level=2)) == 2
 
 
 def test_missing_cost_annotations_marks_models_with_no_cost_data():

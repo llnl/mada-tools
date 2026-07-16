@@ -15,7 +15,7 @@ REPO_SRC = Path(__file__).resolve().parents[1] / "src"
 if str(REPO_SRC) not in sys.path:
     sys.path.insert(0, str(REPO_SRC))
 
-from eval_io import load_models_file  # noqa: E402
+from eval_io import load_models_file, parse_model_level  # noqa: E402
 from mcp_tool_call_eval import (  # noqa: E402
     DEFAULT_SYSTEM_PROMPT,
     exception_messages,
@@ -107,9 +107,31 @@ def optional_string(value: Any, field_name: str) -> str | None:
     return value
 
 
-def models_from_config(config: dict[str, Any], config_dir: Path, models_file_override: Path | None) -> list[str]:
+def parse_level(value: str) -> int:
+    try:
+        return parse_model_level(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
+def level_from_config(config: dict[str, Any], cli_args: argparse.Namespace) -> int:
+    cli_level = getattr(cli_args, "level", None)
+    if cli_level is not None:
+        return cli_level
+    try:
+        return parse_model_level(str(config.get("level", 0)), "Run config field 'level'")
+    except ValueError as exc:
+        raise ValueError(str(exc)) from exc
+
+
+def models_from_config(
+    config: dict[str, Any],
+    config_dir: Path,
+    models_file_override: Path | None,
+    level: int = 0,
+) -> list[str]:
     if models_file_override is not None:
-        return load_models_file(models_file_override)
+        return load_models_file(models_file_override, level)
 
     if "models" in config:
         models = config["models"]
@@ -121,7 +143,7 @@ def models_from_config(config: dict[str, Any], config_dir: Path, models_file_ove
 
     models_file = path_from_config(config_dir, config.get("models_file"), "models_file", required=True)
     assert models_file is not None
-    return load_models_file(models_file)
+    return load_models_file(models_file, level)
 
 
 def output_path(output_dir: Path, prefix: str, suffix: str, enabled: bool) -> Path | None:
@@ -291,6 +313,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run MCP tool-call evaluation from a JSON run config.")
     parser.add_argument("--run-config", required=True, type=Path, help="JSON run configuration")
     parser.add_argument("--models-file", type=Path, help="Override run config model file")
+    parser.add_argument("--level", type=parse_level, help="Override maximum model level from a level-aware models file")
     parser.add_argument("--num-samples", "-n", type=parse_num_samples, help="Override number of samples")
     parser.add_argument("--max-concurrency", "-c", type=parse_max_concurrency, help="Override max concurrency")
     parser.add_argument("--shard-count", type=parse_shard_count, help="Override shard count")
@@ -308,7 +331,8 @@ async def run(args: argparse.Namespace) -> int:
 
     models_file_override = args.models_file.resolve() if args.models_file is not None else None
     output_dir_override = args.output_dir.resolve() if args.output_dir is not None else None
-    models = models_from_config(config, config_dir, models_file_override)
+    level = level_from_config(config, args)
+    models = models_from_config(config, config_dir, models_file_override, level)
     output_dir = build_output_dir(config, config_dir, output_dir_override)
     eval_args = build_eval_args(config, config_dir, args, output_dir, models)
 

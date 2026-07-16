@@ -56,6 +56,52 @@ def fixture_with(test: dict[str, Any]) -> dict[str, Any]:
     return {"mcp_servers": {"server": {"url": "http://localhost:8000/mcp"}}, "tests": [test]}
 
 
+def test_parse_args_loads_default_models_from_level_file(tmp_path: Path, monkeypatch):
+    models_file = tmp_path / "models.tsv"
+    models_file.write_text("0 model-zero\n1 model-one\n", encoding="utf-8")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "mcp_tool_call_eval.py",
+            "--cases",
+            "cases.json",
+            "--models-file",
+            str(models_file),
+            "--level",
+            "1",
+        ],
+    )
+
+    args = mcp_tool_call_eval.parse_args()
+
+    assert args.models == ["model-zero", "model-one"]
+
+
+def test_parse_args_explicit_models_bypass_level_file(tmp_path: Path, monkeypatch):
+    models_file = tmp_path / "models.tsv"
+    models_file.write_text("0 model-zero\n", encoding="utf-8")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "mcp_tool_call_eval.py",
+            "--cases",
+            "cases.json",
+            "--models",
+            "model-explicit",
+            "--models-file",
+            str(models_file),
+            "--level",
+            "0",
+        ],
+    )
+
+    args = mcp_tool_call_eval.parse_args()
+
+    assert args.models == ["model-explicit"]
+
+
 @pytest.mark.parametrize(
     ("mutator", "message"),
     [

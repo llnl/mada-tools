@@ -17,9 +17,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_SRC = Path(__file__).resolve().parents[1] / "src"
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 if str(REPO_SRC) not in sys.path:
     sys.path.insert(0, str(REPO_SRC))
+
+from eval_io import load_models_file, parse_model_level  # noqa: E402
 
 from mada_tools.shared.config import get_config_value, load_json_object_config  # noqa: E402
 from mada_tools.shared.env import expand_env_vars  # noqa: E402
@@ -88,6 +93,7 @@ SUMMARY_METRIC_FIELDS = [
 MATCH_MODES = {"subset", "exact"}
 MATCH_PROFILES = {"parameter_runs"}
 DEFAULT_MODEL_PRICES_PATH = Path(__file__).resolve().with_name("model_prices_and_context_window.json")
+DEFAULT_MODELS_PATH = Path(__file__).resolve().with_name("eval_models.tsv")
 
 
 @dataclass(frozen=True)
@@ -259,6 +265,13 @@ def parse_shard_index(value: str) -> int:
     if parsed < 0:
         raise argparse.ArgumentTypeError("--shard-index must be at least 0")
     return parsed
+
+
+def parse_level(value: str) -> int:
+    try:
+        return parse_model_level(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 def flavor_field_names(prompt_id: str) -> tuple[str, str, str]:
@@ -1424,7 +1437,19 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate LLM MCP tool-call behavior from JSON fixtures.")
     parser.add_argument("--cases", required=True, type=Path, help="JSON fixture with mcp_servers and tests")
     parser.add_argument("--config", type=Path, help="Optional JSON config with model.api_key and model.base_url")
-    parser.add_argument("--models", nargs="+", required=True, help="Model names to evaluate")
+    parser.add_argument("--models", nargs="+", help="Explicit model names to evaluate")
+    parser.add_argument(
+        "--models-file",
+        type=Path,
+        default=DEFAULT_MODELS_PATH,
+        help=f"Model list file to use when --models is omitted (default: {DEFAULT_MODELS_PATH})",
+    )
+    parser.add_argument(
+        "--level",
+        type=parse_level,
+        default=0,
+        help="Maximum model level to include from a level-aware models file (default: 0)",
+    )
     parser.add_argument("--base-url", help="OpenAI-compatible API base URL")
     parser.add_argument("--api-key", help="OpenAI-compatible API key")
     parser.add_argument("--system-prompt", help="Override the default system prompt")
@@ -1478,7 +1503,13 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Include full raw OpenAI-compatible response objects in --results-json",
     )
-    return parser.parse_args()
+    parsed = parser.parse_args()
+    if parsed.models is None:
+        try:
+            parsed.models = load_models_file(parsed.models_file, parsed.level)
+        except ValueError as exc:
+            parser.error(str(exc))
+    return parsed
 
 
 def main() -> int:

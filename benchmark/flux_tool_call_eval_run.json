@@ -1,7 +1,8 @@
 {
   "name": "flux",
   "cases": "flux_tool_call_eval_cases.json",
-  "models_file": "eval_models_small.txt",
+  "models_file": "eval_models.tsv",
+  "level": 0,
   "output": {
     "directory": "results",
     "prefix": "flux_tool_call",

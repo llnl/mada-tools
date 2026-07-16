@@ -9,7 +9,26 @@ from pathlib import Path
 from typing import Any
 
 
-def load_models_file(path: Path) -> list[str]:
+def parse_model_level(value: str, option_name: str = "--level") -> int:
+    """Parse a non-negative model selection level."""
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ValueError(f"{option_name} must be an integer") from exc
+    if parsed < 0:
+        raise ValueError(f"{option_name} must be at least 0")
+    return parsed
+
+
+def load_models_file(path: Path, level: int = 0) -> list[str]:
+    """Load model IDs from a file, optionally filtering .tsv rows by level."""
+    parse_model_level(str(level), "level")
+    if path.suffix.lower() == ".tsv":
+        return load_model_levels_file(path, level)
+    return load_plain_models_file(path)
+
+
+def load_plain_models_file(path: Path) -> list[str]:
     """Load model IDs from a text file, ignoring blank lines and comments."""
     models = []
     with path.open("r", encoding="utf-8") as f:
@@ -20,6 +39,27 @@ def load_models_file(path: Path) -> list[str]:
             models.append(line)
     if not models:
         raise ValueError(f"No enabled models found in {path}")
+    return models
+
+
+def load_model_levels_file(path: Path, level: int = 0) -> list[str]:
+    """Load models from a whitespace-delimited level/model file."""
+    selected_level = parse_model_level(str(level), "level")
+    models = []
+    with path.open("r", encoding="utf-8") as f:
+        for line_number, raw_line in enumerate(f, start=1):
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split()
+            if len(parts) != 2:
+                raise ValueError(f"{path}:{line_number}: expected '<level> <model>'")
+            model_level = parse_model_level(parts[0], f"{path}:{line_number}: level")
+            model = parts[1]
+            if model_level <= selected_level:
+                models.append(model)
+    if not models:
+        raise ValueError(f"No enabled models found in {path} at level {selected_level}")
     return models
 
 

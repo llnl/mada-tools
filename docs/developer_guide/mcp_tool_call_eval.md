@@ -36,49 +36,45 @@ Fixtures are JSON files with two top-level keys:
 - `tests`: test cases that select a server and define expected tool-call behavior
 
 Example:
-
 ```json
 {
   "mcp_servers": {
-    "skeleton_example": {
-      "url": "http://localhost:8220/mcp"
+    "flux": {
+      "url": "http://localhost:8101/mcp"
     }
   },
   "tests": [
     {
-      "id": "continuous_lhs_with_seed",
-      "server": "skeleton_example",
-      "expected_call": {
-        "tool": "generate_parameter_runs",
-        "arguments": {
-          "output_dir": "/tmp/mada_skeleton_eval/continuous_lhs_with_seed",
-          "num_samples": 4,
-          "kernel_name": "blast_sweep",
-          "input_deck_path": "/tmp/mada_skeleton_eval/decks/blast",
-          "input_deck_entrypoint": "main.deck",
-          "seed": 12345,
-          "rng_bit_generator": "PCG64",
-          "parameters": {
-            "density": ["def", "continuous", [1.0, 2.5]],
-            "pressure": ["def", "continuous", [10.0, 50.0]],
-            "solver": ["exe", "discrete", ["skeleton_cpu"]]
-          }
-        },
-        "match": {
-          "mode": "subset",
-          "profile": "parameter_runs"
-        }
-      },
+      "id": "submit_command_simple_ad_hoc",
+      "server": "flux",
       "prompts": [
         {
           "id": "direct",
-          "text": "Create 4 Skeleton Example LHS runs in /tmp/mada_skeleton_eval/continuous_lhs_with_seed. Use deck directory /tmp/mada_skeleton_eval/decks/blast with entrypoint main.deck. Use kernel name blast_sweep. Use exact parameter names density and pressure. Numeric LHS ranges must use selection continuous, not discrete_lhs: density=[\"def\",\"continuous\",[1.0,2.5]] and pressure=[\"def\",\"continuous\",[10.0,50.0]]. Use executable parameter solver=[\"exe\",\"discrete\",[\"skeleton_cpu\"]]. Set seed 12345 and rng bit generator PCG64."
+          "text": "Use the Flux server submit_command tool for one single ad hoc command. Set command to \"python -V\", nodes=1, tasks=1, time_limit=15m, job_name=python_version, and working_directory=/tmp/mada_flux_eval/single_command. Do not use submit_jobs or any generated run manifest."
         },
         {
           "id": "natural",
-          "text": "Set up a reproducible four-sample Skeleton Example sweep for the blast deck. The deck is /tmp/mada_skeleton_eval/decks/blast/main.deck, output goes to /tmp/mada_skeleton_eval/continuous_lhs_with_seed, and the kernel name is blast_sweep. Use exact parameter names density and pressure. For the numeric LHS ranges, use selection continuous: density ranges 1.0-2.5 and pressure ranges 10.0-50.0. Use executable parameter key solver with value skeleton_cpu. Sampling should use seed 12345 with PCG64."
+          "text": "Please submit one ad hoc Flux command, not a generated run manifest. Run python -V from /tmp/mada_flux_eval/single_command with one node, one total task, a 15 minute time limit, and job name python_version."
+        },
+        {
+          "id": "terse",
+          "text": "Flux submit_command single command: command=\"python -V\", nodes=1, tasks=1, time_limit=15m, job_name=python_version, working_directory=/tmp/mada_flux_eval/single_command."
         }
-      ]
+      ],
+      "expected_call": {
+        "tool": "submit_command",
+        "arguments": {
+          "command": "python -V",
+          "nodes": 1,
+          "tasks": 1,
+          "time_limit": "15m",
+          "job_name": "python_version",
+          "working_directory": "/tmp/mada_flux_eval/single_command"
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
     }
   ]
 }
@@ -129,10 +125,10 @@ Prompt entries can also be strings. In that case the runner assigns IDs like
 
 ### Choose Models
 
-The repository includes a shared curated model list for the eval scripts:
+The repository includes a shared curated model list with benchmark levels:
 
 ```text
-benchmark/eval_models.txt
+benchmark/eval_models.tsv
 ```
 
 Use `benchmark/populate_eval_models.py` to query the OpenAI-compatible `/models`
@@ -145,29 +141,33 @@ python benchmark/populate_eval_models.py
 This writes the full discovered model list to:
 
 ```text
-benchmark/eval_models_all.txt
+benchmark/eval_models_all.tsv
 ```
 
-If `benchmark/eval_models.txt` does not exist yet, the helper initializes it
-from the discovered list. After that, it leaves `benchmark/eval_models.txt`
-unchanged so you can manually curate it.
+If `benchmark/eval_models.tsv` does not exist yet, the helper initializes it
+from the discovered list. If it already exists, the helper leaves it unchanged
+so you can manually curate levels and commented-out models. When refreshing the
+discovery snapshot, known levels from the curated TSV are reused and newly
+discovered models default to level `0`.
 
-The curated file allows blank lines and `#` comments. Comment out any model you
-want to omit from testing runs. You can choose different lists with the JSON
-runner's `--models-file` option, for example
-`--models-file benchmark/eval_models_small.txt`.
+The level-aware file allows blank lines and `#` comments. Each enabled row is
+`level model`, separated by whitespace. Level `0` is the default benchmark set.
+Higher levels include all lower levels, so `--level 2` selects models marked
+`0`, `1`, or `2`.
 
-Example `eval_models.txt`:
+Example `eval_models.tsv`:
 
 ```text
-# Shared eval model list
-gpt-5.5
-gpt-5-mini
-# gpt-4.1-mini
+# Level Model
+0 gpt-5-mini
+0 gpt-5.5
+1 gpt-4.1-mini
 ```
 
-The scripts consume `benchmark/eval_models.txt`. The `eval_models_all.txt` file
-is only a discovery snapshot and is not used directly for eval runs.
+The JSON runner's `--models-file` option can point at another model file. Plain
+`.txt` files are still interpreted as one model per non-comment line. The
+`eval_models_all.tsv` file is only a discovery snapshot and is not used directly
+for eval runs.
 
 Start the target MCP server before running the evaluator. For the checked-in
 Flux eval fixture:
@@ -197,7 +197,7 @@ The run config supplies the fixture, model source, eval options, output artifact
 types, timestamped output directory behavior, and plot generation settings. The
 runner resolves relative paths from the JSON config file's directory, so the
 checked-in configs can refer to files such as `flux_tool_call_eval_cases.json`,
-`slurm_tool_call_eval_cases.json`, `eval_models_small.txt`, and `results`
+`slurm_tool_call_eval_cases.json`, `eval_models.tsv`, and `results`
 without repeating the `benchmark/` prefix.
 
 Use CLI overrides for common run-time changes:
@@ -205,13 +205,13 @@ Use CLI overrides for common run-time changes:
 ```bash
 python benchmark/run_tool_call_eval.py \
   --run-config benchmark/slurm_tool_call_eval_run.json \
-  --models-file benchmark/eval_models_small.txt \
+  --level 1 \
   --num-samples 3 \
   --max-concurrency 4
 ```
 
-The runner also supports `--shard-count`, `--shard-index`, `--output-dir`,
-`--no-plots`, and `--quiet` overrides.
+The runner also supports `--models-file`, `--shard-count`, `--shard-index`,
+`--output-dir`, `--no-plots`, and `--quiet` overrides.
 
 ### Run Config Shape
 
@@ -221,9 +221,38 @@ and Slurm run configs use similar shapes:
 
 ```json
 {
+  "name": "flux",
+  "cases": "flux_tool_call_eval_cases.json",
+  "models_file": "eval_models.tsv",
+  "level": 0,
+  "model_prices": "model_prices_and_context_window.json",
+  "output": {
+    "directory": "results",
+    "prefix": "flux_tool_call",
+    "timestamped": true,
+    "results_csv": true,
+    "results_json": true,
+    "summary_csv": true,
+    "summary_json": true,
+    "plots": true,
+    "capture_raw_response": true
+  },
+  "eval": {
+    "num_samples": 3,
+    "max_concurrency": 36,
+    "shard_count": 1,
+    "shard_index": 0,
+    "strict": false
+  }
+}
+```
+
+```json
+{
   "name": "slurm",
   "cases": "slurm_tool_call_eval_cases.json",
-  "models_file": "eval_models_small.txt",
+  "models_file": "eval_models.tsv",
+  "level": 0,
   "model_prices": "model_prices_and_context_window.json",
   "output": {
     "directory": "results",
@@ -259,7 +288,7 @@ explicitly:
 ```bash
 python benchmark/mcp_tool_call_eval.py \
   --cases benchmark/flux_tool_call_eval_cases.json \
-  --models gpt-5.5 gpt-5-mini gpt-4.1-mini \
+  --level 1 \
   --num-samples 3 \
   --max-concurrency 4 \
   --results-csv benchmark/results/flux_tool_call_rows.csv \
@@ -268,11 +297,14 @@ python benchmark/mcp_tool_call_eval.py \
   --summary-json benchmark/results/flux_tool_call_summary.json
 ```
 
-The `--models` argument accepts one or more model names. Each prompt variant is
-evaluated independently for each model. `--num-samples` repeats each prompt
-flavor and adds a 1-based `sample_index` field to the detailed outputs.
-`--max-concurrency` overlaps multiple API requests inside one process while
-preserving deterministic output row order.
+When `--models` is omitted, the evaluator reads `benchmark/eval_models.tsv` and
+selects models at `--level 0` by default. Pass `--level N` to include models at
+levels `0..N`, or pass `--models-file` to use another list. The `--models`
+argument still accepts one or more explicit model names and bypasses level
+filtering. Each prompt variant is evaluated independently for each model.
+`--num-samples` repeats each prompt flavor and adds a 1-based `sample_index`
+field to the detailed outputs. `--max-concurrency` overlaps multiple API
+requests inside one process while preserving deterministic output row order.
 
 By default, token costs are computed from
 `benchmark/model_prices_and_context_window.json` (which must be downloaded from
@@ -457,7 +489,7 @@ Precedence is:
 4. Default base URL: `https://livai-api.llnl.gov/v1`
 
 The config file can use the same model section shape as the example agent
-configs:
+configs (see example configs in the `../examples/` directory):
 
 ```json
 {
