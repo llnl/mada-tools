@@ -137,6 +137,8 @@ class MultiServerAgent:
         self._base_context_messages: list[dict] = []
         self.sessions: Dict[str, ClientSession] = {}
         self.transports: Dict[str, Any] = {}
+        self.pending_background_tasks: Dict[str, Dict[str, Any]] = {}
+        self._mcp_call_lock = asyncio.Lock()
 
         # Load static context once at startup
         if context_file:
@@ -288,8 +290,9 @@ class MultiServerAgent:
             if session is None:
                 return f"Error: No connection to server '{tool_server}'"
 
-            LOGGER.info(f"Executing {tool_name} on {tool_server} with args: {tool_input}")
-            result = await session.call_tool(tool_name, tool_input)
+            LOGGER.info(f"Calling {tool_name} on {tool_server} with args: {tool_input}")
+            async with self._mcp_call_lock:
+                result = await session.call_tool(tool_name, tool_input)
 
             if result.isError:
                 return f"MCP tool error: {result.content}"
@@ -341,6 +344,68 @@ class MultiServerAgent:
 
         self.messages.append(message)
 
+    async def _poll_background_tasks(self):
+        """Poll server-side background tasks and append finished results to context."""
+        while True:
+            await asyncio.sleep(5)
+
+            for task_key, task_info in list(self.pending_background_tasks.items()):
+                session = self.sessions.get(task_info["server_name"])
+                if session is None:
+                    continue
+
+                try:
+                    async with self._mcp_call_lock:
+                        result = await session.call_tool(
+                            "get_background_task_result", {"task_id": task_info["task_id"]}
+                        )
+                except Exception as e:
+                    LOGGER.error(f"Error polling background task {task_key}: {e}")
+                    continue
+
+                if result.isError:
+                    LOGGER.error(f"Error polling background task {task_key}: {result.content}")
+                    continue
+
+                task_result = result.content[0].text if result.content and hasattr(result.content[0], "text") else "{}"
+
+                try:
+                    task_result_json = json.loads(task_result)
+                except json.JSONDecodeError:
+                    task_result_json = {"status": "failed", "error": task_result}
+
+                if task_result_json.get("status") == "running":
+                    continue
+
+                if task_result_json.get("status") == "completed":
+                    output = task_result_json.get("result", "")
+                    try:
+                        output = json.dumps(json.loads(output), indent=2)
+                    except (TypeError, json.JSONDecodeError):
+                        output = self._stringify_content(output)
+                else:
+                    output = task_result_json.get("error") or task_result_json.get("message") or task_result
+
+                background_message = (
+                    f"Background tool result: {task_info['tool_name']}\nTask ID: {task_info['task_id']}\n{output}"
+                )
+                self.add_message("user", background_message)
+                LOGGER.info(f"\n{background_message}")
+                del self.pending_background_tasks[task_key]
+
+    def _format_pending_tasks(self) -> str:
+        """Format pending background tasks for the chat command."""
+        if not self.pending_background_tasks:
+            return "No pending background tasks."
+
+        lines = ["Pending background tasks:"]
+        for task_key, task_info in self.pending_background_tasks.items():
+            lines.append(
+                f"- {task_key}: {task_info['tool_name']} "
+                f"on {task_info['server_name']} with args {task_info['tool_input']}"
+            )
+        return "\n".join(lines)
+
     async def process_query(self, query: str, max_tool_calls: int = 10, add_tool_context: bool = False) -> str:
         """
         Process a query using LLM and available MADA MCP tools.
@@ -357,7 +422,7 @@ class MultiServerAgent:
         tool_context = ""
 
         # Convert tools to OpenAI format
-        openai_tools = [tool.to_openai_format() for tool in self.tools]
+        openai_tools = [tool.to_openai_format() for tool in self.tools if tool.name != "get_background_task_result"]
 
         for step in range(max_tool_calls):
             messages_for_call: List[Dict[str, Any]] = list(self._base_context_messages) + list(self.messages)
@@ -381,21 +446,51 @@ class MultiServerAgent:
                 self.add_message(
                     "assistant",
                     content=assistant_message.content,
-                    tool_calls=[tc.dict() for tc in tool_calls],
+                    tool_calls=[tc.model_dump() if hasattr(tc, "model_dump") else tc.dict() for tc in tool_calls],
                 )
 
+                background_tools = []
                 for tool_call in tool_calls:
-                    LOGGER.info(f"\nExecuting tool: {tool_call.function.name}")
+                    LOGGER.info(f"\nStarting tool call: {tool_call.function.name}")
+                    tool_input = json.loads(tool_call.function.arguments)
                     result = await self._execute_tool(
                         tool_name=tool_call.function.name,
-                        tool_input=json.loads(tool_call.function.arguments),
+                        tool_input=tool_input,
                     )
                     if add_tool_context:
-                        tool_context += (
-                            f"\nExecuted tool: {tool_call.function.name} "
-                            f"with arguments: {json.loads(tool_call.function.arguments)}"
+                        tool_context += f"\nExecuted tool: {tool_call.function.name} with arguments: {tool_input}"
+                    try:
+                        result_json = json.loads(result)
+                    except json.JSONDecodeError:
+                        result_json = {}
+                    tool_server = next(
+                        (tool.server_name for tool in self.tools if tool.name == tool_call.function.name),
+                        None,
+                    )
+                    if result_json.get("task_id") and tool_server:
+                        task_id = result_json["task_id"]
+                        task_key = f"{tool_server}:{task_id}"
+                        self.pending_background_tasks[task_key] = {
+                            "task_id": task_id,
+                            "server_name": tool_server,
+                            "tool_name": result_json.get("tool_name", tool_call.function.name),
+                            "tool_input": tool_input,
+                        }
+                        background_tools.append(f"{tool_call.function.name} ({task_key})")
+                        LOGGER.info(
+                            f"Background tool started: {tool_call.function.name} "
+                            f"({task_key}). Type 'tasks' to see pending work."
                         )
                     self.add_message("tool", content=result, tool_call_id=tool_call.id)
+
+                if background_tools:
+                    final_content = (
+                        "Started background tool call(s): "
+                        + ", ".join(background_tools)
+                        + ". Type 'tasks' to see pending work."
+                    )
+                    self.add_message("assistant", content=final_content)
+                    return final_content
 
                 continue
 
@@ -455,6 +550,7 @@ class MultiServerAgent:
         # Set custom SIGINT handler for the chat loop
         old_handler = signal.getsignal(signal.SIGINT)
         signal.signal(signal.SIGINT, sigint_handler)
+        poll_task = asyncio.create_task(self._poll_background_tasks())
 
         try:
             while True:
@@ -468,6 +564,10 @@ class MultiServerAgent:
                         break
 
                     if not query.strip():
+                        continue
+
+                    if query.strip().lower() == "tasks":
+                        LOGGER.info(self._format_pending_tasks())
                         continue
 
                     LOGGER.query(query)
@@ -493,6 +593,11 @@ class MultiServerAgent:
                 except Exception as e:
                     LOGGER.error(f"\nError: {str(e)}")
         finally:
+            poll_task.cancel()
+            try:
+                await poll_task
+            except asyncio.CancelledError:
+                pass
             signal.signal(signal.SIGINT, old_handler)
 
 

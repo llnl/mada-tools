@@ -41,6 +41,7 @@ class BaseMCPServer(ABC):
         self.oauth_enabled = False
         self._tool_task_lock = threading.Lock()
         self._tool_task_counter = count(1)
+        self._tool_tasks: Dict[str, Dict[str, Any]] = {}
 
     def parse_args(self) -> argparse.Namespace:
         """Parse command line arguments."""
@@ -155,6 +156,7 @@ class BaseMCPServer(ABC):
                 self.mcp = FastMCP(name=self.server_name)
 
         # Register tools now that mcp is initialized
+        self._register_base_tools()
         self._register_tools()
 
         # Start the server
@@ -176,6 +178,33 @@ class BaseMCPServer(ABC):
         else:
             raise ValueError(f"Unsupported transport: {transport}")
 
+    def _register_base_tools(self):
+        """Register tools shared by all MADA MCP servers."""
+
+        @self.mcp.tool()
+        async def get_background_task_result(task_id: str) -> str:
+            """
+            Get the status and result for a background tool task.
+
+            Args:
+                task_id: Task id returned by a background tool call.
+
+            Returns:
+                JSON describing the task status, result, or error.
+            """
+            with self._tool_task_lock:
+                task_info = self._tool_tasks.get(task_id)
+                if task_info is None:
+                    return json.dumps(
+                        {
+                            "task_id": task_id,
+                            "status": "not_found",
+                            "message": "Background task not found.",
+                        },
+                        indent=2,
+                    )
+                return json.dumps(task_info, default=str, indent=2)
+
     async def run_tool(self, func: Callable, *args, background: bool = True, **kwargs) -> Any:
         """
         Execute a tool and return either a background task descriptor or its payload.
@@ -194,18 +223,41 @@ class BaseMCPServer(ABC):
             task_id = f"tool-task-{next(self._tool_task_counter)}"
         tool_name = getattr(func, "__name__", repr(func))
         submitted_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+        with self._tool_task_lock:
+            self._tool_tasks[task_id] = {
+                "task_id": task_id,
+                "tool_name": tool_name,
+                "status": "running",
+                "submitted_at": submitted_at,
+                "completed_at": None,
+                "result": None,
+                "error": None,
+            }
         task = asyncio.create_task(asyncio.to_thread(self._execute_tool, func, *args, **kwargs))
-        task.add_done_callback(
-            lambda done_task: (
+
+        def _save_background_result(done_task):
+            completed_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+            if done_task.cancelled():
+                with self._tool_task_lock:
+                    self._tool_tasks[task_id]["status"] = "cancelled"
+                    self._tool_tasks[task_id]["completed_at"] = completed_at
+                    self._tool_tasks[task_id]["error"] = "Background tool was cancelled."
                 LOG.error("Background tool %s (%s) was cancelled", tool_name, task_id)
-                if done_task.cancelled()
-                else (
+            else:
+                error = done_task.exception()
+                if error is not None:
+                    with self._tool_task_lock:
+                        self._tool_tasks[task_id]["status"] = "failed"
+                        self._tool_tasks[task_id]["completed_at"] = completed_at
+                        self._tool_tasks[task_id]["error"] = str(error)
                     LOG.error("Background tool %s (%s) failed: %s", tool_name, task_id, error)
-                    if (error := done_task.exception()) is not None
-                    else None
-                )
-            )
-        )
+                else:
+                    with self._tool_task_lock:
+                        self._tool_tasks[task_id]["status"] = "completed"
+                        self._tool_tasks[task_id]["completed_at"] = completed_at
+                        self._tool_tasks[task_id]["result"] = done_task.result()
+
+        task.add_done_callback(_save_background_result)
         return json.dumps(
             {
                 "task_id": task_id,
