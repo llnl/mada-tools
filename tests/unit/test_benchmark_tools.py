@@ -204,6 +204,35 @@ def fixture_with(test: dict[str, Any]) -> dict[str, Any]:
 
 
 class TestMcpToolCallEval:
+    @pytest.mark.parametrize(
+        ("parser", "value", "expected"),
+        [
+            (mcp_tool_call_eval.parse_num_samples, "1", 1),
+            (mcp_tool_call_eval.parse_max_concurrency, "2", 2),
+            (mcp_tool_call_eval.parse_shard_count, "3", 3),
+            (mcp_tool_call_eval.parse_shard_index, "0", 0),
+        ],
+    )
+    def test_integer_argument_validators_accept_valid_values(self, parser, value, expected):
+        assert parser(value) == expected
+
+    @pytest.mark.parametrize(
+        ("parser", "value", "message"),
+        [
+            (mcp_tool_call_eval.parse_num_samples, "0", "--num-samples must be at least 1"),
+            (mcp_tool_call_eval.parse_max_concurrency, "0", "--max-concurrency must be at least 1"),
+            (mcp_tool_call_eval.parse_shard_count, "0", "--shard-count must be at least 1"),
+            (mcp_tool_call_eval.parse_shard_index, "-1", "--shard-index must be at least 0"),
+        ],
+    )
+    def test_integer_argument_validators_reject_values_below_minimum(self, parser, value, message):
+        with pytest.raises(argparse.ArgumentTypeError, match=message):
+            parser(value)
+
+    def test_integer_argument_validator_rejects_non_integer_values(self):
+        with pytest.raises(argparse.ArgumentTypeError, match="--num-samples must be an integer"):
+            mcp_tool_call_eval.parse_num_samples("not-an-int")
+
     def test_parse_args_loads_default_models_from_level_file(self, tmp_path: Path, monkeypatch):
         models_file = tmp_path / "models.tsv"
         models_file.write_text("0 model-zero\n1 model-one\n", encoding="utf-8")

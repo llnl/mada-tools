@@ -144,6 +144,21 @@ class CompletedWorkItem:
     error: str | None
 
 
+@dataclass(frozen=True)
+class IntegerArgumentValidator:
+    option_name: str
+    minimum: int
+
+    def __call__(self, value: str) -> int:
+        try:
+            parsed = int(value)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(f"{self.option_name} must be an integer") from exc
+        if parsed < self.minimum:
+            raise argparse.ArgumentTypeError(f"{self.option_name} must be at least {self.minimum}")
+        return parsed
+
+
 def expand_env_var(value: str) -> str:
     """Expand ${VAR} and ${VAR:-default} in config values."""
     return expand_env_vars(value, missing="error")
@@ -239,32 +254,10 @@ def normalize_prompts(test_case: dict[str, Any]) -> list[dict[str, str]]:
     return normalized
 
 
-def parse_num_samples(value: str) -> int:
-    parsed = int(value)
-    if parsed < 1:
-        raise argparse.ArgumentTypeError("--num-samples must be at least 1")
-    return parsed
-
-
-def parse_max_concurrency(value: str) -> int:
-    parsed = int(value)
-    if parsed < 1:
-        raise argparse.ArgumentTypeError("--max-concurrency must be at least 1")
-    return parsed
-
-
-def parse_shard_count(value: str) -> int:
-    parsed = int(value)
-    if parsed < 1:
-        raise argparse.ArgumentTypeError("--shard-count must be at least 1")
-    return parsed
-
-
-def parse_shard_index(value: str) -> int:
-    parsed = int(value)
-    if parsed < 0:
-        raise argparse.ArgumentTypeError("--shard-index must be at least 0")
-    return parsed
+parse_num_samples = IntegerArgumentValidator("--num-samples", 1)
+parse_max_concurrency = IntegerArgumentValidator("--max-concurrency", 1)
+parse_shard_count = IntegerArgumentValidator("--shard-count", 1)
+parse_shard_index = IntegerArgumentValidator("--shard-index", 0)
 
 
 def parse_level(value: str) -> int:
