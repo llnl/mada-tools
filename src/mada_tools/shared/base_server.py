@@ -203,22 +203,50 @@ class BaseMCPServer(ABC):
         Returns:
             A JSON task descriptor for the started background tool.
         """
-        task_id = self._next_tool_task_id()
+        with self._tool_task_lock:
+            task_id = f"tool-task-{next(self._tool_task_counter)}"
         tool_name = getattr(func, "__name__", repr(func))
-        submitted_at = self._utc_now()
+        submitted_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            future = self._submit_background_coroutine(self._execute_tool_async(func, *args, **kwargs))
+            loop_ready: threading.Event | None = None
+            with self._tool_task_lock:
+                background_loop = self._background_loop
+                if background_loop is None or not background_loop.is_running():
+                    loop_ready = threading.Event()
+                    self._background_loop_thread = threading.Thread(
+                        target=lambda: (
+                            (loop := asyncio.new_event_loop()),
+                            asyncio.set_event_loop(loop),
+                            setattr(self, "_background_loop", loop),
+                            loop_ready.set(),
+                            loop.run_forever(),
+                        ),
+                        name=f"{self.server_name.lower().replace(' ', '-')}-asyncio",
+                        daemon=True,
+                    )
+                    self._background_loop_thread.start()
+
+            if loop_ready is not None:
+                loop_ready.wait()
+                background_loop = self._background_loop
+            if background_loop is None:
+                raise RuntimeError("Failed to start background asyncio event loop")
+            future = asyncio.run_coroutine_threadsafe(
+                self._execute_tool_async(func, *args, **kwargs),
+                background_loop,
+            )
             with self._tool_task_lock:
                 self._background_futures.add(future)
             future.add_done_callback(
-                lambda done_future, tracked_task_id=task_id, tracked_tool_name=tool_name: (
-                    self._finalize_background_future(
-                        tracked_task_id,
-                        tracked_tool_name,
-                        done_future,
-                    )
+                lambda done_future: (
+                    self._tool_task_lock.acquire(),
+                    self._background_futures.discard(done_future),
+                    self._tool_task_lock.release(),
+                    LOG.error("Background tool %s (%s) failed: %s", tool_name, task_id, error)
+                    if (error := done_future.exception()) is not None
+                    else None,
                 )
             )
         else:
@@ -226,10 +254,13 @@ class BaseMCPServer(ABC):
             with self._tool_task_lock:
                 self._background_tasks.add(task)
             task.add_done_callback(
-                lambda done_task, tracked_task_id=task_id, tracked_tool_name=tool_name: self._finalize_background_task(
-                    tracked_task_id,
-                    tracked_tool_name,
-                    done_task,
+                lambda done_task: (
+                    self._tool_task_lock.acquire(),
+                    self._background_tasks.discard(done_task),
+                    self._tool_task_lock.release(),
+                    LOG.error("Background tool %s (%s) failed: %s", tool_name, task_id, error)
+                    if (error := done_task.exception()) is not None
+                    else None,
                 )
             )
         return json.dumps(
@@ -242,71 +273,6 @@ class BaseMCPServer(ABC):
             },
             indent=2,
         )
-
-    @staticmethod
-    def _utc_now() -> str:
-        """Return a stable UTC timestamp string for tool task metadata."""
-        return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
-
-    def _next_tool_task_id(self) -> str:
-        """Generate the next server-local tool task ID."""
-        with self._tool_task_lock:
-            return f"tool-task-{next(self._tool_task_counter)}"
-
-    def _finalize_background_task(self, task_id: str, tool_name: str, task: asyncio.Task[Any]) -> None:
-        """Drop completed background tasks and log detached failures."""
-        with self._tool_task_lock:
-            self._background_tasks.discard(task)
-        try:
-            task.result()
-        except Exception as e:
-            LOG.error("Background tool %s (%s) failed: %s", tool_name, task_id, e)
-
-    def _finalize_background_future(
-        self,
-        task_id: str,
-        tool_name: str,
-        future: concurrent.futures.Future[Any],
-    ) -> None:
-        """Drop completed thread-safe futures and log detached failures."""
-        with self._tool_task_lock:
-            self._background_futures.discard(future)
-        try:
-            future.result()
-        except Exception as e:
-            LOG.error("Background tool %s (%s) failed: %s", tool_name, task_id, e)
-
-    def _submit_background_coroutine(self, coro: Any) -> concurrent.futures.Future[Any]:
-        """Schedule a coroutine on a dedicated background event loop."""
-        loop = self._ensure_background_loop()
-        return asyncio.run_coroutine_threadsafe(coro, loop)
-
-    def _ensure_background_loop(self) -> asyncio.AbstractEventLoop:
-        """Create a dedicated event loop for background tool execution when needed."""
-        with self._tool_task_lock:
-            if self._background_loop is not None and self._background_loop.is_running():
-                return self._background_loop
-
-            loop_ready = threading.Event()
-
-            def _run_loop() -> None:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                self._background_loop = loop
-                loop_ready.set()
-                loop.run_forever()
-
-            self._background_loop_thread = threading.Thread(
-                target=_run_loop,
-                name=f"{self.server_name.lower().replace(' ', '-')}-asyncio",
-                daemon=True,
-            )
-            self._background_loop_thread.start()
-
-        loop_ready.wait()
-        if self._background_loop is None:
-            raise RuntimeError("Failed to start background asyncio event loop")
-        return self._background_loop
 
     async def _execute_tool_async(self, func: Callable, *args, **kwargs) -> Any:
         """Run one tool function off the event loop and normalize its result."""
