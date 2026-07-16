@@ -217,7 +217,7 @@ The runner also supports `--shard-count`, `--shard-index`, `--output-dir`,
 
 The checked-in `benchmark/flux_tool_call_eval_run.json` and
 `benchmark/slurm_tool_call_eval_run.json` files are complete examples. The Flux
-and Slurm run configs use the same shape:
+and Slurm run configs use similar shapes:
 
 ```json
 {
@@ -404,19 +404,19 @@ continuous status polling, queue listing, and cluster information.
 
 ## Example Output
 
-The example outputs below come from the real run directory:
+The example outputs below are from a benchmark test of the flux mcp server:
 
 ```text
-benchmark/results/flux_2026-06-23_09-37-30/
+benchmark/results/flux_2026-07-16-12-24-28/
 ```
 
 That directory contains:
 
 ```text
-flux_2026-06-23_09-37-30/
+flux_2026-07-16-12-24-28/
+├── flux_tool_call_cost.png
 ├── flux_tool_call_rows.csv
 ├── flux_tool_call_rows.json
-├── flux_tool_call_cost.png
 ├── flux_tool_call_score.png
 ├── flux_tool_call_summary.csv
 ├── flux_tool_call_summary.json
@@ -426,18 +426,23 @@ flux_2026-06-23_09-37-30/
 Excerpt from `flux_tool_call_summary.csv`:
 
 ```csv
-model,server,case_id,num_flavors,num_samples,flavor_order,score_passed,score_total,score_rate,prompts_passed,prompts_total,pass_rate,all_passed,any_passed,direct_passed,direct_total,direct_rate,natural_passed,natural_total,natural_rate,terse_passed,terse_total,terse_rate,avg_prompt_tokens,avg_completion_tokens,avg_total_tokens,avg_latency_ms
-gpt-4.1-mini,flux,submit_command_simple_ad_hoc,3,1,"[""direct"", ""natural"", ""terse""]",3,3,1.0,3,3,1.0,True,True,1,1,1.0,1,1,1.0,1,1,1.0,731.333,126.0,857.333,2379.667
-gpt-4.1-mini,flux,submit_command_full_options,3,1,"[""direct"", ""natural"", ""terse""]",1,3,0.333,1,3,0.333,False,True,0,1,0.0,1,1,1.0,0,1,0.0,702.667,109.667,812.333,1921.0
+model,server,case_id,num_flavors,num_samples,flavor_order,score_passed,score_total,score_rate,prompts_passed,prompts_total,pass_rate,all_passed,any_passed,direct_passed,direct_total,direct_rate,direct_avg_prompt_tokens,direct_avg_completion_tokens,direct_avg_total_tokens,direct_avg_latency_ms,natural_passed,natural_total,natural_rate,natural_avg_prompt_tokens,natural_avg_completion_tokens,natural_avg_total_tokens,natural_avg_latency_ms,terse_passed,terse_total,terse_rate,terse_avg_prompt_tokens,terse_avg_completion_tokens,terse_avg_total_tokens,terse_avg_latency_ms,total_prompt_tokens,total_completion_tokens,total_tokens,input_cost_usd,output_cost_usd,total_cost_usd,avg_prompt_tokens,avg_completion_tokens,avg_total_tokens,avg_latency_ms
+...
+gpt-4.1,flux,check_job_status_all_jobs,3,3,"[""direct"", ""natural"", ""terse""]",9,9,1.0,9,9,1.0,True,True,3,3,1.0,1006.0,12.0,1018.0,1281.0,3,3,1.0,1022.0,12.0,1034.0,1046.333,3,3,1.0,1005.0,12.0,1017.0,1123.0,9099,108,9207,0.018198,0.000864,0.019062,1011.0,12.0,1023.0,1150.111
+gpt-4.1,flux,check_job_status_specific,3,3,"[""direct"", ""natural"", ""terse""]",9,9,1.0,9,9,1.0,True,True,3,3,1.0,1015.0,20.0,1035.0,1511.667,3,3,1.0,1019.0,20.0,1039.0,1515.667,3,3,1.0,999.0,20.0,1019.0,1482.667,9099,180,9279,0.018198,0.00144,0.019638,1011.0,20.0,1031.0,1503.333
 ```
 
 Score plot example:
 
-![Skeleton tool-call score plot](../assets/images/mcp-tool-call-eval-skeleton-score.png)
+![flux tool-call score plot](../assets/images/flux_tool_call_score.png)
 
 Token plot example:
 
-![Skeleton tool-call token plot](../assets/images/mcp-tool-call-eval-skeleton-tokens.png)
+![flux tool-call token plot](../assets/images/flux_tool_call_tokens.png)
+
+Cost plot example:
+
+![flux tool-call cost plot](../assets/images/flux_tool_call_cost.png)
 
 ## API Configuration
 
