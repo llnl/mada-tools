@@ -184,8 +184,13 @@ def test_generate_plots_marks_models_with_missing_pricing(tmp_path: Path, monkey
         {"model": "gpt-test", "case_id": "case-a", "score_passed": 1, "avg_total_tokens": 10, "total_cost_usd": ""},
         {"model": "gpt-test", "case_id": "case-b", "score_passed": 1, "avg_total_tokens": 10, "total_cost_usd": ""},
         {"model": "gpt-test-2", "case_id": "case-a", "score_passed": 1, "avg_total_tokens": 10, "total_cost_usd": 0.2},
-        {"model": "gpt-test-2", "case_id": "case-b", "score_passed": 1, "avg_total_tokens": 10,
-          "total_cost_usd": "n/a"},
+        {
+            "model": "gpt-test-2",
+            "case_id": "case-b",
+            "score_passed": 1,
+            "avg_total_tokens": 10,
+            "total_cost_usd": "n/a",
+        },
     ]
     calls = []
 

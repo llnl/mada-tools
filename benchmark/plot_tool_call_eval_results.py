@@ -222,11 +222,7 @@ def score_axis_label(rows: list[dict[str, Any]], value_field: str, xlabel: str) 
 
     notes = []
     sample_counts = sorted(
-        {
-            int(as_float(row["num_samples"]))
-            for row in rows
-            if row.get("num_samples") not in (None, "")
-        }
+        {int(as_float(row["num_samples"])) for row in rows if row.get("num_samples") not in (None, "")}
     )
     if len(sample_counts) == 1:
         suffix = "repetition" if sample_counts[0] == 1 else "repetitions"
@@ -242,9 +238,7 @@ def score_axis_label(rows: list[dict[str, Any]], value_field: str, xlabel: str) 
     if len(possible_totals) == 1:
         notes.append(f"total possible {format_number(possible_totals[0])}")
     elif len(possible_totals) > 1:
-        notes.append(
-            f"total possible {format_number(possible_totals[0])}-{format_number(possible_totals[-1])}"
-        )
+        notes.append(f"total possible {format_number(possible_totals[0])}-{format_number(possible_totals[-1])}")
 
     if not notes:
         return xlabel
@@ -260,8 +254,7 @@ def flavor_boundary_values(row: dict[str, Any], value_field: str, total_value: f
 
     flavor_metric_suffix = value_field.removeprefix("avg_")
     flavor_metric_values = [
-        (flavor_id, as_float(row.get(f"{flavor_id}_avg_{flavor_metric_suffix}")))
-        for flavor_id in flavor_ids
+        (flavor_id, as_float(row.get(f"{flavor_id}_avg_{flavor_metric_suffix}"))) for flavor_id in flavor_ids
     ]
     total_flavor_metric = sum(value for _flavor_id, value in flavor_metric_values)
     if total_flavor_metric > 0:
@@ -275,10 +268,7 @@ def flavor_boundary_values(row: dict[str, Any], value_field: str, total_value: f
     if total_flavor_count <= 0:
         equal_width = total_value / len(flavor_ids) if flavor_ids else 0.0
         return [(flavor_id, equal_width) for flavor_id in flavor_ids]
-    return [
-        (flavor_id, total_value * (flavor_total / total_flavor_count))
-        for flavor_id, flavor_total in flavor_totals
-    ]
+    return [(flavor_id, total_value * (flavor_total / total_flavor_count)) for flavor_id, flavor_total in flavor_totals]
 
 
 def draw_flavor_outlines(
@@ -415,8 +405,6 @@ def plot_stacked(
                     va="center",
                     ha="left",
                     fontsize=10,
-                    #fontweight='bold',
-                    #color="#666666",
                     color="#000000",
                     bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.86, "pad": 1.5},
                     clip_on=False,

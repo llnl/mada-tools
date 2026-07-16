@@ -135,8 +135,9 @@ def build_output_dir(config: dict[str, Any], config_dir: Path, output_dir_overri
     if not isinstance(output_config, dict):
         raise ValueError("Run config field 'output' must be an object when provided")
 
-    base_dir = output_dir_override or path_from_config(config_dir, output_config.get("directory", "results"),
-                                                        "output.directory")
+    base_dir = output_dir_override or path_from_config(
+        config_dir, output_config.get("directory", "results"), "output.directory"
+    )
     assert base_dir is not None
 
     timestamped = bool_config(output_config.get("timestamped"), True)
@@ -196,14 +197,12 @@ def build_eval_args(
         else int_config(eval_config.get("shard_index"), 0, parse_shard_index),
         strict=bool_config(eval_config.get("strict"), False),
         min_pass_rate=float_or_none(eval_config.get("min_pass_rate")),
-        results_csv=output_path(output_dir, prefix, "rows.csv",
-                                 bool_config(output_config.get("results_csv"), True)),
-        results_json=output_path(output_dir, prefix, "rows.json",
-                                  bool_config(output_config.get("results_json"), True)),
-        summary_csv=output_path(output_dir, prefix, "summary.csv",
-                                 bool_config(output_config.get("summary_csv"), True)),
-        summary_json=output_path(output_dir, prefix, "summary.json",
-                                  bool_config(output_config.get("summary_json"), True)),
+        results_csv=output_path(output_dir, prefix, "rows.csv", bool_config(output_config.get("results_csv"), True)),
+        results_json=output_path(output_dir, prefix, "rows.json", bool_config(output_config.get("results_json"), True)),
+        summary_csv=output_path(output_dir, prefix, "summary.csv", bool_config(output_config.get("summary_csv"), True)),
+        summary_json=output_path(
+            output_dir, prefix, "summary.json", bool_config(output_config.get("summary_json"), True)
+        ),
         model_prices=model_prices,
         quiet=cli_args.quiet or bool_config(output_config.get("quiet"), False),
         no_final_table=bool_config(output_config.get("no_final_table"), False),
