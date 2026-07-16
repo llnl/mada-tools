@@ -133,6 +133,19 @@ def test_build_eval_args_allows_model_prices_override(tmp_path: Path):
     assert eval_args.model_prices == prices.resolve()
 
 
+def test_missing_cost_annotations_marks_models_with_no_cost_data():
+    rows = [
+        {"model": "gpt-test", "case_id": "case-a", "total_cost_usd": ""},
+        {"model": "gpt-test", "case_id": "case-b", "total_cost_usd": "n/a"},
+        {"model": "gpt-test-2", "case_id": "case-a", "total_cost_usd": ""},
+        {"model": "gpt-test-2", "case_id": "case-b", "total_cost_usd": 0.2},
+    ]
+
+    assert run_tool_call_eval.missing_cost_annotations(rows, "total_cost_usd") == {
+        "gpt-test": "Missing Pricing",
+    }
+
+
 def test_generate_plots_writes_cost_plot_when_cost_values_exist(tmp_path: Path, monkeypatch):
     summary_csv = tmp_path / "summary.csv"
     summary_csv.write_text("not used", encoding="utf-8")
@@ -161,6 +174,39 @@ def test_generate_plots_writes_cost_plot_when_cost_values_exist(tmp_path: Path, 
     assert calls[-1]["title"] == "MCP Tool-Call Evaluation Cost By Model (Total: $0.300000)"
     assert calls[-1]["legend_title"] == "Test case"
     assert calls[-1]["show_legend_values"] is False
+    assert calls[-1]["row_annotations"] == {}
+
+
+def test_generate_plots_marks_models_with_missing_pricing(tmp_path: Path, monkeypatch):
+    summary_csv = tmp_path / "summary.csv"
+    summary_csv.write_text("not used", encoding="utf-8")
+    rows = [
+        {"model": "gpt-test", "case_id": "case-a", "score_passed": 1, "avg_total_tokens": 10, "total_cost_usd": ""},
+        {"model": "gpt-test", "case_id": "case-b", "score_passed": 1, "avg_total_tokens": 10, "total_cost_usd": ""},
+        {"model": "gpt-test-2", "case_id": "case-a", "score_passed": 1, "avg_total_tokens": 10, "total_cost_usd": 0.2},
+        {"model": "gpt-test-2", "case_id": "case-b", "score_passed": 1, "avg_total_tokens": 10,
+          "total_cost_usd": "n/a"},
+    ]
+    calls = []
+
+    monkeypatch.setattr(run_tool_call_eval, "load_rows", lambda _path: rows)
+    monkeypatch.setattr(
+        run_tool_call_eval,
+        "plot_stacked",
+        lambda **kwargs: calls.append(kwargs),
+    )
+
+    run_tool_call_eval.generate_plots(
+        {"output": {"prefix": "flux_tool_call"}},
+        tmp_path,
+        summary_csv,
+        quiet=True,
+    )
+
+    assert calls[-1]["value_field"] == "total_cost_usd"
+    assert calls[-1]["row_annotations"] == {
+        "gpt-test": "Missing Pricing",
+    }
 
 
 def test_generate_plots_skips_cost_plot_without_cost_values(tmp_path: Path, monkeypatch):

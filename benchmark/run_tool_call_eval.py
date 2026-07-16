@@ -32,6 +32,7 @@ from plot_tool_call_eval_results import (  # noqa: E402
     format_usd,
     has_numeric_value,
     load_rows,
+    missing_cost_annotations,
     plot_stacked,
     score_axis_label,
     sum_numeric_values,
@@ -274,6 +275,7 @@ def generate_plots(config: dict[str, Any], output_dir: Path, summary_csv: Path, 
             value_format="{:.6f}",
             legend_title="Test case",
             show_legend_values=False,
+            row_annotations=missing_cost_annotations(rows, cost_field),
         )
         wrote_cost_plot = True
 

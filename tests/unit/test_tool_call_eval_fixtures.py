@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BENCHMARK_DIR = REPO_ROOT / "benchmark"
 SCRIPT_PATH = BENCHMARK_DIR / "mcp_tool_call_eval.py"

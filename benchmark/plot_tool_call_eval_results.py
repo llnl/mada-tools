@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 from eval_io import load_csv_or_json_rows  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 from matplotlib.patches import Rectangle  # noqa: E402
+from matplotlib.transforms import blended_transform_factory  # noqa: E402
 
 DEFAULT_COLORS = [
     "#4C78A8",
@@ -82,6 +83,29 @@ def sum_numeric_values(rows: list[dict[str, Any]], field: str) -> float:
         except (TypeError, ValueError):
             continue
     return total
+
+
+def is_missing_numeric_value(value: Any) -> bool:
+    if value in (None, ""):
+        return True
+    try:
+        float(value)
+    except (TypeError, ValueError):
+        return True
+    return False
+
+
+def missing_cost_annotations(rows: list[dict[str, Any]], cost_field: str) -> dict[str, str]:
+    rows_by_model: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        model = str(row["model"])
+        rows_by_model.setdefault(model, []).append(row)
+
+    annotations = {}
+    for model, model_rows in rows_by_model.items():
+        if model_rows and all(is_missing_numeric_value(row.get(cost_field)) for row in model_rows):
+            annotations[model] = "Missing Pricing"
+    return annotations
 
 
 def format_usd(value: float) -> str:
@@ -314,6 +338,7 @@ def plot_stacked(
     draw_flavor_boundaries: bool = False,
     show_flavor_order_box: bool = False,
     show_legend_values: bool = True,
+    row_annotations: dict[str, str] | None = None,
 ) -> None:
     models, cases, values, row_map = matrix_for(rows, value_field)
     if not models or not cases:
@@ -377,6 +402,25 @@ def plot_stacked(
     ax.set_axisbelow(True)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
+    if row_annotations:
+        annotation_transform = blended_transform_factory(ax.transAxes, ax.transData)
+        for model_index, model in enumerate(models):
+            annotation = row_annotations.get(model)
+            if annotation:
+                ax.text(
+                    0.01,
+                    y_positions[model_index],
+                    annotation,
+                    transform=annotation_transform,
+                    va="center",
+                    ha="left",
+                    fontsize=10,
+                    #fontweight='bold',
+                    #color="#666666",
+                    color="#000000",
+                    bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.86, "pad": 1.5},
+                    clip_on=False,
+                )
 
     title_y = 1.0 - (0.32 / fig_height)
     legend_y = 1.0 - (0.78 / fig_height)
@@ -507,6 +551,7 @@ def main() -> int:
             value_format="{:.6f}",
             legend_title="Test case",
             show_legend_values=False,
+            row_annotations=missing_cost_annotations(rows, args.cost_field),
         )
 
     print(f"Wrote {args.score_output}")
