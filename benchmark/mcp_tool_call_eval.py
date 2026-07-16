@@ -24,7 +24,7 @@ if str(SCRIPT_DIR) not in sys.path:
 if str(REPO_SRC) not in sys.path:
     sys.path.insert(0, str(REPO_SRC))
 
-from eval_io import load_models_file, parse_model_level  # noqa: E402
+from eval_io import load_models_file, parse_model_level, write_csv, write_csv_row, write_json  # noqa: E402
 
 from mada_tools.shared.config import get_config_value, load_json_object_config  # noqa: E402
 from mada_tools.shared.env import expand_env_vars  # noqa: E402
@@ -1012,26 +1012,6 @@ def build_row(
         **cost_fields,
         "latency_ms": result.latency_ms,
     }
-
-
-def write_csv(path: Path, rows: list[dict[str, Any]], fields: list[str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fields)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({field: row.get(field, "") for field in fields})
-
-
-def write_csv_row(writer: csv.DictWriter, row: dict[str, Any], fields: list[str]) -> None:
-    writer.writerow({field: row.get(field, "") for field in fields})
-
-
-def write_json(path: Path, rows: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(rows, f, indent=2)
-        f.write("\n")
 
 
 def average(values: list[int | None]) -> float | None:

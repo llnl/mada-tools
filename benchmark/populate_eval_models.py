@@ -12,23 +12,21 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_SRC = Path(__file__).resolve().parents[1] / "src"
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 if str(REPO_SRC) not in sys.path:
     sys.path.insert(0, str(REPO_SRC))
+
+from eval_io import load_model_levels, write_model_level_file  # noqa: E402
 
 from mada_tools.shared.config import get_config_value, load_json_object_config  # noqa: E402
 
 DEFAULT_BASE_URL = "https://livai-api.llnl.gov/v1"
 DEFAULT_TIMEOUT = 30.0
-SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_ALL_OUTPUT = SCRIPT_DIR / "eval_models_all.tsv"
 DEFAULT_ENABLED_OUTPUT = SCRIPT_DIR / "eval_models.tsv"
-MODEL_LEVEL_HEADER = """# Shared eval model list that may be used in LLM testing.
-# One model per line with corresponding run level.
-# Set appropriate levels.
-# Comment out any model you may want to omit entirely from eval runs.
-# Level\tModel
-"""
 
 
 def resolve_api_settings(args: argparse.Namespace) -> tuple[str, str]:
@@ -95,55 +93,21 @@ def fetch_models_payload(base_url: str, api_key: str, timeout: float) -> Any:
     return payload
 
 
-def load_existing_model_levels(path: Path) -> dict[str, int]:
-    """Load enabled model levels from an existing level-aware TSV file."""
-    if not path.exists():
-        return {}
-
-    levels: dict[str, int] = {}
-    with path.open("r", encoding="utf-8") as f:
-        for line_number, raw_line in enumerate(f, start=1):
-            line = raw_line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split()
-            if len(parts) != 2:
-                raise ValueError(f"{path}:{line_number}: expected '<level> <model>'")
-            try:
-                level = int(parts[0])
-            except ValueError as exc:
-                raise ValueError(f"{path}:{line_number}: level must be an integer") from exc
-            if level < 0:
-                raise ValueError(f"{path}:{line_number}: level must be at least 0")
-            levels[parts[1]] = level
-    return levels
-
-
 def known_model_levels(all_output: Path, enabled_output: Path) -> dict[str, int]:
     """Prefer curated levels, then fall back to the existing discovery snapshot."""
     if enabled_output.exists():
-        return load_existing_model_levels(enabled_output)
-    return load_existing_model_levels(all_output)
-
-
-def write_model_file(path: Path, model_ids: list[str], levels: dict[str, int] | None = None) -> None:
-    """Write model IDs as level-aware TSV rows."""
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    known_levels = levels or {}
-    rows = [MODEL_LEVEL_HEADER]
-    rows.extend(f"{known_levels.get(model_id, 0)}\t{model_id}\n" for model_id in model_ids)
-    path.write_text("".join(rows), encoding="utf-8")
+        return load_model_levels(enabled_output)
+    return load_model_levels(all_output)
 
 
 def refresh_model_files(model_ids: list[str], all_output: Path, enabled_output: Path) -> bool:
     """Refresh the discovery snapshot and initialize the curated list if needed."""
 
     levels = known_model_levels(all_output, enabled_output)
-    write_model_file(all_output, model_ids, levels)
+    write_model_level_file(all_output, model_ids, levels)
     if enabled_output.exists():
         return False
-    write_model_file(enabled_output, model_ids, levels)
+    write_model_level_file(enabled_output, model_ids, levels)
     return True
 
 

@@ -71,6 +71,28 @@ class TestEvalIo:
         with pytest.raises(ValueError, match="must be at least 0"):
             eval_io.load_models_file(models_file)
 
+    def test_write_model_level_file_uses_level_aware_tsv_header(self, tmp_path: Path):
+        output = tmp_path / "models.tsv"
+
+        eval_io.write_model_level_file(output, ["model-a", "model-b"], {"model-b": 2})
+
+        assert output.read_text(encoding="utf-8") == (
+            "# Shared eval model list that may be used in LLM testing.\n"
+            "# One model per line with corresponding run level.\n"
+            "# Set appropriate levels.\n"
+            "# Comment out any model you may want to omit entirely from eval runs.\n"
+            "# Level\tModel\n"
+            "0\tmodel-a\n"
+            "2\tmodel-b\n"
+        )
+
+    def test_load_model_levels_rejects_malformed_rows(self, tmp_path: Path):
+        models_file = tmp_path / "models.tsv"
+        models_file.write_text("1 model-a extra\n", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="expected '<level> <model>'"):
+            eval_io.load_model_levels(models_file)
+
 
 # populate_eval_models
 
@@ -88,21 +110,6 @@ class TestPopulateEvalModels:
         }
 
         assert populate_eval_models.extract_model_ids(payload) == ["model-a", "model-b"]
-
-    def test_write_model_file_uses_level_aware_tsv_header(self, tmp_path: Path):
-        output = tmp_path / "models.tsv"
-
-        populate_eval_models.write_model_file(output, ["model-a", "model-b"], {"model-b": 2})
-
-        assert output.read_text(encoding="utf-8") == (
-            "# Shared eval model list that may be used in LLM testing.\n"
-            "# One model per line with corresponding run level.\n"
-            "# Set appropriate levels.\n"
-            "# Comment out any model you may want to omit entirely from eval runs.\n"
-            "# Level\tModel\n"
-            "0\tmodel-a\n"
-            "2\tmodel-b\n"
-        )
 
     def test_refresh_model_files_initializes_missing_curated_file(self, tmp_path: Path):
         all_output = tmp_path / "eval_models_all.tsv"
@@ -152,13 +159,6 @@ class TestPopulateEvalModels:
         contents = enabled_output.read_text(encoding="utf-8")
         assert "3\tmodel-a\n" in contents
         assert "0\tmodel-b\n" in contents
-
-    def test_load_existing_model_levels_rejects_malformed_rows(self, tmp_path: Path):
-        models_file = tmp_path / "models.tsv"
-        models_file.write_text("1 model-a extra\n", encoding="utf-8")
-
-        with pytest.raises(ValueError, match="expected '<level> <model>'"):
-            populate_eval_models.load_existing_model_levels(models_file)
 
 
 # mcp_tool_call_eval
