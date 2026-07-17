@@ -53,6 +53,22 @@ KNOWN_SERVER_PATHS = {
     "job_monitor": REPO_SRC / "mada_tools" / "monitor" / "job_monitor" / "server.py",
     "maestro_command_executor": REPO_SRC / "mada_tools" / "workflow" / "weave" / "maestro" / "server.py",
 }
+PROMPT_TEXT_REPLACEMENTS = {
+    "\\u2018": "'",
+    "\\u2019": "'",
+    "\\u201c": '"',
+    "\\u201d": '"',
+    "\\u2013": "-",
+    "\\u2014": "-",
+    "\\u00a0": " ",
+    "\u2018": "'",
+    "\u2019": "'",
+    "\u201c": '"',
+    "\u201d": '"',
+    "\u2013": "-",
+    "\u2014": "-",
+    "\u00a0": " ",
+}
 
 
 @dataclass(frozen=True)
@@ -251,6 +267,12 @@ def should_generate_prompts(settings: GenerationSettings) -> bool:
 
 def should_use_existing_prompts(settings: GenerationSettings) -> bool:
     return settings.prompt_source in {"existing", "both"}
+
+
+def normalize_prompt_text(text: str) -> str:
+    for old, new in PROMPT_TEXT_REPLACEMENTS.items():
+        text = text.replace(old, new)
+    return text
 
 
 def prompt_slots(styles: list[GenerationStyle], num_prompts_per_style: int) -> list[PromptSlot]:
@@ -534,7 +556,7 @@ def validate_generated_prompts(payload: dict[str, Any], expected_ids: list[str])
         if prompt_id in seen_ids:
             raise ValueError(f"Duplicate generated prompt id: {prompt_id}")
         seen_ids.add(prompt_id)
-        normalized.append({"id": prompt_id, "text": text.strip()})
+        normalized.append({"id": prompt_id, "text": normalize_prompt_text(text.strip())})
 
     if set(seen_ids) != set(expected_ids):
         raise ValueError(f"Generated prompt ids {sorted(seen_ids)} do not match expected ids {sorted(expected_ids)}")
@@ -551,10 +573,15 @@ def normalize_existing_prompts(test_case: dict[str, Any]) -> list[dict[str, str]
     normalized = []
     for index, prompt in enumerate(prompts, start=1):
         if isinstance(prompt, str):
-            normalized.append({"id": f"prompt_{index}", "text": prompt})
+            normalized.append({"id": f"prompt_{index}", "text": normalize_prompt_text(prompt)})
             continue
         if isinstance(prompt, dict) and isinstance(prompt.get("text"), str):
-            normalized.append({"id": str(prompt.get("id", f"prompt_{index}")), "text": prompt["text"]})
+            normalized.append(
+                {
+                    "id": str(prompt.get("id", f"prompt_{index}")),
+                    "text": normalize_prompt_text(prompt["text"]),
+                }
+            )
             continue
         raise ValueError(f"Invalid existing prompt in test case {test_case.get('id', '<missing id>')}: {prompt!r}")
     return normalized
@@ -582,12 +609,14 @@ def augment_prompts(
     return [
         {
             "id": prompt["id"],
-            "text": augment_prompt_text(
-                prompt["text"],
-                prompt_id=prompt["id"],
-                test_case=test_case,
-                source=source,
-                settings=settings,
+            "text": normalize_prompt_text(
+                augment_prompt_text(
+                    prompt["text"],
+                    prompt_id=prompt["id"],
+                    test_case=test_case,
+                    source=source,
+                    settings=settings,
+                )
             ),
         }
         for prompt in prompts
@@ -630,7 +659,7 @@ def merge_prompt_sources(
         prompt_id = unique_prompt_id(prompt["id"], used_ids)
         used_ids.add(prompt_id)
         merged.append({"id": prompt_id, "text": prompt["text"]})
-    return merged
+    return [{"id": prompt["id"], "text": normalize_prompt_text(prompt["text"])} for prompt in merged]
 
 
 async def generate_case_prompts(

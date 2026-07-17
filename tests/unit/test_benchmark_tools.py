@@ -1434,6 +1434,37 @@ class ExampleServer:
             {"id": "terse", "text": "Flux submit status."},
         ]
 
+    def test_validate_generated_prompts_normalizes_prompt_text(self):
+        payload = {
+            "prompts": [
+                {"id": "natural", "text": "Don\u2019t use smart quotes."},
+                {"id": "terse", "text": "Don\\u2019t use smart quotes."},
+            ]
+        }
+
+        prompts = gen_benchmark_fixture.validate_generated_prompts(payload, ["natural", "terse"])
+
+        assert prompts == [
+            {"id": "natural", "text": "Don't use smart quotes."},
+            {"id": "terse", "text": "Don't use smart quotes."},
+        ]
+
+    def test_normalize_existing_prompts_normalizes_objects_and_strings(self):
+        test_case = {
+            "id": "case",
+            "prompts": [
+                {"id": "natural", "text": "Don\u2019t use an em dash\u2014here."},
+                "Use\\u00a0plain\\u2019text.",
+            ],
+        }
+
+        prompts = gen_benchmark_fixture.normalize_existing_prompts(test_case)
+
+        assert prompts == [
+            {"id": "natural", "text": "Don't use an em dash-here."},
+            {"id": "prompt_2", "text": "Use plain'text."},
+        ]
+
     @pytest.mark.asyncio
     async def test_generate_slot_prompts_retries_duplicate_prompt_ids(self):
         class Message:
@@ -1666,6 +1697,86 @@ class ExampleServer:
 
         assert output["tests"][0]["prompts"] == [{"id": "direct", "text": "Show all Flux jobs."}]
         assert calls == [("Show all Flux jobs.", "direct", "case", "existing", "existing")]
+
+    @pytest.mark.asyncio
+    async def test_generate_fixture_normalizes_augmented_prompt_output(self, monkeypatch):
+        fixture = {
+            "mcp_servers": {"flux": {"url": "http://localhost:8101/mcp"}},
+            "tests": [
+                {
+                    "id": "case",
+                    "server": "flux",
+                    "prompts": [{"id": "direct", "text": "Show all Flux jobs."}],
+                    "expected_call": {"tool": "check_job_status", "arguments": {}, "match": {"mode": "subset"}},
+                }
+            ],
+        }
+        settings = gen_benchmark_fixture.GenerationSettings(
+            model=None,
+            num_prompts=1,
+            styles=[gen_benchmark_fixture.GenerationStyle("natural", "Natural request")],
+            temperature=None,
+            request_timeout=120.0,
+            prompt_source="existing",
+            augment_prompts=True,
+            augment_source="existing",
+        )
+
+        def fake_augment_prompt_text(prompt_text, *, prompt_id, test_case, source, settings):
+            return f"{prompt_text} Don\u2019t use smart punctuation."
+
+        monkeypatch.setattr(gen_benchmark_fixture, "augment_prompt_text", fake_augment_prompt_text)
+
+        output = await gen_benchmark_fixture.generate_fixture(
+            fixture,
+            tools_by_server=None,
+            client=None,
+            settings=settings,
+            quiet=True,
+        )
+
+        assert output["tests"][0]["prompts"] == [
+            {"id": "direct", "text": "Show all Flux jobs. Don't use smart punctuation."}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_generate_fixture_does_not_normalize_expected_call_arguments(self):
+        fixture = {
+            "mcp_servers": {"flux": {"url": "http://localhost:8101/mcp"}},
+            "tests": [
+                {
+                    "id": "case",
+                    "server": "flux",
+                    "prompts": [{"id": "direct", "text": "Don\u2019t touch expected_call."}],
+                    "expected_call": {
+                        "tool": "check_job_status",
+                        "arguments": {"command": "Don\u2019t normalize this."},
+                        "match": {"mode": "subset"},
+                    },
+                }
+            ],
+        }
+        settings = gen_benchmark_fixture.GenerationSettings(
+            model=None,
+            num_prompts=1,
+            styles=[gen_benchmark_fixture.GenerationStyle("natural", "Natural request")],
+            temperature=None,
+            request_timeout=120.0,
+            prompt_source="existing",
+            augment_prompts=False,
+            augment_source="both",
+        )
+
+        output = await gen_benchmark_fixture.generate_fixture(
+            fixture,
+            tools_by_server=None,
+            client=None,
+            settings=settings,
+            quiet=True,
+        )
+
+        assert output["tests"][0]["prompts"] == [{"id": "direct", "text": "Don't touch expected_call."}]
+        assert output["tests"][0]["expected_call"]["arguments"] == {"command": "Don\u2019t normalize this."}
 
     @pytest.mark.asyncio
     async def test_generate_fixture_existing_source_requires_existing_prompts(self):
