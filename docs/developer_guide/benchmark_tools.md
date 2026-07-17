@@ -4,8 +4,9 @@ The `benchmark/` directory contains a small toolchain for evaluating MCP tool
 calling:
 
 - `gen_benchmark_fixture.py`: generates prompt variants for expected tool calls.
+- `gen_benchmark_report.py`: writes Markdown fixture and run reports.
 - `mcp_tool_call_eval.py`: runs the low-level MCP tool-call evaluation.
-- `run_tool_call_eval.py`: runs an evaluation from a JSON run config and plots results.
+- `run_tool_call_eval.py`: runs an evaluation from a JSON run config, plots results, and writes a run report.
 - `merge_tool_call_eval_results.py`: merges sharded evaluator row outputs.
 - `plot_tool_call_eval_results.py`: plots summary CSV/JSON files.
 - `populate_eval_models.py`: refreshes model-list files from an OpenAI-compatible `/models` endpoint.
@@ -300,7 +301,8 @@ python benchmark/run_tool_call_eval.py \
 
 The configured runner resolves relative paths from the run config file's
 directory, runs the evaluator, writes requested artifacts, generates plots, and
-returns the evaluator's success or failure status.
+generates a Markdown run report. It returns the evaluator's success or failure
+status.
 
 Run config shape:
 
@@ -320,6 +322,8 @@ Run config shape:
     "summary_csv": true,
     "summary_json": true,
     "plots": true,
+    "report": true,
+    "report_path": "flux_tool_call_report.md",
     "plot_prompt_details": false,
     "capture_raw_response": true
   },
@@ -354,7 +358,10 @@ Common run config fields:
 - `output.timestamped`: create `directory/name_timestamp`.
 - `output.results_csv`, `results_json`, `summary_csv`, `summary_json`: enable artifacts.
 - `output.plots`: enable plot generation.
-- `output.plot_prompt_details`: show every prompt ID separately in plot flavor partitions; default grouped by root style.
+- `output.report`: enable Markdown run report generation; defaults to `true`.
+- `output.report_path`: optional report path. Relative paths are written under the run output directory.
+- `output.plot_prompt_details`: show every prompt ID separately in plot flavor
+  partitions; default grouped by root style.
 - `output.capture_raw_response`: include raw OpenAI-compatible responses in detailed JSON.
 - `eval.num_samples`: repetitions per prompt flavor.
 - `eval.max_concurrency`: concurrent model requests in one process.
@@ -399,6 +406,75 @@ The same filters are available on `mcp_tool_call_eval.py` and
 `merge_tool_call_eval_results.py`. Use the same filters when merging sharded
 outputs that were produced from a filtered run, so the merge tool rebuilds the
 same canonical prompt matrix.
+
+## Benchmark Reports
+
+`gen_benchmark_report.py` creates Markdown reports for benchmark fixtures and
+completed benchmark runs.
+
+`run_tool_call_eval.py` calls the report generator automatically after the
+evaluator finishes and after plots are generated. The default report path is:
+
+```text
+<output_dir>/<output.prefix>_report.md
+```
+
+The run report includes:
+
+- Run settings such as config path, fixture path, models, sample count, shard,
+  matching mode, and selected prompt filters.
+- Output plot images embedded with relative Markdown links.
+- A compact failure section grouped by model, MCP server, test case, and prompt
+  ID. Each group includes the actual prompt, expected tool and arguments, common
+  failure patterns, evaluator reason text, and returned arguments.
+- The fixture-only report content: MCP server chapters, expected calls, and
+  prompts grouped by root flavor.
+
+Disable automatic run reports when needed:
+
+```json
+{
+  "output": {
+    "report": false
+  }
+}
+```
+
+Use a custom report filename or path under the output directory:
+
+```json
+{
+  "output": {
+    "report_path": "reports/flux_report.md"
+  }
+}
+```
+
+The same tool can create a fixture-only report without running an evaluation:
+
+```bash
+python benchmark/gen_benchmark_report.py \
+  --cases benchmark/flux_tool_call_eval_cases.generated.json \
+  --output benchmark/flux_tool_call_eval_cases.generated.md
+```
+
+Fixture-only reports are useful for reviewing MCP servers, expected tools,
+expected arguments, and generated prompt flavors before spending model calls on
+an evaluation.
+
+You can also regenerate a run report from an existing output directory:
+
+```bash
+python benchmark/gen_benchmark_report.py \
+  --cases benchmark/flux_tool_call_eval_cases.generated.json \
+  --run-output benchmark/results/flux_2026-07-17_09-37-38
+```
+
+In run-report mode, the tool infers the detailed rows file from the single
+`*_rows.json` file in `--run-output`, embeds all `*.png` plots in that
+directory, and writes `<prefix>_report.md` beside the run artifacts. Use
+`--rows-json`, `--plots`, `--run-config`, `--eval-status`, and `--output` when
+you need to override those inferred values.
 
 ## Models And API Configuration
 
@@ -552,6 +628,18 @@ JSON-only details.
 | `--request-timeout SECONDS` | LLM request timeout. |
 | `--server-source auto\|live\|static` | Tool-schema source. `auto` tries live MCP then static `server.py`. |
 | `--quiet` | Suppress progress output. |
+
+### `gen_benchmark_report.py`
+
+| Option | Description |
+| --- | --- |
+| `--cases PATH` | Required fixture with `mcp_servers` and `tests`. |
+| `--run-output PATH` | Completed benchmark output directory. Enables run-report mode. |
+| `--rows-json PATH` | Detailed rows JSON. Defaults to the single `*_rows.json` file in `--run-output`. |
+| `--plots PATH...` | Plot image paths for run-report mode. Defaults to all `*.png` files in `--run-output`. |
+| `--run-config PATH` | Optional run config JSON used to describe the completed run. |
+| `--eval-status N` | Optional evaluator exit status. Defaults to inferred pass/fail status from detailed rows. |
+| `--output PATH` | Optional Markdown report path. Defaults by report mode. |
 
 ### `run_tool_call_eval.py`
 

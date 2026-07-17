@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import copy
 import json
 import sys
 from pathlib import Path
@@ -210,6 +211,27 @@ def render_report(fixture: dict[str, Any], cases_path: Path) -> str:
 def load_json_file(path: Path) -> Any:
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def ordered_unique(values: list[Any]) -> list[str]:
+    ordered = []
+    for value in values:
+        item = str(value)
+        if item not in ordered:
+            ordered.append(item)
+    return ordered
+
+
+def load_detailed_rows(path: Path) -> list[dict[str, Any]]:
+    loaded = load_json_file(path)
+    if not isinstance(loaded, list):
+        raise ValueError(f"{path}: expected a JSON list of detailed result rows")
+    rows = []
+    for index, row in enumerate(loaded, start=1):
+        if not isinstance(row, dict):
+            raise ValueError(f"{path}: row {index} must be a JSON object")
+        rows.append(row)
+    return rows
 
 
 def bool_label(value: Any) -> str:
@@ -434,19 +456,176 @@ def write_run_report(
     return report_path
 
 
+def infer_single_file(directory: Path, pattern: str, description: str) -> Path:
+    matches = sorted(directory.glob(pattern))
+    if not matches:
+        raise ValueError(f"Could not infer {description}; no {pattern!r} file found in {directory}")
+    if len(matches) > 1:
+        names = ", ".join(path.name for path in matches)
+        raise ValueError(f"Could not infer {description}; found multiple matches in {directory}: {names}")
+    return matches[0]
+
+
+def infer_rows_json(run_output: Path, rows_json: Path | None) -> Path:
+    return rows_json or infer_single_file(run_output, "*_rows.json", "detailed rows JSON")
+
+
+def infer_plot_paths(run_output: Path, plot_paths: list[Path] | None) -> list[Path]:
+    if plot_paths is not None:
+        return plot_paths
+    return sorted(run_output.glob("*.png"), key=lambda path: path.name)
+
+
+def default_run_report_path(run_output: Path, rows_json: Path) -> Path:
+    suffix = "_rows.json"
+    if rows_json.name.endswith(suffix):
+        return run_output / f"{rows_json.name[: -len(suffix)]}_report.md"
+    return run_output / f"{run_output.name}_report.md"
+
+
+def run_config_eval_value(run_config: dict[str, Any], field_name: str, default: Any) -> Any:
+    eval_config = run_config.get("eval", {})
+    if not isinstance(eval_config, dict):
+        return default
+    return eval_config.get(field_name, default)
+
+
+def run_config_output_value(run_config: dict[str, Any], field_name: str, default: Any) -> Any:
+    output_config = run_config.get("output", {})
+    if not isinstance(output_config, dict):
+        return default
+    return output_config.get(field_name, default)
+
+
+def run_config_model_api_value(run_config: dict[str, Any], field_name: str, default: Any) -> Any:
+    model_api_config = run_config.get("model_api", {})
+    if not isinstance(model_api_config, dict):
+        return default
+    return model_api_config.get(field_name, default)
+
+
+def eval_args_from_rows(
+    *,
+    rows: list[dict[str, Any]],
+    cases_path: Path,
+    run_config: dict[str, Any],
+) -> argparse.Namespace:
+    return argparse.Namespace(
+        models=ordered_unique([row.get("model", "") for row in rows if row.get("model") not in (None, "")]),
+        cases=cases_path,
+        num_samples=len({row.get("sample_index") for row in rows if row.get("sample_index") not in (None, "")}),
+        max_concurrency=run_config_eval_value(run_config, "max_concurrency", "unknown"),
+        shard_index=int(run_config_eval_value(run_config, "shard_index", 0)),
+        shard_count=int(run_config_eval_value(run_config, "shard_count", 1)),
+        strict=bool(run_config_eval_value(run_config, "strict", False)),
+        temperature=run_config_eval_value(run_config, "temperature", None),
+        request_timeout=run_config_eval_value(run_config, "request_timeout", None),
+        min_pass_rate=run_config_eval_value(run_config, "min_pass_rate", None),
+        base_url=run_config_model_api_value(run_config, "base_url", None),
+        capture_raw_response=bool(run_config_output_value(run_config, "capture_raw_response", False))
+        or any(row.get("raw_response") for row in rows),
+        prompt_ids=ordered_unique([row.get("prompt_id", "") for row in rows if row.get("prompt_id") not in (None, "")]),
+        prompt_styles=run_config_eval_value(run_config, "prompt_styles", None),
+        exclude_prompt_ids=run_config_eval_value(run_config, "exclude_prompt_ids", None),
+        exclude_prompt_styles=run_config_eval_value(run_config, "exclude_prompt_styles", None),
+    )
+
+
+def filter_fixture_to_run_rows(fixture: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
+    prompt_ids_by_case: dict[tuple[str, str], set[str]] = {}
+    for row in rows:
+        server = row.get("server")
+        case_id = row.get("case_id")
+        prompt_id = row.get("prompt_id")
+        if server in (None, "") or case_id in (None, "") or prompt_id in (None, ""):
+            continue
+        prompt_ids_by_case.setdefault((str(server), str(case_id)), set()).add(str(prompt_id))
+
+    filtered = copy.deepcopy(fixture)
+    for test_case in filtered["tests"]:
+        used_prompt_ids = prompt_ids_by_case.get((str(test_case["server"]), str(test_case["id"])))
+        if not used_prompt_ids:
+            continue
+        selected_prompts = [prompt for prompt in normalize_prompts(test_case) if prompt["id"] in used_prompt_ids]
+        if selected_prompts:
+            test_case["prompts"] = selected_prompts
+    return filtered
+
+
+def run_status_from_rows(rows: list[dict[str, Any]], explicit_status: int | None) -> int:
+    if explicit_status is not None:
+        return explicit_status
+    return 0 if rows and all(bool(row.get("passed")) for row in rows) else 1
+
+
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate a Markdown report from an MCP tool-call benchmark fixture.")
+    parser = argparse.ArgumentParser(description="Generate Markdown reports for MCP tool-call benchmark fixtures/runs.")
     parser.add_argument("--cases", required=True, type=Path, help="JSON fixture with mcp_servers and tests")
+    parser.add_argument(
+        "--run-output",
+        type=Path,
+        help="Completed benchmark run output directory; enables run-report mode",
+    )
+    parser.add_argument(
+        "--rows-json",
+        type=Path,
+        help="Detailed rows JSON for run-report mode (default: infer *_rows.json from --run-output)",
+    )
+    parser.add_argument(
+        "--plots",
+        nargs="*",
+        type=Path,
+        help="Plot image paths for run-report mode (default: all *.png files in --run-output)",
+    )
+    parser.add_argument(
+        "--run-config",
+        type=Path,
+        help="Optional run config JSON used to describe a completed benchmark run",
+    )
+    parser.add_argument(
+        "--eval-status",
+        type=int,
+        help="Optional evaluator exit status for run-report mode (default: infer from detailed rows)",
+    )
     parser.add_argument(
         "--output",
         type=Path,
-        help="Write Markdown report here (default: input fixture path with .md suffix)",
+        help="Write Markdown report here (default: fixture .md, or <run-output>/<prefix>_report.md in run mode)",
     )
     return parser.parse_args()
 
 
 def run(args: argparse.Namespace) -> int:
     fixture = load_json(args.cases)
+    run_output = getattr(args, "run_output", None)
+    if run_output is not None:
+        rows_json = infer_rows_json(run_output, getattr(args, "rows_json", None))
+        rows = load_detailed_rows(rows_json)
+        run_config_path = getattr(args, "run_config", None)
+        run_config = load_json_file(run_config_path) if run_config_path is not None else {}
+        if not isinstance(run_config, dict):
+            raise ValueError(f"{run_config_path}: run config must be a JSON object")
+
+        output_path = args.output or default_run_report_path(run_output, rows_json)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            render_run_report(
+                fixture=filter_fixture_to_run_rows(fixture, rows),
+                cases_path=args.cases,
+                run_config_path=run_config_path or Path("<not provided>"),
+                run_config=run_config,
+                eval_args=eval_args_from_rows(rows=rows, cases_path=args.cases, run_config=run_config),
+                output_dir=run_output,
+                report_path=output_path,
+                eval_status=run_status_from_rows(rows, getattr(args, "eval_status", None)),
+                plot_paths=infer_plot_paths(run_output, getattr(args, "plots", None)),
+                detailed_rows=rows,
+            ),
+            encoding="utf-8",
+        )
+        print(f"Wrote benchmark run report to {output_path}")
+        return 0
+
     output_path = args.output or default_output_path(args.cases)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(render_report(fixture, args.cases), encoding="utf-8")

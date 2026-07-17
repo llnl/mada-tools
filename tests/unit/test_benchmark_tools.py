@@ -2008,6 +2008,81 @@ class TestGenBenchmarkReport:
 
         assert output_path.read_text(encoding="utf-8").startswith("# small_cases\n")
 
+    def test_run_can_generate_benchmark_run_report_from_output_dir(self, tmp_path: Path):
+        cases_path = tmp_path / "small_cases.json"
+        output_dir = tmp_path / "results"
+        output_dir.mkdir()
+        cases_path.write_text(
+            json.dumps(
+                {
+                    "mcp_servers": {"flux": {"url": "http://localhost:8101/mcp"}},
+                    "tests": [
+                        {
+                            "id": "case_one",
+                            "server": "flux",
+                            "prompts": [
+                                {"id": "direct", "text": "Prompt."},
+                                {"id": "natural", "text": "Unused prompt."},
+                            ],
+                            "expected_call": {
+                                "tool": "check_job_status",
+                                "arguments": {"job_id": "job_000123"},
+                                "match": {"mode": "subset"},
+                            },
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (output_dir / "flux_tool_call_score.png").write_bytes(b"png")
+        (output_dir / "flux_tool_call_rows.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "model": "gpt-test",
+                        "server": "flux",
+                        "case_id": "case_one",
+                        "prompt_id": "direct",
+                        "sample_index": 1,
+                        "passed": False,
+                        "error_type": "wrong_tool",
+                        "error": "Expected tool check_job_status, got submit_command",
+                        "expected_tool": "check_job_status",
+                        "actual_tool": "submit_command",
+                        "expected_call": {
+                            "tool": "check_job_status",
+                            "arguments": {"job_id": "job_000123"},
+                            "match": {"mode": "subset"},
+                        },
+                        "actual_arguments": {"command": "status"},
+                        "prompt": "Prompt.",
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        args = argparse.Namespace(
+            cases=cases_path,
+            output=None,
+            run_output=output_dir,
+            rows_json=None,
+            plots=None,
+            run_config=None,
+            eval_status=None,
+        )
+
+        assert gen_benchmark_report.run(args) == 0
+
+        report = (output_dir / "flux_tool_call_report.md").read_text(encoding="utf-8")
+        assert report.startswith("# Benchmark Run Report: results\n")
+        assert "![Flux Tool Call Score](flux_tool_call_score.png)" in report
+        assert "- Models: gpt-test" in report
+        assert "- Prompt:" in report
+        assert "Prompt." in report
+        assert "##### Prompt Flavor: direct" in report
+        assert "Unused prompt." not in report
+
     def test_render_run_report_includes_plots_and_common_failures(self, tmp_path: Path):
         fixture = {
             "mcp_servers": {"flux": {"url": "http://localhost:8101/mcp"}},
