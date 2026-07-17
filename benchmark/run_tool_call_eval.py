@@ -16,6 +16,7 @@ if str(REPO_SRC) not in sys.path:
     sys.path.insert(0, str(REPO_SRC))
 
 from eval_io import load_models_file, parse_model_level  # noqa: E402
+from gen_benchmark_report import write_run_report  # noqa: E402
 from mcp_tool_call_eval import (  # noqa: E402
     DEFAULT_SYSTEM_PROMPT,
     exception_messages,
@@ -163,6 +164,24 @@ def output_path(output_dir: Path, prefix: str, suffix: str, enabled: bool) -> Pa
     return output_dir / f"{prefix}_{suffix}"
 
 
+def report_output_path(config: dict[str, Any], output_dir: Path) -> Path | None:
+    output_config = config.get("output", {})
+    if not isinstance(output_config, dict):
+        raise ValueError("Run config field 'output' must be an object when provided")
+    if not bool_config(output_config.get("report"), True):
+        return None
+
+    configured_path = output_config.get("report_path")
+    if configured_path not in (None, ""):
+        if not isinstance(configured_path, str):
+            raise ValueError("Run config field 'output.report_path' must be a string path")
+        path = Path(configured_path)
+        return path if path.is_absolute() else output_dir / path
+
+    prefix = str(output_config.get("prefix") or "tool_call")
+    return output_dir / f"{prefix}_report.md"
+
+
 def build_output_dir(config: dict[str, Any], config_dir: Path, output_dir_override: Path | None) -> Path:
     output_config = config.get("output", {})
     if not isinstance(output_config, dict):
@@ -259,7 +278,7 @@ def plots_enabled(config: dict[str, Any], cli_args: argparse.Namespace) -> bool:
     return bool_config(output_config.get("plots"), True)
 
 
-def generate_plots(config: dict[str, Any], output_dir: Path, summary_csv: Path, quiet: bool) -> None:
+def generate_plots(config: dict[str, Any], output_dir: Path, summary_csv: Path, quiet: bool) -> list[Path]:
     output_config = config.get("output", {})
     if not isinstance(output_config, dict):
         raise ValueError("Run config field 'output' must be an object when provided")
@@ -328,6 +347,10 @@ def generate_plots(config: dict[str, Any], output_dir: Path, summary_csv: Path, 
             print(f"Wrote {cost_output}")
         else:
             print(f"Skipping cost plot because {cost_field!r} has no numeric values.")
+    plot_paths = [score_output, tokens_output]
+    if wrote_cost_plot:
+        plot_paths.append(cost_output)
+    return plot_paths
 
 
 def parse_args() -> argparse.Namespace:
@@ -378,11 +401,28 @@ async def run(args: argparse.Namespace) -> int:
     eval_args = build_eval_args(config, config_dir, args, output_dir, models)
 
     eval_status = await run_evaluator(eval_args)
+    plot_paths = []
     if plots_enabled(config, args):
         if eval_args.summary_csv is not None and eval_args.summary_csv.exists():
-            generate_plots(config, output_dir, eval_args.summary_csv, eval_args.quiet)
+            plot_paths = generate_plots(config, output_dir, eval_args.summary_csv, eval_args.quiet)
         elif not eval_args.quiet:
             print(f"Skipping plot generation because {eval_args.summary_csv} was not created.", file=sys.stderr)
+
+    report_path = report_output_path(config, output_dir)
+    if report_path is not None:
+        write_run_report(
+            cases_path=eval_args.cases,
+            run_config_path=config_path,
+            run_config=config,
+            eval_args=eval_args,
+            output_dir=output_dir,
+            report_path=report_path,
+            eval_status=eval_status,
+            plot_paths=plot_paths,
+            detailed_rows_path=eval_args.results_json,
+        )
+        if not eval_args.quiet:
+            print(f"Wrote benchmark run report to {report_path}")
 
     if not eval_args.quiet:
         print(f"Wrote eval results to {output_dir}")

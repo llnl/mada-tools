@@ -32,6 +32,10 @@ plot_tool_call_eval_results = load_benchmark_module("plot_tool_call_eval_results
 run_tool_call_eval = load_benchmark_module("run_tool_call_eval", "run_tool_call_eval.py")
 merge_tool_call_eval_results = load_benchmark_module("merge_tool_call_eval_results", "merge_tool_call_eval_results.py")
 gen_benchmark_fixture = load_benchmark_module("gen_benchmark_fixture", "gen_benchmark_fixture.py")
+gen_benchmark_report = load_benchmark_module(
+    "gen_benchmark_report",
+    "gen_benchmark_report.py",
+)
 
 
 # eval_io
@@ -1054,6 +1058,21 @@ class TestRunToolCallEval:
 
         assert eval_args.model_prices == prices.resolve()
 
+    def test_report_output_path_defaults_to_prefix_report(self, tmp_path: Path):
+        output_dir = tmp_path / "results"
+
+        assert run_tool_call_eval.report_output_path({"output": {"prefix": "flux_tool_call"}}, output_dir) == (
+            output_dir / "flux_tool_call_report.md"
+        )
+
+    def test_report_output_path_can_be_disabled_or_overridden(self, tmp_path: Path):
+        output_dir = tmp_path / "results"
+
+        assert run_tool_call_eval.report_output_path({"output": {"report": False}}, output_dir) is None
+        assert run_tool_call_eval.report_output_path({"output": {"report_path": "custom.md"}}, output_dir) == (
+            output_dir / "custom.md"
+        )
+
     def test_models_from_config_filters_level_aware_file(self, tmp_path: Path):
         models_file = tmp_path / "models.tsv"
         models_file.write_text("0 model-zero\n1 model-one\n2 model-two\n", encoding="utf-8")
@@ -1151,13 +1170,18 @@ class TestRunToolCallEval:
             lambda **kwargs: calls.append(kwargs),
         )
 
-        run_tool_call_eval.generate_plots(
+        plot_paths = run_tool_call_eval.generate_plots(
             {"output": {"prefix": "flux_tool_call"}},
             tmp_path,
             summary_csv,
             quiet=True,
         )
 
+        assert plot_paths == [
+            tmp_path / "flux_tool_call_score.png",
+            tmp_path / "flux_tool_call_tokens.png",
+            tmp_path / "flux_tool_call_cost.png",
+        ]
         assert [call["value_field"] for call in calls] == ["score_passed", "avg_total_tokens", "total_cost_usd"]
         assert calls[-1]["output_path"] == tmp_path / "flux_tool_call_cost.png"
         assert calls[-1]["title"] == "MCP Tool-Call Evaluation Cost By Model (Total: $0.300000)"
@@ -1245,14 +1269,67 @@ class TestRunToolCallEval:
             lambda **kwargs: calls.append(kwargs),
         )
 
-        run_tool_call_eval.generate_plots(
+        plot_paths = run_tool_call_eval.generate_plots(
             {"output": {"prefix": "flux_tool_call"}},
             tmp_path,
             summary_csv,
             quiet=True,
         )
 
+        assert plot_paths == [tmp_path / "flux_tool_call_score.png", tmp_path / "flux_tool_call_tokens.png"]
         assert [call["value_field"] for call in calls] == ["score_passed", "avg_total_tokens"]
+
+    @pytest.mark.asyncio
+    async def test_run_writes_report_after_eval_and_plots(self, tmp_path: Path, monkeypatch):
+        config_path = tmp_path / "run.json"
+        cases_path = tmp_path / "cases.json"
+        models_file = tmp_path / "models.txt"
+        cases_path.write_text("{}", encoding="utf-8")
+        models_file.write_text("model-a\n", encoding="utf-8")
+        config_path.write_text(
+            json.dumps(
+                {
+                    "name": "flux",
+                    "cases": "cases.json",
+                    "models_file": "models.txt",
+                    "output": {"directory": "results", "prefix": "flux_tool_call", "timestamped": False},
+                }
+            ),
+            encoding="utf-8",
+        )
+        calls = []
+
+        async def fake_run_evaluator(eval_args):
+            eval_args.summary_csv.parent.mkdir(parents=True, exist_ok=True)
+            eval_args.summary_csv.write_text("summary", encoding="utf-8")
+            eval_args.results_json.write_text("[]", encoding="utf-8")
+            return 1
+
+        def fake_generate_plots(_config, output_dir, _summary_csv, _quiet):
+            return [output_dir / "flux_tool_call_score.png", output_dir / "flux_tool_call_tokens.png"]
+
+        def fake_write_run_report(**kwargs):
+            calls.append(kwargs)
+            kwargs["report_path"].write_text("# report\n", encoding="utf-8")
+
+        monkeypatch.setattr(run_tool_call_eval, "run_evaluator", fake_run_evaluator)
+        monkeypatch.setattr(run_tool_call_eval, "generate_plots", fake_generate_plots)
+        monkeypatch.setattr(run_tool_call_eval, "write_run_report", fake_write_run_report)
+
+        status = await run_tool_call_eval.run(cli_overrides(run_config=config_path))
+
+        assert status == 1
+        assert len(calls) == 1
+        call = calls[0]
+        assert call["cases_path"] == cases_path.resolve()
+        assert call["run_config_path"] == config_path.resolve()
+        assert call["report_path"] == tmp_path / "results" / "flux_tool_call_report.md"
+        assert call["eval_status"] == 1
+        assert call["plot_paths"] == [
+            tmp_path / "results" / "flux_tool_call_score.png",
+            tmp_path / "results" / "flux_tool_call_tokens.png",
+        ]
+        assert call["detailed_rows_path"] == tmp_path / "results" / "flux_tool_call_rows.json"
 
 
 # merge_tool_call_eval_results
@@ -1809,6 +1886,212 @@ class ExampleServer:
                 settings=settings,
                 quiet=True,
             )
+
+
+# gen_benchmark_report
+
+
+class TestGenBenchmarkReport:
+    def test_default_output_path_uses_markdown_suffix(self):
+        assert gen_benchmark_report.default_output_path(Path("benchmark/cases.json")) == Path(
+            "benchmark/cases.md"
+        )
+
+    def test_render_report_groups_single_server_prompts_by_flavor(self):
+        fixture = {
+            "mcp_servers": {"flux": {"url": "http://localhost:8101/mcp"}},
+            "tests": [
+                {
+                    "id": "case_one",
+                    "server": "flux",
+                    "prompts": [
+                        {"id": "direct", "text": "Call the tool directly."},
+                        {"id": "direct_2", "text": "Call it another direct way."},
+                        {"id": "natural", "text": "Please call the tool."},
+                    ],
+                    "expected_call": {
+                        "tool": "check_job_status",
+                        "arguments": {"job_id": "job_000123"},
+                        "match": {"mode": "subset"},
+                    },
+                }
+            ],
+        }
+
+        report = gen_benchmark_report.render_report(fixture, Path("flux_tool_call_eval_cases.json"))
+
+        assert report.startswith("# flux_tool_call_eval_cases\n")
+        assert "## MCP Server: flux" in report
+        assert "### Test: case_one" in report
+        assert "- Expected tool: `check_job_status`" in report
+        assert '"job_id": "job_000123"' in report
+        assert report.count("##### Prompt Flavor: direct") == 1
+        assert "- **direct**: Call the tool directly." in report
+        assert "- **direct\\_2**: Call it another direct way." in report
+        assert "##### Prompt Flavor: natural" in report
+
+    def test_render_report_splits_multiple_servers_into_chapters(self):
+        fixture = {
+            "mcp_servers": {
+                "flux": {"url": "http://localhost:8101/mcp"},
+                "slurm": {"url": "http://localhost:8102/mcp"},
+            },
+            "tests": [
+                {
+                    "id": "flux_case",
+                    "server": "flux",
+                    "prompts": [{"id": "direct", "text": "Flux prompt."}],
+                    "expected_call": {"tool": "flux_tool", "arguments": {}, "match": {"mode": "subset"}},
+                },
+                {
+                    "id": "slurm_case",
+                    "server": "slurm",
+                    "prompts": [{"id": "direct", "text": "Slurm prompt."}],
+                    "expected_call": {"tool": "slurm_tool", "arguments": {}, "match": {"mode": "subset"}},
+                },
+            ],
+        }
+
+        report = gen_benchmark_report.render_report(fixture, Path("mixed_cases.json"))
+
+        flux_chapter = report.index("## MCP Server: flux")
+        slurm_chapter = report.index("## MCP Server: slurm")
+        assert flux_chapter < slurm_chapter
+        assert "### Test: flux_case" in report[flux_chapter:slurm_chapter]
+        assert "### Test: slurm_case" not in report[flux_chapter:slurm_chapter]
+        assert "### Test: slurm_case" in report[slurm_chapter:]
+
+    def test_render_report_accepts_plain_string_prompts(self):
+        fixture = {
+            "mcp_servers": {"flux": {"url": "http://localhost:8101/mcp"}},
+            "tests": [
+                {
+                    "id": "case_one",
+                    "server": "flux",
+                    "prompts": ["Plain prompt."],
+                    "expected_call": {"tool": "check_job_status", "arguments": {}, "match": {"mode": "subset"}},
+                }
+            ],
+        }
+
+        report = gen_benchmark_report.render_report(fixture, Path("string_prompt_cases.json"))
+
+        assert "##### Prompt Flavor: prompt" in report
+        assert "- **prompt\\_1**: Plain prompt." in report
+
+    def test_run_writes_markdown_report(self, tmp_path: Path):
+        cases_path = tmp_path / "small_cases.json"
+        output_path = tmp_path / "small_report.md"
+        cases_path.write_text(
+            json.dumps(
+                {
+                    "mcp_servers": {"flux": {"url": "http://localhost:8101/mcp"}},
+                    "tests": [
+                        {
+                            "id": "case_one",
+                            "server": "flux",
+                            "prompts": [{"id": "direct", "text": "Prompt."}],
+                            "expected_call": {
+                                "tool": "check_job_status",
+                                "arguments": {},
+                                "match": {"mode": "subset"},
+                            },
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        args = argparse.Namespace(cases=cases_path, output=output_path)
+
+        assert gen_benchmark_report.run(args) == 0
+
+        assert output_path.read_text(encoding="utf-8").startswith("# small_cases\n")
+
+    def test_render_run_report_includes_plots_and_common_failures(self, tmp_path: Path):
+        fixture = {
+            "mcp_servers": {"flux": {"url": "http://localhost:8101/mcp"}},
+            "tests": [
+                {
+                    "id": "case_one",
+                    "server": "flux",
+                    "prompts": [{"id": "direct", "text": "Prompt."}],
+                    "expected_call": {
+                        "tool": "check_job_status",
+                        "arguments": {"job_id": "job_000123"},
+                        "match": {"mode": "subset"},
+                    },
+                }
+            ],
+        }
+        eval_args = argparse.Namespace(
+            models=["gpt-test"],
+            cases=tmp_path / "cases.json",
+            num_samples=2,
+            max_concurrency=1,
+            shard_index=0,
+            shard_count=1,
+            strict=False,
+            prompt_ids=None,
+            prompt_styles=None,
+            exclude_prompt_ids=None,
+            exclude_prompt_styles=None,
+        )
+        detailed_rows = [
+            {
+                "model": "gpt-test",
+                "server": "flux",
+                "case_id": "case_one",
+                "prompt_id": "direct",
+                "sample_index": 1,
+                "passed": False,
+                "error_type": "wrong_tool",
+                "error": "Expected tool check_job_status, got submit_command",
+                "expected_tool": "check_job_status",
+                "actual_tool": "submit_command",
+                "expected_call": fixture["tests"][0]["expected_call"],
+                "actual_arguments": {"command": "status"},
+            },
+            {
+                "model": "gpt-test",
+                "server": "flux",
+                "case_id": "case_one",
+                "prompt_id": "direct",
+                "sample_index": 2,
+                "passed": False,
+                "error_type": "wrong_tool",
+                "error": "Expected tool check_job_status, got submit_command",
+                "expected_tool": "check_job_status",
+                "actual_tool": "submit_command",
+                "expected_call": fixture["tests"][0]["expected_call"],
+                "actual_arguments": {"command": "status"},
+            },
+        ]
+
+        report = gen_benchmark_report.render_run_report(
+            fixture=fixture,
+            cases_path=tmp_path / "cases.json",
+            run_config_path=tmp_path / "run.json",
+            run_config={"name": "flux"},
+            eval_args=eval_args,
+            output_dir=tmp_path / "results",
+            report_path=tmp_path / "results" / "flux_tool_call_report.md",
+            eval_status=1,
+            plot_paths=[tmp_path / "results" / "flux_tool_call_score.png"],
+            detailed_rows=detailed_rows,
+        )
+
+        assert "# Benchmark Run Report: results" in report
+        assert "![Flux Tool Call Score](flux_tool_call_score.png)" in report
+        assert "### gpt-test / flux / case_one / direct" in report
+        assert "- Passed: 0/2" in report
+        assert "- Prompt:" in report
+        assert "Prompt." in report
+        assert "2x `wrong_tool`: got `submit_command`" in report
+        assert "Expected tool check_job_status, got submit_command" in report
+        assert "Returned arguments:" in report
+        assert '{"command": "status"}' in report
+        assert "## Benchmark Fixture: cases" in report
 
 
 # tool_call_eval_fixtures
