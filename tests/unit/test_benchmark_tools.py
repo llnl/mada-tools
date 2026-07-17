@@ -1662,7 +1662,7 @@ class ExampleServer:
             "expected_call": {
                 "tool": "submit_jobs",
                 "arguments": {
-                    "run_info_json": "{\"runs\":[]}",
+                    "run_info_json": '{"runs":[]}',
                 },
                 "match": {"mode": "subset"},
             },
@@ -1703,9 +1703,7 @@ class ExampleServer:
         policy = gen_benchmark_fixture.prompt_argument_policy_for_case(settings, test_case)
 
         assert policy.verbatim_arguments == ()
-        assert policy.argument_guidance == {
-            "run_info_json": ("Describe run_info_json manifest fields clearly.",)
-        }
+        assert policy.argument_guidance == {"run_info_json": ("Describe run_info_json manifest fields clearly.",)}
 
     def test_generation_user_prompt_uses_configured_argument_policy(self):
         test_case = {
@@ -2270,9 +2268,7 @@ class ExampleServer:
 
 class TestGenBenchmarkReport:
     def test_default_output_path_uses_markdown_suffix(self):
-        assert gen_benchmark_report.default_output_path(Path("benchmark/cases.json")) == Path(
-            "benchmark/cases.md"
-        )
+        assert gen_benchmark_report.default_output_path(Path("benchmark/cases.json")) == Path("benchmark/cases.md")
 
     def test_render_report_groups_single_server_prompts_by_flavor(self):
         fixture = {
