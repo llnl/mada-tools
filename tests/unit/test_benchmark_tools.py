@@ -319,6 +319,50 @@ class TestMcpToolCallEval:
         with pytest.raises(ValueError, match="expected_call object"):
             mcp_tool_call_eval.load_json(path)
 
+    def test_filter_fixture_prompts_includes_root_styles(self):
+        case = make_test_case({})
+        case["prompts"] = [
+            {"id": "direct", "text": "direct"},
+            {"id": "direct_2", "text": "direct two"},
+            {"id": "natural", "text": "natural"},
+            {"id": "lazy", "text": "lazy"},
+        ]
+        fixture = fixture_with(case)
+
+        filtered = mcp_tool_call_eval.filter_fixture_prompts(fixture, include_prompt_styles=["direct", "natural"])
+
+        assert [prompt["id"] for prompt in filtered["tests"][0]["prompts"]] == ["direct", "direct_2", "natural"]
+        assert [prompt["id"] for prompt in fixture["tests"][0]["prompts"]] == [
+            "direct",
+            "direct_2",
+            "natural",
+            "lazy",
+        ]
+
+    def test_filter_fixture_prompts_includes_exact_ids_then_excludes_styles(self):
+        case = make_test_case({})
+        case["prompts"] = [
+            {"id": "direct", "text": "direct"},
+            {"id": "direct_2", "text": "direct two"},
+            {"id": "natural", "text": "natural"},
+        ]
+        fixture = fixture_with(case)
+
+        filtered = mcp_tool_call_eval.filter_fixture_prompts(
+            fixture,
+            include_prompt_ids=["direct", "direct_2", "natural"],
+            exclude_prompt_styles=["direct"],
+        )
+
+        assert [prompt["id"] for prompt in filtered["tests"][0]["prompts"]] == ["natural"]
+
+    def test_filter_fixture_prompts_rejects_empty_case_selection(self):
+        case = make_test_case({})
+        case["prompts"] = [{"id": "direct", "text": "direct"}]
+
+        with pytest.raises(ValueError, match="removed all prompts"):
+            mcp_tool_call_eval.filter_fixture_prompts(fixture_with(case), include_prompt_styles=["natural"])
+
     def test_exception_messages_formats_plain_exception(self):
         assert mcp_tool_call_eval.exception_messages(ValueError("bad value")) == ["ValueError: bad value"]
 
@@ -894,6 +938,10 @@ def cli_overrides(**overrides):
         "max_concurrency": None,
         "shard_count": None,
         "shard_index": None,
+        "prompt_ids": None,
+        "prompt_styles": None,
+        "exclude_prompt_ids": None,
+        "exclude_prompt_styles": None,
         "output_dir": None,
         "no_plots": False,
         "quiet": False,
@@ -930,6 +978,8 @@ class TestRunToolCallEval:
                 "max_concurrency": 3,
                 "shard_count": 4,
                 "shard_index": 1,
+                "prompt_styles": ["direct", "natural"],
+                "exclude_prompt_ids": "direct_5",
             },
         }
 
@@ -950,6 +1000,8 @@ class TestRunToolCallEval:
         assert eval_args.max_concurrency == 3
         assert eval_args.shard_count == 4
         assert eval_args.shard_index == 1
+        assert eval_args.prompt_styles == ["direct", "natural"]
+        assert eval_args.exclude_prompt_ids == ["direct_5"]
         assert eval_args.capture_raw_response is True
 
     def test_cli_overrides_replace_config_values(self, tmp_path: Path):
@@ -970,6 +1022,8 @@ class TestRunToolCallEval:
             max_concurrency=6,
             shard_count=7,
             shard_index=2,
+            prompt_styles=["terse"],
+            exclude_prompt_styles=["lazy"],
             output_dir=tmp_path / "override-results",
         )
         models = run_tool_call_eval.models_from_config(config, tmp_path, args.models_file)
@@ -982,6 +1036,8 @@ class TestRunToolCallEval:
         assert eval_args.max_concurrency == 6
         assert eval_args.shard_count == 7
         assert eval_args.shard_index == 2
+        assert eval_args.prompt_styles == ["terse"]
+        assert eval_args.exclude_prompt_styles == ["lazy"]
 
     def test_build_eval_args_allows_model_prices_override(self, tmp_path: Path):
         prices = tmp_path / "prices.json"
@@ -1274,12 +1330,18 @@ class TestGenBenchmarkFixture:
                     {"id": "natural", "description": "Natural request"},
                     {"id": "terse", "description": "Terse request"},
                 ],
+                "prompt_source": "existing",
+                "augment_prompts": True,
+                "augment_source": "existing",
             }
         }
         args = argparse.Namespace(
             model="cli-model",
             num_prompts=4,
             styles=["terse"],
+            prompt_source="generated",
+            augment_prompts=False,
+            augment_source="generated",
             temperature=0.2,
             request_timeout=30.0,
         )
@@ -1291,6 +1353,9 @@ class TestGenBenchmarkFixture:
         assert [style.id for style in settings.styles] == ["terse"]
         assert settings.temperature == 0.2
         assert settings.request_timeout == 30.0
+        assert settings.prompt_source == "generated"
+        assert settings.augment_prompts is False
+        assert settings.augment_source == "generated"
 
     def test_prompt_slots_generates_requested_count_per_style(self):
         styles = [
@@ -1426,6 +1491,9 @@ class ExampleServer:
             styles=[gen_benchmark_fixture.GenerationStyle("direct", "Direct request")],
             temperature=None,
             request_timeout=120.0,
+            prompt_source="generated",
+            augment_prompts=False,
+            augment_source="both",
         )
         slots = gen_benchmark_fixture.prompt_slots_for_style(settings.styles[0], settings.num_prompts)
         test_case = {
@@ -1460,6 +1528,9 @@ class ExampleServer:
             styles=[gen_benchmark_fixture.GenerationStyle("natural", "Natural request")],
             temperature=None,
             request_timeout=120.0,
+            prompt_source="generated",
+            augment_prompts=False,
+            augment_source="both",
         )
 
         async def fake_generate_case_prompts(_client, _settings, _test_case, _tools):
@@ -1477,6 +1548,156 @@ class ExampleServer:
 
         assert "prompts" not in fixture["tests"][0]
         assert output["tests"][0]["prompts"] == [{"id": "natural", "text": "Show all Flux jobs."}]
+
+    @pytest.mark.asyncio
+    async def test_generate_fixture_existing_source_preserves_existing_prompts_without_client(self):
+        fixture = {
+            "mcp_servers": {"flux": {"url": "http://localhost:8101/mcp"}},
+            "tests": [
+                {
+                    "id": "case",
+                    "server": "flux",
+                    "prompts": [{"id": "direct", "text": "Show all Flux jobs."}],
+                    "expected_call": {"tool": "check_job_status", "arguments": {}, "match": {"mode": "subset"}},
+                }
+            ],
+        }
+        settings = gen_benchmark_fixture.GenerationSettings(
+            model=None,
+            num_prompts=1,
+            styles=[gen_benchmark_fixture.GenerationStyle("natural", "Natural request")],
+            temperature=None,
+            request_timeout=120.0,
+            prompt_source="existing",
+            augment_prompts=False,
+            augment_source="both",
+        )
+
+        output = await gen_benchmark_fixture.generate_fixture(
+            fixture,
+            tools_by_server=None,
+            client=None,
+            settings=settings,
+            quiet=True,
+        )
+
+        assert output["tests"][0]["prompts"] == [{"id": "direct", "text": "Show all Flux jobs."}]
+
+    @pytest.mark.asyncio
+    async def test_generate_fixture_both_sources_prefixes_conflicting_generated_ids(self, monkeypatch):
+        fixture = {
+            "mcp_servers": {"flux": {"url": "http://localhost:8101/mcp"}},
+            "tests": [
+                {
+                    "id": "case",
+                    "server": "flux",
+                    "prompts": [{"id": "natural", "text": "Existing prompt."}],
+                    "expected_call": {"tool": "check_job_status", "arguments": {}, "match": {"mode": "subset"}},
+                }
+            ],
+        }
+        settings = gen_benchmark_fixture.GenerationSettings(
+            model="model",
+            num_prompts=1,
+            styles=[gen_benchmark_fixture.GenerationStyle("natural", "Natural request")],
+            temperature=None,
+            request_timeout=120.0,
+            prompt_source="both",
+            augment_prompts=False,
+            augment_source="both",
+        )
+
+        async def fake_generate_case_prompts(_client, _settings, _test_case, _tools):
+            return [{"id": "natural", "text": "Generated prompt."}]
+
+        monkeypatch.setattr(gen_benchmark_fixture, "generate_case_prompts", fake_generate_case_prompts)
+
+        output = await gen_benchmark_fixture.generate_fixture(
+            fixture,
+            {"flux": [{"type": "function", "function": {"name": "check_job_status"}}]},
+            client=object(),
+            settings=settings,
+            quiet=True,
+        )
+
+        assert output["tests"][0]["prompts"] == [
+            {"id": "natural", "text": "Existing prompt."},
+            {"id": "generated_natural", "text": "Generated prompt."},
+        ]
+
+    @pytest.mark.asyncio
+    async def test_generate_fixture_augment_prompts_calls_noop_hook(self, monkeypatch):
+        calls = []
+        fixture = {
+            "mcp_servers": {"flux": {"url": "http://localhost:8101/mcp"}},
+            "tests": [
+                {
+                    "id": "case",
+                    "server": "flux",
+                    "prompts": [{"id": "direct", "text": "Show all Flux jobs."}],
+                    "expected_call": {"tool": "check_job_status", "arguments": {}, "match": {"mode": "subset"}},
+                }
+            ],
+        }
+        settings = gen_benchmark_fixture.GenerationSettings(
+            model=None,
+            num_prompts=1,
+            styles=[gen_benchmark_fixture.GenerationStyle("natural", "Natural request")],
+            temperature=None,
+            request_timeout=120.0,
+            prompt_source="existing",
+            augment_prompts=True,
+            augment_source="existing",
+        )
+
+        def fake_augment_prompt_text(prompt_text, *, prompt_id, test_case, source, settings):
+            calls.append((prompt_text, prompt_id, test_case["id"], source, settings.prompt_source))
+            return prompt_text
+
+        monkeypatch.setattr(gen_benchmark_fixture, "augment_prompt_text", fake_augment_prompt_text)
+
+        output = await gen_benchmark_fixture.generate_fixture(
+            fixture,
+            tools_by_server=None,
+            client=None,
+            settings=settings,
+            quiet=True,
+        )
+
+        assert output["tests"][0]["prompts"] == [{"id": "direct", "text": "Show all Flux jobs."}]
+        assert calls == [("Show all Flux jobs.", "direct", "case", "existing", "existing")]
+
+    @pytest.mark.asyncio
+    async def test_generate_fixture_existing_source_requires_existing_prompts(self):
+        fixture = {
+            "mcp_servers": {"flux": {"url": "http://localhost:8101/mcp"}},
+            "tests": [
+                {
+                    "id": "case",
+                    "server": "flux",
+                    "expected_call": {"tool": "check_job_status", "arguments": {}, "match": {"mode": "subset"}},
+                }
+            ],
+        }
+        settings = gen_benchmark_fixture.GenerationSettings(
+            model=None,
+            num_prompts=1,
+            styles=[gen_benchmark_fixture.GenerationStyle("natural", "Natural request")],
+            temperature=None,
+            request_timeout=120.0,
+            prompt_source="existing",
+            augment_prompts=False,
+            augment_source="both",
+        )
+
+        with pytest.raises(ValueError, match="must contain prompts"):
+            await gen_benchmark_fixture.generate_fixture(
+                fixture,
+                tools_by_server=None,
+                client=None,
+                settings=settings,
+                quiet=True,
+            )
 
 
 # tool_call_eval_fixtures

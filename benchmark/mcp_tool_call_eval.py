@@ -9,6 +9,7 @@ import copy
 import csv
 import json
 import os
+import re
 import shlex
 import sys
 import time
@@ -252,6 +253,67 @@ def normalize_prompts(test_case: dict[str, Any]) -> list[dict[str, str]]:
             continue
         raise ValueError(f"Invalid prompt in test case {test_case.get('id', '<missing id>')}: {prompt!r}")
     return normalized
+
+
+def prompt_style_id(prompt_id: str) -> str:
+    return re.sub(r"_\d+$", "", prompt_id)
+
+
+def parse_prompt_filter_list(value: str) -> list[str]:
+    values = [item.strip() for item in value.split(",") if item.strip()]
+    if not values:
+        raise argparse.ArgumentTypeError("prompt filter must include at least one value")
+    return values
+
+
+def prompt_selected(
+    prompt_id: str,
+    include_prompt_ids: set[str],
+    include_prompt_styles: set[str],
+    exclude_prompt_ids: set[str],
+    exclude_prompt_styles: set[str],
+) -> bool:
+    style_id = prompt_style_id(prompt_id)
+    if include_prompt_ids or include_prompt_styles:
+        if prompt_id not in include_prompt_ids and style_id not in include_prompt_styles:
+            return False
+    if prompt_id in exclude_prompt_ids or style_id in exclude_prompt_styles:
+        return False
+    return True
+
+
+def filter_fixture_prompts(
+    fixture: dict[str, Any],
+    include_prompt_ids: list[str] | None = None,
+    include_prompt_styles: list[str] | None = None,
+    exclude_prompt_ids: list[str] | None = None,
+    exclude_prompt_styles: list[str] | None = None,
+) -> dict[str, Any]:
+    include_ids = set(include_prompt_ids or [])
+    include_styles = set(include_prompt_styles or [])
+    exclude_ids = set(exclude_prompt_ids or [])
+    exclude_styles = set(exclude_prompt_styles or [])
+    if not any((include_ids, include_styles, exclude_ids, exclude_styles)):
+        return fixture
+
+    filtered = copy.deepcopy(fixture)
+    empty_cases = []
+    for test_case in filtered["tests"]:
+        original_prompts = normalize_prompts(test_case)
+        selected_prompts = [
+            prompt
+            for prompt in original_prompts
+            if prompt_selected(prompt["id"], include_ids, include_styles, exclude_ids, exclude_styles)
+        ]
+        if not selected_prompts:
+            empty_cases.append(f"{test_case['server']}/{test_case['id']}")
+        test_case["prompts"] = selected_prompts
+
+    if empty_cases:
+        preview = ", ".join(empty_cases[:5])
+        suffix = "" if len(empty_cases) <= 5 else f", ... and {len(empty_cases) - 5} more"
+        raise ValueError(f"Prompt filters removed all prompts from case(s): {preview}{suffix}")
+    return filtered
 
 
 parse_num_samples = IntegerArgumentValidator("--num-samples", 1)
@@ -1308,6 +1370,13 @@ async def run(args: argparse.Namespace) -> int:
 
     validate_shard_args(args)
     fixture = load_json(args.cases)
+    fixture = filter_fixture_prompts(
+        fixture,
+        include_prompt_ids=getattr(args, "prompt_ids", None),
+        include_prompt_styles=getattr(args, "prompt_styles", None),
+        exclude_prompt_ids=getattr(args, "exclude_prompt_ids", None),
+        exclude_prompt_styles=getattr(args, "exclude_prompt_styles", None),
+    )
     config = load_config(args.config)
     model_prices = load_model_prices(args.model_prices)
     system_prompt = args.system_prompt or DEFAULT_SYSTEM_PROMPT
@@ -1458,6 +1527,26 @@ def parse_args() -> argparse.Namespace:
         "--min-pass-rate",
         type=float,
         help="Minimum per-case prompt pass rate required for success, e.g. 1.0 or 0.8",
+    )
+    parser.add_argument(
+        "--prompt-ids",
+        type=parse_prompt_filter_list,
+        help="Comma-separated exact prompt IDs to include, e.g. direct,direct_2,natural",
+    )
+    parser.add_argument(
+        "--prompt-styles",
+        type=parse_prompt_filter_list,
+        help="Comma-separated root prompt styles to include, e.g. direct,natural",
+    )
+    parser.add_argument(
+        "--exclude-prompt-ids",
+        type=parse_prompt_filter_list,
+        help="Comma-separated exact prompt IDs to exclude after include filters",
+    )
+    parser.add_argument(
+        "--exclude-prompt-styles",
+        type=parse_prompt_filter_list,
+        help="Comma-separated root prompt styles to exclude after include filters",
     )
     parser.add_argument("--results-csv", type=Path, help="Write per-prompt CSV results")
     parser.add_argument("--results-json", type=Path, help="Write detailed per-prompt JSON results")

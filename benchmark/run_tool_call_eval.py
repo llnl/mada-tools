@@ -21,6 +21,7 @@ from mcp_tool_call_eval import (  # noqa: E402
     exception_messages,
     parse_max_concurrency,
     parse_num_samples,
+    parse_prompt_filter_list,
     parse_shard_count,
     parse_shard_index,
 )
@@ -105,6 +106,16 @@ def optional_string(value: Any, field_name: str) -> str | None:
     if not isinstance(value, str):
         raise ValueError(f"Run config field {field_name!r} must be a string")
     return value
+
+
+def optional_string_list(value: Any, field_name: str) -> list[str] | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, str):
+        return parse_prompt_filter_list(value)
+    if isinstance(value, list) and all(isinstance(item, str) and item for item in value):
+        return value
+    raise ValueError(f"Run config field {field_name!r} must be a string or list of strings")
 
 
 def parse_level(value: str) -> int:
@@ -219,6 +230,13 @@ def build_eval_args(
         else int_config(eval_config.get("shard_index"), 0, parse_shard_index),
         strict=bool_config(eval_config.get("strict"), False),
         min_pass_rate=float_or_none(eval_config.get("min_pass_rate")),
+        prompt_ids=cli_args.prompt_ids or optional_string_list(eval_config.get("prompt_ids"), "eval.prompt_ids"),
+        prompt_styles=cli_args.prompt_styles
+        or optional_string_list(eval_config.get("prompt_styles"), "eval.prompt_styles"),
+        exclude_prompt_ids=cli_args.exclude_prompt_ids
+        or optional_string_list(eval_config.get("exclude_prompt_ids"), "eval.exclude_prompt_ids"),
+        exclude_prompt_styles=cli_args.exclude_prompt_styles
+        or optional_string_list(eval_config.get("exclude_prompt_styles"), "eval.exclude_prompt_styles"),
         results_csv=output_path(output_dir, prefix, "rows.csv", bool_config(output_config.get("results_csv"), True)),
         results_json=output_path(output_dir, prefix, "rows.json", bool_config(output_config.get("results_json"), True)),
         summary_csv=output_path(output_dir, prefix, "summary.csv", bool_config(output_config.get("summary_csv"), True)),
@@ -321,6 +339,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-concurrency", "-c", type=parse_max_concurrency, help="Override max concurrency")
     parser.add_argument("--shard-count", type=parse_shard_count, help="Override shard count")
     parser.add_argument("--shard-index", type=parse_shard_index, help="Override shard index")
+    parser.add_argument(
+        "--prompt-ids",
+        type=parse_prompt_filter_list,
+        help="Comma-separated exact prompt IDs to include",
+    )
+    parser.add_argument(
+        "--prompt-styles",
+        type=parse_prompt_filter_list,
+        help="Comma-separated root prompt styles to include",
+    )
+    parser.add_argument(
+        "--exclude-prompt-ids",
+        type=parse_prompt_filter_list,
+        help="Comma-separated exact prompt IDs to exclude",
+    )
+    parser.add_argument(
+        "--exclude-prompt-styles",
+        type=parse_prompt_filter_list,
+        help="Comma-separated root prompt styles to exclude",
+    )
     parser.add_argument("--output-dir", type=Path, help="Override base output directory")
     parser.add_argument("--no-plots", action="store_true", help="Disable plot generation")
     parser.add_argument("--quiet", action="store_true", help="Suppress live progress output")

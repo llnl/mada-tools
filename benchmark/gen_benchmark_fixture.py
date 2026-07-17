@@ -29,6 +29,8 @@ from mada_tools.shared.config import get_config_value, load_json_object_config  
 
 DEFAULT_BASE_URL = "https://livai-api.llnl.gov/v1"
 DEFAULT_GENERATION_ATTEMPTS = 3
+PROMPT_SOURCES = {"generated", "existing", "both"}
+AUGMENT_SOURCES = {"generated", "existing", "both"}
 DEFAULT_STYLES = [
     {
         "id": "natural",
@@ -67,11 +69,14 @@ class PromptSlot:
 
 @dataclass(frozen=True)
 class GenerationSettings:
-    model: str
+    model: str | None
     num_prompts: int
     styles: list[GenerationStyle]
     temperature: float | None
     request_timeout: float
+    prompt_source: str
+    augment_prompts: bool
+    augment_source: str
 
 
 def positive_int(option_name: str):
@@ -160,6 +165,22 @@ def select_styles(styles: list[GenerationStyle], style_ids: list[str] | None) ->
     return selected
 
 
+def bool_config(value: Any, field_name: str, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    raise ValueError(f"{field_name} must be a boolean")
+
+
+def string_choice(value: Any, field_name: str, choices: set[str], default: str) -> str:
+    if value in (None, ""):
+        return default
+    if isinstance(value, str) and value in choices:
+        return value
+    raise ValueError(f"{field_name} must be one of: {', '.join(sorted(choices))}")
+
+
 def build_generation_settings(
     fixture: dict[str, Any],
     api_config: dict[str, Any],
@@ -172,9 +193,33 @@ def build_generation_settings(
         raise ValueError("Fixture prompt_generation must be an object when provided")
 
     styles = select_styles(parse_styles(prompt_generation.get("styles")), args.styles)
+    prompt_source = string_choice(
+        getattr(args, "prompt_source", None) or prompt_generation.get("prompt_source"),
+        "prompt_generation.prompt_source",
+        PROMPT_SOURCES,
+        "generated",
+    )
+    augment_source = string_choice(
+        getattr(args, "augment_source", None) or prompt_generation.get("augment_source"),
+        "prompt_generation.augment_source",
+        AUGMENT_SOURCES,
+        "both",
+    )
+    augment_arg = getattr(args, "augment_prompts", None)
+    if augment_arg is None:
+        augment_prompts = bool_config(
+            prompt_generation.get("augment_prompts"),
+            "prompt_generation.augment_prompts",
+            False,
+        )
+    else:
+        augment_prompts = augment_arg
+
     model = args.model or prompt_generation.get("model") or get_config_value(api_config, "model", expand_env=False)
-    if not isinstance(model, str) or not model:
+    if prompt_source in {"generated", "both"} and (not isinstance(model, str) or not model):
         raise ValueError("Generation model is required. Provide --model or prompt_generation.model.")
+    if not isinstance(model, str) or not model:
+        model = None
 
     num_prompts = args.num_prompts or prompt_generation.get("num_prompts") or 1
     if not isinstance(num_prompts, int) or num_prompts < 1:
@@ -194,7 +239,18 @@ def build_generation_settings(
         styles=styles,
         temperature=temperature,
         request_timeout=request_timeout,
+        prompt_source=prompt_source,
+        augment_prompts=augment_prompts,
+        augment_source=augment_source,
     )
+
+
+def should_generate_prompts(settings: GenerationSettings) -> bool:
+    return settings.prompt_source in {"generated", "both"}
+
+
+def should_use_existing_prompts(settings: GenerationSettings) -> bool:
+    return settings.prompt_source in {"existing", "both"}
 
 
 def prompt_slots(styles: list[GenerationStyle], num_prompts_per_style: int) -> list[PromptSlot]:
@@ -213,15 +269,16 @@ def prompt_slots_for_style(style: GenerationStyle, num_prompts: int) -> list[Pro
     ]
 
 
-def resolve_api_settings(args: argparse.Namespace) -> tuple[str, str, dict[str, Any]]:
-    api_config = load_json_object_config(args.config)
+def resolve_api_settings(args: argparse.Namespace, api_config: dict[str, Any] | None = None) -> tuple[str, str]:
+    if api_config is None:
+        api_config = load_json_object_config(args.config)
     base_url = args.base_url or get_config_value(api_config, "base_url") or os.getenv("API_BASE_URL", DEFAULT_BASE_URL)
     api_key = args.api_key or get_config_value(api_config, "api_key") or os.getenv("API_KEY")
     if not api_key:
         api_key = "dummy" if base_url.startswith(("http://localhost", "http://127.0.0.1")) else None
     if not api_key:
         raise ValueError("API key is required. Provide --api-key, --config, or set API_KEY.")
-    return api_key, base_url, api_config
+    return api_key, base_url
 
 
 def annotation_to_schema_type(annotation: ast.expr | None) -> str:
@@ -484,12 +541,106 @@ def validate_generated_prompts(payload: dict[str, Any], expected_ids: list[str])
     return sorted(normalized, key=lambda prompt: expected_ids.index(prompt["id"]))
 
 
+def normalize_existing_prompts(test_case: dict[str, Any]) -> list[dict[str, str]]:
+    prompts = test_case.get("prompts")
+    if not isinstance(prompts, list) or not prompts:
+        raise ValueError(
+            f"Test case {test_case.get('id', '<missing id>')} must contain prompts for prompt_source=existing"
+        )
+
+    normalized = []
+    for index, prompt in enumerate(prompts, start=1):
+        if isinstance(prompt, str):
+            normalized.append({"id": f"prompt_{index}", "text": prompt})
+            continue
+        if isinstance(prompt, dict) and isinstance(prompt.get("text"), str):
+            normalized.append({"id": str(prompt.get("id", f"prompt_{index}")), "text": prompt["text"]})
+            continue
+        raise ValueError(f"Invalid existing prompt in test case {test_case.get('id', '<missing id>')}: {prompt!r}")
+    return normalized
+
+
+def augment_prompt_text(
+    prompt_text: str,
+    *,
+    prompt_id: str,
+    test_case: dict[str, Any],
+    source: str,
+    settings: GenerationSettings,
+) -> str:
+    """Future NLPA hook; currently returns prompt text unchanged."""
+    return prompt_text
+
+
+def augment_prompts(
+    prompts: list[dict[str, str]],
+    *,
+    test_case: dict[str, Any],
+    source: str,
+    settings: GenerationSettings,
+) -> list[dict[str, str]]:
+    return [
+        {
+            "id": prompt["id"],
+            "text": augment_prompt_text(
+                prompt["text"],
+                prompt_id=prompt["id"],
+                test_case=test_case,
+                source=source,
+                settings=settings,
+            ),
+        }
+        for prompt in prompts
+    ]
+
+
+def maybe_augment_prompts(
+    prompts: list[dict[str, str]],
+    *,
+    test_case: dict[str, Any],
+    source: str,
+    settings: GenerationSettings,
+) -> list[dict[str, str]]:
+    if not settings.augment_prompts or settings.augment_source not in {source, "both"}:
+        return prompts
+    return augment_prompts(prompts, test_case=test_case, source=source, settings=settings)
+
+
+def unique_prompt_id(prompt_id: str, used_ids: set[str]) -> str:
+    if prompt_id not in used_ids:
+        return prompt_id
+
+    candidate = f"generated_{prompt_id}"
+    if candidate not in used_ids:
+        return candidate
+
+    suffix = 2
+    while f"{candidate}_{suffix}" in used_ids:
+        suffix += 1
+    return f"{candidate}_{suffix}"
+
+
+def merge_prompt_sources(
+    existing_prompts: list[dict[str, str]],
+    generated_prompts: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    merged = copy.deepcopy(existing_prompts)
+    used_ids = {prompt["id"] for prompt in merged}
+    for prompt in generated_prompts:
+        prompt_id = unique_prompt_id(prompt["id"], used_ids)
+        used_ids.add(prompt_id)
+        merged.append({"id": prompt_id, "text": prompt["text"]})
+    return merged
+
+
 async def generate_case_prompts(
     client: Any,
     settings: GenerationSettings,
     test_case: dict[str, Any],
     tools: list[dict[str, Any]],
 ) -> list[dict[str, str]]:
+    if settings.model is None:
+        raise ValueError("Generation model is required when generating prompts")
     expected_slots = prompt_slots(settings.styles, settings.num_prompts)
     prompts = []
     for style in settings.styles:
@@ -555,8 +706,8 @@ async def generate_slot_prompts(
 
 async def generate_fixture(
     fixture: dict[str, Any],
-    tools_by_server: dict[str, list[dict[str, Any]]],
-    client: Any,
+    tools_by_server: dict[str, list[dict[str, Any]]] | None,
+    client: Any | None,
     settings: GenerationSettings,
     quiet: bool = False,
 ) -> dict[str, Any]:
@@ -564,12 +715,33 @@ async def generate_fixture(
     for index, test_case in enumerate(output["tests"], start=1):
         if not quiet:
             print(f"Generating prompts for {test_case['server']}/{test_case['id']} ({index}/{len(output['tests'])})")
-        test_case["prompts"] = await generate_case_prompts(
-            client,
-            settings,
-            test_case,
-            tools_by_server[test_case["server"]],
-        )
+        existing_prompts = []
+        if should_use_existing_prompts(settings):
+            existing_prompts = maybe_augment_prompts(
+                normalize_existing_prompts(test_case),
+                test_case=test_case,
+                source="existing",
+                settings=settings,
+            )
+
+        generated_prompts = []
+        if should_generate_prompts(settings):
+            if client is None or tools_by_server is None:
+                raise ValueError("Client and MCP tool schemas are required when generating prompts")
+            generated_prompts = await generate_case_prompts(
+                client,
+                settings,
+                test_case,
+                tools_by_server[test_case["server"]],
+            )
+            generated_prompts = maybe_augment_prompts(
+                generated_prompts,
+                test_case=test_case,
+                source="generated",
+                settings=settings,
+            )
+
+        test_case["prompts"] = merge_prompt_sources(existing_prompts, generated_prompts)
     return output
 
 
@@ -599,6 +771,22 @@ def parse_args() -> argparse.Namespace:
         type=parse_style_ids,
         help="Comma-separated style ids from prompt_generation.styles",
     )
+    parser.add_argument(
+        "--prompt-source",
+        choices=sorted(PROMPT_SOURCES),
+        help="Use generated prompts, existing fixture prompts, or both",
+    )
+    parser.add_argument(
+        "--augment-prompts",
+        action="store_true",
+        default=None,
+        help="Pass selected prompts through the no-op NLPA augmentation hook",
+    )
+    parser.add_argument(
+        "--augment-source",
+        choices=sorted(AUGMENT_SOURCES),
+        help="Prompt source to augment when --augment-prompts is set",
+    )
     parser.add_argument("--temperature", type=float, help="Optional generation temperature")
     parser.add_argument("--request-timeout", type=float, help="LLM request timeout in seconds")
     parser.add_argument(
@@ -612,13 +800,19 @@ def parse_args() -> argparse.Namespace:
 
 
 async def run(args: argparse.Namespace) -> int:
-    from openai import AsyncOpenAI
-
     fixture = load_input_fixture(args.cases)
-    api_key, base_url, api_config = resolve_api_settings(args)
+    api_config = load_json_object_config(args.config)
     settings = build_generation_settings(fixture, api_config, args)
-    tools_by_server = await discover_tools(fixture, args.server_source, args.quiet)
-    client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=settings.request_timeout)
+
+    tools_by_server = None
+    client = None
+    if should_generate_prompts(settings):
+        from openai import AsyncOpenAI
+
+        api_key, base_url = resolve_api_settings(args, api_config)
+        tools_by_server = await discover_tools(fixture, args.server_source, args.quiet)
+        client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=settings.request_timeout)
+
     output = await generate_fixture(fixture, tools_by_server, client, settings, args.quiet)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)

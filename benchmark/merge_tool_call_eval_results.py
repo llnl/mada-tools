@@ -13,8 +13,10 @@ from mcp_tool_call_eval import (
     ROW_FIELDS,
     build_work_items,
     exception_messages,
+    filter_fixture_prompts,
     load_json,
     parse_num_samples,
+    parse_prompt_filter_list,
     print_rows,
     progress,
     summarize,
@@ -153,6 +155,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--merged-results-json", type=Path, help="Write merged detailed JSON results")
     parser.add_argument("--merged-summary-csv", type=Path, help="Write merged per-case summary CSV")
     parser.add_argument("--merged-summary-json", type=Path, help="Write merged per-case summary JSON")
+    parser.add_argument(
+        "--prompt-ids",
+        type=parse_prompt_filter_list,
+        help="Comma-separated exact prompt IDs to include",
+    )
+    parser.add_argument(
+        "--prompt-styles",
+        type=parse_prompt_filter_list,
+        help="Comma-separated root prompt styles to include",
+    )
+    parser.add_argument(
+        "--exclude-prompt-ids",
+        type=parse_prompt_filter_list,
+        help="Comma-separated exact prompt IDs to exclude",
+    )
+    parser.add_argument(
+        "--exclude-prompt-styles",
+        type=parse_prompt_filter_list,
+        help="Comma-separated root prompt styles to exclude",
+    )
     parser.add_argument("--quiet", action="store_true", help="Suppress progress output")
     parser.add_argument("--no-final-table", action="store_true", help="Skip final console result tables")
     return parser.parse_args()
@@ -236,6 +258,13 @@ def ensure_complete(
 def run(args: argparse.Namespace) -> int:
     validate_args(args)
     fixture = load_json(args.cases)
+    fixture = filter_fixture_prompts(
+        fixture,
+        include_prompt_ids=getattr(args, "prompt_ids", None),
+        include_prompt_styles=getattr(args, "prompt_styles", None),
+        exclude_prompt_ids=getattr(args, "exclude_prompt_ids", None),
+        exclude_prompt_styles=getattr(args, "exclude_prompt_styles", None),
+    )
     models = args.models if args.models is not None else load_models_file(args.models_file)
     input_paths = args.rows_json if args.rows_json is not None else args.rows_csv
     input_mode = "json" if args.rows_json is not None else "csv"
