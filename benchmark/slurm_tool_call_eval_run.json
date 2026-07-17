@@ -20,5 +20,11 @@
     "shard_count": 1,
     "shard_index": 0,
     "strict": false
+  },
+  "server_management": {
+    "enabled": true,
+    "config": "../configs/development.json",
+    "randomize_ports": true,
+    "stop_on_exit": true
   }
 }

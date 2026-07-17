@@ -1,6 +1,6 @@
 {
   "name": "flux",
-  "cases": "flux_tool_call_eval_cases.generated4.json",
+  "cases": "flux_tool_call_eval_cases.generated.json",
   "models_file": "eval_models.tsv",
   "level": 0,
   "output": {
@@ -20,5 +20,11 @@
     "shard_count": 1,
     "shard_index": 0,
     "strict": false
+  },
+  "server_management": {
+    "enabled": true,
+    "config": "../configs/development.json",
+    "randomize_ports": true,
+    "stop_on_exit": true
   }
 }

@@ -507,7 +507,7 @@ def parse_args() -> argparse.Namespace:
         "--summary",
         required=True,
         type=Path,
-        help="Input summary CSV or JSON from mcp_tool_call_eval.py",
+        help="Input summary CSV or JSON from run_tool_call_eval.py",
     )
     parser.add_argument(
         "--score-output",

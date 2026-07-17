@@ -27,7 +27,6 @@ def load_benchmark_module(module_name: str, filename: str):
 
 eval_io = load_benchmark_module("eval_io", "eval_io.py")
 populate_eval_models = load_benchmark_module("populate_eval_models", "populate_eval_models.py")
-mcp_tool_call_eval = load_benchmark_module("mcp_tool_call_eval", "mcp_tool_call_eval.py")
 plot_tool_call_eval_results = load_benchmark_module("plot_tool_call_eval_results", "plot_tool_call_eval_results.py")
 run_tool_call_eval = load_benchmark_module("run_tool_call_eval", "run_tool_call_eval.py")
 merge_tool_call_eval_results = load_benchmark_module("merge_tool_call_eval_results", "merge_tool_call_eval_results.py")
@@ -167,11 +166,11 @@ class TestPopulateEvalModels:
         assert "0\tmodel-b\n" in contents
 
 
-# mcp_tool_call_eval
+# run_tool_call_eval evaluator
 
 
 def tool_result(arguments: dict[str, Any], tool_name: str = "generate_parameter_runs"):
-    return mcp_tool_call_eval.ToolCallResult(
+    return run_tool_call_eval.ToolCallResult(
         tool_name=tool_name,
         tool_arguments=arguments,
         tool_arguments_raw=None,
@@ -213,10 +212,10 @@ class TestMcpToolCallEval:
     @pytest.mark.parametrize(
         ("parser", "value", "expected"),
         [
-            (mcp_tool_call_eval.parse_num_samples, "1", 1),
-            (mcp_tool_call_eval.parse_max_concurrency, "2", 2),
-            (mcp_tool_call_eval.parse_shard_count, "3", 3),
-            (mcp_tool_call_eval.parse_shard_index, "0", 0),
+            (run_tool_call_eval.parse_num_samples, "1", 1),
+            (run_tool_call_eval.parse_max_concurrency, "2", 2),
+            (run_tool_call_eval.parse_shard_count, "3", 3),
+            (run_tool_call_eval.parse_shard_index, "0", 0),
         ],
     )
     def test_integer_argument_validators_accept_valid_values(self, parser, value, expected):
@@ -225,10 +224,10 @@ class TestMcpToolCallEval:
     @pytest.mark.parametrize(
         ("parser", "value", "message"),
         [
-            (mcp_tool_call_eval.parse_num_samples, "0", "--num-samples must be at least 1"),
-            (mcp_tool_call_eval.parse_max_concurrency, "0", "--max-concurrency must be at least 1"),
-            (mcp_tool_call_eval.parse_shard_count, "0", "--shard-count must be at least 1"),
-            (mcp_tool_call_eval.parse_shard_index, "-1", "--shard-index must be at least 0"),
+            (run_tool_call_eval.parse_num_samples, "0", "--num-samples must be at least 1"),
+            (run_tool_call_eval.parse_max_concurrency, "0", "--max-concurrency must be at least 1"),
+            (run_tool_call_eval.parse_shard_count, "0", "--shard-count must be at least 1"),
+            (run_tool_call_eval.parse_shard_index, "-1", "--shard-index must be at least 0"),
         ],
     )
     def test_integer_argument_validators_reject_values_below_minimum(self, parser, value, message):
@@ -237,51 +236,7 @@ class TestMcpToolCallEval:
 
     def test_integer_argument_validator_rejects_non_integer_values(self):
         with pytest.raises(argparse.ArgumentTypeError, match="--num-samples must be an integer"):
-            mcp_tool_call_eval.parse_num_samples("not-an-int")
-
-    def test_parse_args_loads_default_models_from_level_file(self, tmp_path: Path, monkeypatch):
-        models_file = tmp_path / "models.tsv"
-        models_file.write_text("0 model-zero\n1 model-one\n", encoding="utf-8")
-        monkeypatch.setattr(
-            sys,
-            "argv",
-            [
-                "mcp_tool_call_eval.py",
-                "--cases",
-                "cases.json",
-                "--models-file",
-                str(models_file),
-                "--level",
-                "1",
-            ],
-        )
-
-        args = mcp_tool_call_eval.parse_args()
-
-        assert args.models == ["model-zero", "model-one"]
-
-    def test_parse_args_explicit_models_bypass_level_file(self, tmp_path: Path, monkeypatch):
-        models_file = tmp_path / "models.tsv"
-        models_file.write_text("0 model-zero\n", encoding="utf-8")
-        monkeypatch.setattr(
-            sys,
-            "argv",
-            [
-                "mcp_tool_call_eval.py",
-                "--cases",
-                "cases.json",
-                "--models",
-                "model-explicit",
-                "--models-file",
-                str(models_file),
-                "--level",
-                "0",
-            ],
-        )
-
-        args = mcp_tool_call_eval.parse_args()
-
-        assert args.models == ["model-explicit"]
+            run_tool_call_eval.parse_num_samples("not-an-int")
 
     @pytest.mark.parametrize(
         ("mutator", "message"),
@@ -298,7 +253,7 @@ class TestMcpToolCallEval:
         mutator(case)
 
         with pytest.raises(ValueError, match=message):
-            mcp_tool_call_eval.validate_fixture(fixture_with(case))
+            run_tool_call_eval.validate_fixture(fixture_with(case))
 
     def test_load_json_rejects_legacy_expected_tool_schema(self, tmp_path: Path):
         path = tmp_path / "legacy.json"
@@ -321,7 +276,7 @@ class TestMcpToolCallEval:
         )
 
         with pytest.raises(ValueError, match="expected_call object"):
-            mcp_tool_call_eval.load_json(path)
+            run_tool_call_eval.load_json(path)
 
     def test_filter_fixture_prompts_includes_root_styles(self):
         case = make_test_case({})
@@ -333,7 +288,7 @@ class TestMcpToolCallEval:
         ]
         fixture = fixture_with(case)
 
-        filtered = mcp_tool_call_eval.filter_fixture_prompts(fixture, include_prompt_styles=["direct", "natural"])
+        filtered = run_tool_call_eval.filter_fixture_prompts(fixture, include_prompt_styles=["direct", "natural"])
 
         assert [prompt["id"] for prompt in filtered["tests"][0]["prompts"]] == ["direct", "direct_2", "natural"]
         assert [prompt["id"] for prompt in fixture["tests"][0]["prompts"]] == [
@@ -352,7 +307,7 @@ class TestMcpToolCallEval:
         ]
         fixture = fixture_with(case)
 
-        filtered = mcp_tool_call_eval.filter_fixture_prompts(
+        filtered = run_tool_call_eval.filter_fixture_prompts(
             fixture,
             include_prompt_ids=["direct", "direct_2", "natural"],
             exclude_prompt_styles=["direct"],
@@ -365,10 +320,10 @@ class TestMcpToolCallEval:
         case["prompts"] = [{"id": "direct", "text": "direct"}]
 
         with pytest.raises(ValueError, match="removed all prompts"):
-            mcp_tool_call_eval.filter_fixture_prompts(fixture_with(case), include_prompt_styles=["natural"])
+            run_tool_call_eval.filter_fixture_prompts(fixture_with(case), include_prompt_styles=["natural"])
 
     def test_exception_messages_formats_plain_exception(self):
-        assert mcp_tool_call_eval.exception_messages(ValueError("bad value")) == ["ValueError: bad value"]
+        assert run_tool_call_eval.exception_messages(ValueError("bad value")) == ["ValueError: bad value"]
 
     def test_exception_messages_flattens_exception_group_shape(self):
         class FakeExceptionGroup(Exception):
@@ -383,7 +338,7 @@ class TestMcpToolCallEval:
             )
         )
 
-        assert mcp_tool_call_eval.exception_messages(error) == [
+        assert run_tool_call_eval.exception_messages(error) == [
             "ValueError: bad value",
             "RuntimeError: runtime failed",
         ]
@@ -405,7 +360,7 @@ class TestMcpToolCallEval:
             encoding="utf-8",
         )
 
-        prices = mcp_tool_call_eval.load_model_prices(prices_path)
+        prices = run_tool_call_eval.load_model_prices(prices_path)
 
         assert set(prices) == {"gpt-test"}
         assert prices["gpt-test"].input_cost_per_token == 0.001
@@ -414,7 +369,7 @@ class TestMcpToolCallEval:
     def test_build_row_adds_actual_cost_fields(self):
         case = make_test_case({"command": "hostname"}, tool="submit_job", profile=None)
         prompt = {"id": "direct", "text": "test"}
-        result = mcp_tool_call_eval.ToolCallResult(
+        result = run_tool_call_eval.ToolCallResult(
             tool_name="submit_job",
             tool_arguments={"command": "hostname"},
             tool_arguments_raw=None,
@@ -425,9 +380,9 @@ class TestMcpToolCallEval:
             usage={"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
             latency_ms=15,
         )
-        prices = {"gpt-test": mcp_tool_call_eval.ModelPricing(0.001, 0.002)}
+        prices = {"gpt-test": run_tool_call_eval.ModelPricing(0.001, 0.002)}
 
-        row = mcp_tool_call_eval.build_row("gpt-test", case, prompt, 1, result, True, None, None, prices)
+        row = run_tool_call_eval.build_row("gpt-test", case, prompt, 1, result, True, None, None, prices)
 
         assert row["input_token_price_usd"] == 0.001
         assert row["output_token_price_usd"] == 0.002
@@ -438,7 +393,7 @@ class TestMcpToolCallEval:
     def test_build_row_leaves_costs_empty_without_tokens_or_price(self):
         case = make_test_case({"command": "hostname"}, tool="submit_job", profile=None)
         prompt = {"id": "direct", "text": "test"}
-        result = mcp_tool_call_eval.ToolCallResult(
+        result = run_tool_call_eval.ToolCallResult(
             tool_name="submit_job",
             tool_arguments={"command": "hostname"},
             tool_arguments_raw=None,
@@ -450,7 +405,7 @@ class TestMcpToolCallEval:
             latency_ms=15,
         )
 
-        row = mcp_tool_call_eval.build_row("unknown", case, prompt, 1, result, True, None, None, {})
+        row = run_tool_call_eval.build_row("unknown", case, prompt, 1, result, True, None, None, {})
 
         assert row["input_token_price_usd"] is None
         assert row["output_token_price_usd"] is None
@@ -494,7 +449,7 @@ class TestMcpToolCallEval:
             },
         ]
 
-        summary = mcp_tool_call_eval.summarize(fixture, rows, num_samples=2)[0]
+        summary = run_tool_call_eval.summarize(fixture, rows, num_samples=2)[0]
 
         assert summary["total_prompt_tokens"] == 210
         assert summary["total_completion_tokens"] == 45
@@ -507,13 +462,13 @@ class TestMcpToolCallEval:
         case = make_test_case({"command": "hostname"}, tool="submit_job", profile=None)
         result = tool_result({"command": "hostname", "nodes": 1}, tool_name="submit_job")
 
-        assert mcp_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
+        assert run_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
 
     def test_evaluate_result_rejects_generic_exact_extra_arguments(self):
         case = make_test_case({"command": "hostname"}, tool="submit_job", mode="exact", profile=None)
         result = tool_result({"command": "hostname", "nodes": 1}, tool_name="submit_job")
 
-        passed, error_type, _error = mcp_tool_call_eval.evaluate_result(case, result, strict=False)
+        passed, error_type, _error = run_tool_call_eval.evaluate_result(case, result, strict=False)
 
         assert not passed
         assert error_type == "arg_mismatch"
@@ -522,7 +477,7 @@ class TestMcpToolCallEval:
         case = make_test_case({"command": "hostname"}, tool="submit_job", mode="subset", profile=None)
         result = tool_result({"command": "hostname", "nodes": 1}, tool_name="submit_job")
 
-        passed, error_type, _error = mcp_tool_call_eval.evaluate_result(case, result, strict=True)
+        passed, error_type, _error = run_tool_call_eval.evaluate_result(case, result, strict=True)
 
         assert not passed
         assert error_type == "arg_mismatch"
@@ -531,13 +486,13 @@ class TestMcpToolCallEval:
         case = make_test_case({}, tool="clear_model", profile=None)
         result = tool_result({}, tool_name="clear_model")
 
-        assert mcp_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
+        assert run_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
 
     def test_evaluate_result_rejects_wrong_tool(self):
         case = make_test_case({}, tool="clear_model", profile=None)
         result = tool_result({}, tool_name="start_cubit")
 
-        passed, error_type, error = mcp_tool_call_eval.evaluate_result(case, result, strict=False)
+        passed, error_type, error = run_tool_call_eval.evaluate_result(case, result, strict=False)
 
         assert not passed
         assert error_type == "wrong_tool"
@@ -559,7 +514,7 @@ class TestMcpToolCallEval:
             }
         )
 
-        assert mcp_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
+        assert run_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
 
     def test_evaluate_result_accepts_zip_group_identifier_aliases_with_parameter_runs_profile(self):
         case = make_test_case(
@@ -581,7 +536,7 @@ class TestMcpToolCallEval:
             }
         )
 
-        assert mcp_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
+        assert run_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
 
     def test_evaluate_result_rejects_collapsed_zip_groups_with_parameter_runs_profile(self):
         case = make_test_case(
@@ -601,7 +556,7 @@ class TestMcpToolCallEval:
             }
         )
 
-        passed, error_type, _error = mcp_tool_call_eval.evaluate_result(case, result, strict=False)
+        passed, error_type, _error = run_tool_call_eval.evaluate_result(case, result, strict=False)
 
         assert not passed
         assert error_type == "arg_mismatch"
@@ -624,7 +579,7 @@ class TestMcpToolCallEval:
             }
         )
 
-        assert mcp_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
+        assert run_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
 
     def test_evaluate_result_rejects_executable_alias_without_profile(self):
         case = make_test_case(
@@ -643,7 +598,7 @@ class TestMcpToolCallEval:
             }
         )
 
-        passed, error_type, _error = mcp_tool_call_eval.evaluate_result(case, result, strict=False)
+        passed, error_type, _error = run_tool_call_eval.evaluate_result(case, result, strict=False)
 
         assert not passed
         assert error_type == "arg_mismatch"
@@ -661,7 +616,7 @@ class TestMcpToolCallEval:
             }
         )
 
-        assert mcp_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
+        assert run_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
 
     def test_evaluate_result_accepts_deck_file_path_with_null_entrypoint_with_profile(self):
         case = make_test_case(
@@ -677,7 +632,7 @@ class TestMcpToolCallEval:
             }
         )
 
-        assert mcp_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
+        assert run_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
 
     def test_evaluate_result_accepts_deck_file_path_with_matching_entrypoint_with_profile(self):
         case = make_test_case(
@@ -693,7 +648,7 @@ class TestMcpToolCallEval:
             }
         )
 
-        assert mcp_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
+        assert run_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
 
     def test_evaluate_result_rejects_deck_file_path_with_conflicting_entrypoint_with_profile(self):
         case = make_test_case(
@@ -709,7 +664,7 @@ class TestMcpToolCallEval:
             }
         )
 
-        passed, error_type, _error = mcp_tool_call_eval.evaluate_result(case, result, strict=False)
+        passed, error_type, _error = run_tool_call_eval.evaluate_result(case, result, strict=False)
 
         assert not passed
         assert error_type == "arg_mismatch"
@@ -731,7 +686,7 @@ class TestMcpToolCallEval:
             }
         )
 
-        assert mcp_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
+        assert run_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
 
     def test_evaluate_result_accepts_same_key_cli_expected_string_actual_tokens_with_profile(self):
         case = make_test_case(
@@ -749,7 +704,7 @@ class TestMcpToolCallEval:
             }
         )
 
-        assert mcp_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
+        assert run_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
 
     def test_evaluate_result_accepts_same_key_cli_expected_tokens_actual_string_with_profile(self):
         case = make_test_case(
@@ -767,7 +722,7 @@ class TestMcpToolCallEval:
             }
         )
 
-        assert mcp_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
+        assert run_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
 
     def test_evaluate_result_accepts_combined_cli_parameter_with_parameter_runs_profile(self):
         case = make_test_case(
@@ -786,7 +741,7 @@ class TestMcpToolCallEval:
             }
         )
 
-        assert mcp_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
+        assert run_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
 
     def test_evaluate_result_accepts_combined_cli_string_parameter_with_parameter_runs_profile(self):
         case = make_test_case(
@@ -805,7 +760,7 @@ class TestMcpToolCallEval:
             }
         )
 
-        assert mcp_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
+        assert run_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
 
     def test_evaluate_result_rejects_missing_cli_tokens_with_parameter_runs_profile(self):
         case = make_test_case(
@@ -823,7 +778,7 @@ class TestMcpToolCallEval:
             }
         )
 
-        passed, error_type, _error = mcp_tool_call_eval.evaluate_result(case, result, strict=False)
+        passed, error_type, _error = run_tool_call_eval.evaluate_result(case, result, strict=False)
 
         assert not passed
         assert error_type == "arg_mismatch"
@@ -844,7 +799,7 @@ class TestMcpToolCallEval:
             }
         )
 
-        passed, error_type, _error = mcp_tool_call_eval.evaluate_result(case, result, strict=False)
+        passed, error_type, _error = run_tool_call_eval.evaluate_result(case, result, strict=False)
 
         assert not passed
         assert error_type == "arg_mismatch"
@@ -866,7 +821,7 @@ class TestMcpToolCallEval:
             }
         )
 
-        passed, error_type, _error = mcp_tool_call_eval.evaluate_result(case, result, strict=True)
+        passed, error_type, _error = run_tool_call_eval.evaluate_result(case, result, strict=True)
 
         assert not passed
         assert error_type == "arg_mismatch"
@@ -887,7 +842,7 @@ class TestMcpToolCallEval:
             }
         )
 
-        assert mcp_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
+        assert run_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
 
     def test_evaluate_result_accepts_json_string_values_with_profile(self):
         case = make_test_case(
@@ -907,7 +862,7 @@ class TestMcpToolCallEval:
             }
         )
 
-        assert mcp_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
+        assert run_tool_call_eval.evaluate_result(case, result, strict=False) == (True, None, None)
 
     def test_evaluate_result_rejects_json_string_non_list_values_with_profile(self):
         case = make_test_case(
@@ -925,7 +880,7 @@ class TestMcpToolCallEval:
             }
         )
 
-        passed, error_type, _error = mcp_tool_call_eval.evaluate_result(case, result, strict=False)
+        passed, error_type, _error = run_tool_call_eval.evaluate_result(case, result, strict=False)
 
         assert not passed
         assert error_type == "arg_mismatch"
@@ -936,6 +891,7 @@ class TestMcpToolCallEval:
 
 def cli_overrides(**overrides):
     defaults = {
+        "models": None,
         "models_file": None,
         "level": None,
         "num_samples": None,
@@ -948,6 +904,7 @@ def cli_overrides(**overrides):
         "exclude_prompt_styles": None,
         "output_dir": None,
         "no_plots": False,
+        "no_manage_servers": False,
         "quiet": False,
     }
     defaults.update(overrides)
@@ -1092,11 +1049,261 @@ class TestRunToolCallEval:
 
         assert run_tool_call_eval.models_from_config(config, tmp_path, override_models_file, level=0) == ["model-zero"]
 
+    def test_models_from_config_cli_models_override_everything(self, tmp_path: Path):
+        override_models_file = tmp_path / "override.tsv"
+        override_models_file.write_text("0 model-zero\n", encoding="utf-8")
+        config = {"models": ["model-config"]}
+
+        assert run_tool_call_eval.models_from_config(
+            config,
+            tmp_path,
+            override_models_file,
+            models_override=["model-cli"],
+            level=0,
+        ) == ["model-cli"]
+
     def test_level_from_config_defaults_to_zero(self):
         assert run_tool_call_eval.level_from_config({}, cli_overrides()) == 0
 
     def test_level_from_config_cli_overrides_config(self):
         assert run_tool_call_eval.level_from_config({"level": 1}, cli_overrides(level=2)) == 2
+
+    def test_server_management_settings_resolves_enabled_config(self, tmp_path: Path):
+        server_config = tmp_path / "servers.json"
+        server_config.write_text('{"servers": {"flux": {"port": 8101}}}', encoding="utf-8")
+        config = {
+            "server_management": {
+                "enabled": True,
+                "config": "servers.json",
+                "randomize_ports": False,
+                "stop_on_exit": False,
+            }
+        }
+
+        settings = run_tool_call_eval.server_management_settings(config, tmp_path, cli_overrides())
+
+        assert settings.enabled is True
+        assert settings.config_path == server_config.resolve()
+        assert settings.randomize_ports is False
+        assert settings.stop_on_exit is False
+
+    def test_server_management_settings_can_be_disabled_by_cli(self, tmp_path: Path):
+        config = {"server_management": {"enabled": True, "config": "servers.json"}}
+
+        settings = run_tool_call_eval.server_management_settings(
+            config,
+            tmp_path,
+            cli_overrides(no_manage_servers=True),
+        )
+
+        assert settings.enabled is False
+
+    def test_effective_mcp_fixture_builds_urls_for_multiple_required_servers(self):
+        fixture = {
+            "tests": [
+                {
+                    "id": "generate",
+                    "server": "vertex_cfd",
+                    "prompts": [{"id": "direct", "text": "generate"}],
+                    "expected_call": {"tool": "generate_parameter_runs", "arguments": {}},
+                },
+                {
+                    "id": "submit",
+                    "server": "flux",
+                    "prompts": [{"id": "direct", "text": "submit"}],
+                    "expected_call": {"tool": "submit_jobs", "arguments": {}},
+                },
+            ]
+        }
+        servers_data = {
+            "servers": {
+                "vertex_cfd": {"host": "127.0.0.1", "port": 9107, "transport": "streamable-http"},
+                "flux": {"host": "localhost", "port": 9101, "transport": "streamable-http"},
+            }
+        }
+
+        effective = run_tool_call_eval.effective_mcp_fixture(
+            fixture,
+            servers_data,
+            ["vertex_cfd", "flux"],
+            {"vertex_cfd": 9107, "flux": 9101},
+        )
+
+        assert effective["mcp_servers"]["vertex_cfd"]["url"] == "http://127.0.0.1:9107/mcp"
+        assert effective["mcp_servers"]["flux"]["url"] == "http://localhost:9101/mcp"
+        assert effective["tests"] == fixture["tests"]
+
+    @pytest.mark.asyncio
+    async def test_run_starts_required_managed_servers_and_stops_them(self, tmp_path: Path, monkeypatch):
+        config_path = tmp_path / "run.json"
+        cases_path = tmp_path / "cases.json"
+        server_config_path = tmp_path / "servers.json"
+        cases_path.write_text(
+            json.dumps(
+                {
+                    "tests": [
+                        {
+                            "id": "generate",
+                            "server": "vertex_cfd",
+                            "prompts": [{"id": "direct", "text": "generate"}],
+                            "expected_call": {"tool": "generate_parameter_runs", "arguments": {}},
+                        },
+                        {
+                            "id": "submit",
+                            "server": "flux",
+                            "prompts": [{"id": "direct", "text": "submit"}],
+                            "expected_call": {"tool": "submit_jobs", "arguments": {}},
+                        },
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        server_config_path.write_text(
+            json.dumps(
+                {
+                    "servers": {
+                        "vertex_cfd": {"host": "localhost", "port": 8107},
+                        "flux": {"host": "localhost", "port": 8101},
+                        "slurm": {"host": "localhost", "port": 8102},
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        config_path.write_text(
+            json.dumps(
+                {
+                    "name": "managed",
+                    "cases": "cases.json",
+                    "models": ["model-a"],
+                    "server_management": {
+                        "enabled": True,
+                        "config": "servers.json",
+                        "randomize_ports": False,
+                    },
+                    "output": {
+                        "directory": "results",
+                        "timestamped": False,
+                        "plots": False,
+                        "report": False,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        events = []
+
+        class FakeServerManager:
+            def __init__(self, state_file=None):
+                self.state_file = state_file
+
+            def start_servers(self, config_file, server_names=None):
+                events.append(("start", Path(config_file), list(server_names)))
+
+            def stop_servers(self):
+                events.append(("stop",))
+
+        async def fake_run_evaluator(eval_args):
+            events.append(("eval", eval_args.cases))
+            fixture = json.loads(eval_args.cases.read_text(encoding="utf-8"))
+            assert fixture["mcp_servers"]["vertex_cfd"]["url"] == "http://localhost:8107/mcp"
+            assert fixture["mcp_servers"]["flux"]["url"] == "http://localhost:8101/mcp"
+            return 0
+
+        monkeypatch.setattr(run_tool_call_eval, "ServerManager", FakeServerManager)
+        monkeypatch.setattr(run_tool_call_eval, "run_evaluator", fake_run_evaluator)
+
+        status = await run_tool_call_eval.run(cli_overrides(run_config=config_path))
+
+        assert status == 0
+        assert events[0][0] == "start"
+        assert events[0][2] == ["vertex_cfd", "flux"]
+        assert events[1][0] == "eval"
+        assert events[2] == ("stop",)
+
+    @pytest.mark.asyncio
+    async def test_run_stops_managed_servers_when_evaluator_fails(self, tmp_path: Path, monkeypatch):
+        config_path = tmp_path / "run.json"
+        cases_path = tmp_path / "cases.json"
+        server_config_path = tmp_path / "servers.json"
+        cases_path.write_text(
+            json.dumps(
+                {
+                    "tests": [
+                        {
+                            "id": "status",
+                            "server": "flux",
+                            "prompts": [{"id": "direct", "text": "status"}],
+                            "expected_call": {"tool": "check_job_status", "arguments": {}},
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        server_config_path.write_text('{"servers": {"flux": {"host": "localhost", "port": 8101}}}', encoding="utf-8")
+        config_path.write_text(
+            json.dumps(
+                {
+                    "cases": "cases.json",
+                    "models": ["model-a"],
+                    "server_management": {"enabled": True, "config": "servers.json", "randomize_ports": False},
+                    "output": {"directory": "results", "timestamped": False, "plots": False, "report": False},
+                }
+            ),
+            encoding="utf-8",
+        )
+        events = []
+
+        class FakeServerManager:
+            def __init__(self, state_file=None):
+                pass
+
+            def start_servers(self, config_file, server_names=None):
+                events.append(("start", list(server_names)))
+
+            def stop_servers(self):
+                events.append(("stop",))
+
+        async def fake_run_evaluator(_eval_args):
+            raise RuntimeError("eval failed")
+
+        monkeypatch.setattr(run_tool_call_eval, "ServerManager", FakeServerManager)
+        monkeypatch.setattr(run_tool_call_eval, "run_evaluator", fake_run_evaluator)
+
+        with pytest.raises(RuntimeError, match="eval failed"):
+            await run_tool_call_eval.run(cli_overrides(run_config=config_path))
+
+        assert events == [("start", ["flux"]), ("stop",)]
+
+    @pytest.mark.asyncio
+    async def test_run_without_server_management_uses_original_cases_path(self, tmp_path: Path, monkeypatch):
+        config_path = tmp_path / "run.json"
+        cases_path = tmp_path / "cases.json"
+        cases_path.write_text("{}", encoding="utf-8")
+        config_path.write_text(
+            json.dumps(
+                {
+                    "cases": "cases.json",
+                    "models": ["model-a"],
+                    "output": {"directory": "results", "timestamped": False, "plots": False, "report": False},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        async def fake_run_evaluator(eval_args):
+            assert eval_args.cases == cases_path.resolve()
+            return 0
+
+        def fail_server_manager(*args, **kwargs):
+            raise AssertionError("ServerManager should not be constructed")
+
+        monkeypatch.setattr(run_tool_call_eval, "run_evaluator", fake_run_evaluator)
+        monkeypatch.setattr(run_tool_call_eval, "ServerManager", fail_server_manager)
+
+        assert await run_tool_call_eval.run(cli_overrides(run_config=config_path)) == 0
 
     def test_missing_cost_annotations_marks_models_with_no_cost_data(self):
         rows = [
@@ -2554,7 +2761,7 @@ class TestToolCallEvalFixtures:
         ],
     )
     def test_tool_call_eval_fixture_schema(self, fixture_name: str):
-        fixture = mcp_tool_call_eval.load_json(BENCHMARK_DIR / fixture_name)
+        fixture = run_tool_call_eval.load_json(BENCHMARK_DIR / fixture_name)
 
         assert fixture["mcp_servers"]
         assert fixture["tests"]

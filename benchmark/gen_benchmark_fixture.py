@@ -23,7 +23,7 @@ if str(SCRIPT_DIR) not in sys.path:
 if str(REPO_SRC) not in sys.path:
     sys.path.insert(0, str(REPO_SRC))
 
-from mcp_tool_call_eval import connect_server, exception_messages, expected_call_from_test_case  # noqa: E402
+from run_tool_call_eval import connect_server, exception_messages, expected_call_from_test_case  # noqa: E402
 
 from mada_tools.shared.config import get_config_value, load_json_object_config  # noqa: E402
 

@@ -5,8 +5,7 @@ calling:
 
 - `gen_benchmark_fixture.py`: generates prompt variants for expected tool calls.
 - `gen_benchmark_report.py`: writes Markdown fixture and run reports.
-- `mcp_tool_call_eval.py`: runs the low-level MCP tool-call evaluation.
-- `run_tool_call_eval.py`: runs an evaluation from a JSON run config, plots results, and writes a run report.
+- `run_tool_call_eval.py`: runs evaluation from a JSON run config, can start MCP servers, plots results, and writes a run report.
 - `merge_tool_call_eval_results.py`: merges sharded evaluator row outputs.
 - `plot_tool_call_eval_results.py`: plots summary CSV/JSON files.
 - `populate_eval_models.py`: refreshes model-list files from an OpenAI-compatible `/models` endpoint.
@@ -21,7 +20,7 @@ selected MCP tool.
 
 Benchmark fixtures are JSON objects with:
 
-- `mcp_servers`: named MCP server connection definitions.
+- `mcp_servers`: named MCP server connection definitions. Required only when the run config does not manage servers.
 - `tests`: benchmark cases.
 - `prompt_generation`: optional settings used by `gen_benchmark_fixture.py`.
 
@@ -336,19 +335,10 @@ python benchmark/run_tool_call_eval.py \
   --run-config benchmark/flux_tool_call_eval_run.json
 ```
 
-For Slurm:
-
-```bash
-mada-mcp-slurm --transport streamable-http --host localhost --port 8102
-
-python benchmark/run_tool_call_eval.py \
-  --run-config benchmark/slurm_tool_call_eval_run.json
-```
-
 The configured runner resolves relative paths from the run config file's
-directory, runs the evaluator, writes requested artifacts, generates plots, and
-generates a Markdown run report. It returns the evaluator's success or failure
-status.
+directory, optionally starts MCP servers from a server config, runs the
+evaluator, writes requested artifacts, generates plots, and generates a
+Markdown run report. It returns the evaluator's success or failure status.
 
 Run config shape:
 
@@ -387,6 +377,12 @@ Run config shape:
     "config": "api_config.json",
     "base_url": "https://example.invalid/v1",
     "api_key": "${API_KEY}"
+  },
+  "server_management": {
+    "enabled": true,
+    "config": "../configs/flux_servers.json",
+    "randomize_ports": true,
+    "stop_on_exit": true
   }
 }
 ```
@@ -420,6 +416,10 @@ Common run config fields:
 - `eval.min_pass_rate`: required per-case pass rate for success.
 - `eval.temperature`, `request_timeout`: model request settings.
 - `model_api.config`, `base_url`, `api_key`: API settings for the evaluator.
+- `server_management.enabled`: start required MCP servers before evaluation.
+- `server_management.config`: server config JSON, usually from `configs/`.
+- `server_management.randomize_ports`: assign fresh ports and write an effective fixture with matching URLs.
+- `server_management.stop_on_exit`: stop managed servers after evaluation, including failures.
 
 String config values support `${VAR}` and `${VAR:-default}` expansion.
 
@@ -448,7 +448,7 @@ python benchmark/run_tool_call_eval.py \
   --exclude-prompt-ids direct_2
 ```
 
-The same filters are available on `mcp_tool_call_eval.py` and
+The same filters are available on `run_tool_call_eval.py` and
 `merge_tool_call_eval_results.py`. Use the same filters when merging sharded
 outputs that were produced from a filtered run, so the merge tool rebuilds the
 same canonical prompt matrix.
@@ -621,14 +621,10 @@ Common failure `error_type` values:
 Use sharding for batch systems or large model matrices:
 
 ```bash
-python benchmark/mcp_tool_call_eval.py \
-  --cases benchmark/flux_tool_call_eval_cases.json \
-  --models gpt-5.5 gpt-5-mini \
-  --num-samples 3 \
-  --max-concurrency 2 \
+python benchmark/run_tool_call_eval.py \
+  --run-config benchmark/flux_tool_call_eval_run.json \
   --shard-count 4 \
-  --shard-index 0 \
-  --results-json shard0_rows.json
+  --shard-index 0
 ```
 
 Shards are assigned by deterministic logical attempt index modulo
@@ -692,6 +688,7 @@ JSON-only details.
 | Option | Description |
 | --- | --- |
 | `--run-config PATH` | Required JSON run configuration. |
+| `--models MODEL...` | Override run config model selection with explicit model IDs. |
 | `--models-file PATH` | Override run config model file. |
 | `--level N` | Override maximum model level from a level-aware model file. |
 | `--num-samples`, `-n` | Override repetitions per prompt flavor. |
@@ -704,40 +701,8 @@ JSON-only details.
 | `--exclude-prompt-styles STYLES` | Comma-separated root prompt styles to exclude after include filters. |
 | `--output-dir PATH` | Override base output directory. |
 | `--no-plots` | Disable plot generation. |
+| `--no-manage-servers` | Do not start MCP servers even when `server_management.enabled` is true. |
 | `--quiet` | Suppress live progress output. |
-
-### `mcp_tool_call_eval.py`
-
-| Option | Description |
-| --- | --- |
-| `--cases PATH` | Required JSON fixture with `mcp_servers` and `tests`. |
-| `--config PATH` | Optional JSON config with model API settings. |
-| `--models MODEL...` | Explicit model IDs; bypasses `--models-file` and `--level`. |
-| `--models-file PATH` | Model list file used when `--models` is omitted. |
-| `--level N` | Maximum level from a level-aware model file; default `0`. |
-| `--base-url URL` | OpenAI-compatible API base URL. |
-| `--api-key KEY` | OpenAI-compatible API key. |
-| `--system-prompt TEXT` | Override the default evaluator system prompt. |
-| `--temperature FLOAT` | Optional model temperature. |
-| `--request-timeout SECONDS` | Model request timeout; default `120.0`. |
-| `--max-concurrency N` | Concurrent model requests per process; default `1`. |
-| `--num-samples`, `-n` | Samples per prompt flavor; default `1`. |
-| `--shard-count N` | Total shard count; default `1`. |
-| `--shard-index N` | 0-based shard index; default `0`. |
-| `--strict` | Require exact argument equality. |
-| `--min-pass-rate FLOAT` | Required per-case prompt pass rate for success. |
-| `--prompt-ids IDS` | Comma-separated exact prompt IDs to include. |
-| `--prompt-styles STYLES` | Comma-separated root prompt styles to include. |
-| `--exclude-prompt-ids IDS` | Comma-separated exact prompt IDs to exclude after include filters. |
-| `--exclude-prompt-styles STYLES` | Comma-separated root prompt styles to exclude after include filters. |
-| `--results-csv PATH` | Write per-prompt CSV rows. |
-| `--results-json PATH` | Write detailed per-prompt JSON rows. |
-| `--summary-csv PATH` | Write per-case summary CSV. |
-| `--summary-json PATH` | Write per-case summary JSON. |
-| `--model-prices PATH` | JSON pricing file for token-cost calculation. |
-| `--quiet` | Suppress live progress output. |
-| `--no-final-table` | Skip final console tables. |
-| `--capture-raw-response` | Include full raw OpenAI-compatible responses in detailed JSON. |
 
 ### `merge_tool_call_eval_results.py`
 
