@@ -11,7 +11,7 @@ import json
 import os
 import sys
 from contextlib import AsyncExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +84,28 @@ class PromptSlot:
 
 
 @dataclass(frozen=True)
+class PromptArgumentRule:
+    mode: str
+    guidance: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class PromptArgumentPolicy:
+    server: str
+    tool: str
+    test_id: str | None
+    arguments: dict[str, PromptArgumentRule]
+    guidance: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class MatchedPromptArgumentPolicy:
+    verbatim_arguments: tuple[str, ...] = ()
+    argument_guidance: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    guidance: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class GenerationSettings:
     model: str | None
     num_prompts: int
@@ -93,6 +115,7 @@ class GenerationSettings:
     prompt_source: str
     augment_prompts: bool
     augment_source: str
+    argument_policies: list[PromptArgumentPolicy] = field(default_factory=list)
 
 
 def positive_int(option_name: str):
@@ -189,6 +212,89 @@ def bool_config(value: Any, field_name: str, default: bool = False) -> bool:
     raise ValueError(f"{field_name} must be a boolean")
 
 
+def parse_string_list(value: Any, field_name: str) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        if not value:
+            raise ValueError(f"{field_name} must not contain empty strings")
+        return (value,)
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be a string or list of strings")
+    parsed = []
+    for index, item in enumerate(value, start=1):
+        if not isinstance(item, str) or not item:
+            raise ValueError(f"{field_name}[{index}] must be a non-empty string")
+        parsed.append(item)
+    return tuple(parsed)
+
+
+def parse_optional_string(value: Any, field_name: str) -> str | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, str):
+        return value
+    raise ValueError(f"{field_name} must be a string")
+
+
+def parse_required_string(value: Any, field_name: str) -> str:
+    if isinstance(value, str) and value:
+        return value
+    raise ValueError(f"{field_name} must be a non-empty string")
+
+
+def parse_argument_rule(raw_rule: Any, field_name: str) -> PromptArgumentRule:
+    if isinstance(raw_rule, str):
+        if raw_rule not in {"semantic", "verbatim"}:
+            raise ValueError(f"{field_name} must be 'semantic', 'verbatim', or an object")
+        return PromptArgumentRule(mode=raw_rule, guidance=())
+    if not isinstance(raw_rule, dict):
+        raise ValueError(f"{field_name} must be 'semantic', 'verbatim', or an object")
+
+    mode = raw_rule.get("mode", "semantic")
+    if mode not in {"semantic", "verbatim"}:
+        raise ValueError(f"{field_name}.mode must be one of: semantic, verbatim")
+    guidance = parse_string_list(raw_rule.get("guidance"), f"{field_name}.guidance")
+    return PromptArgumentRule(mode=mode, guidance=guidance)
+
+
+def parse_argument_rules(raw_arguments: Any, field_name: str) -> dict[str, PromptArgumentRule]:
+    if raw_arguments is None:
+        return {}
+    if not isinstance(raw_arguments, dict):
+        raise ValueError(f"{field_name} must be an object")
+    rules = {}
+    for argument_name, raw_rule in raw_arguments.items():
+        if not isinstance(argument_name, str) or not argument_name:
+            raise ValueError(f"{field_name} keys must be non-empty argument names")
+        rules[argument_name] = parse_argument_rule(raw_rule, f"{field_name}.{argument_name}")
+    return rules
+
+
+def parse_argument_policies(raw_policies: Any) -> list[PromptArgumentPolicy]:
+    if raw_policies is None:
+        return []
+    if not isinstance(raw_policies, list):
+        raise ValueError("prompt_generation.argument_policies must be a list")
+
+    policies: list[PromptArgumentPolicy] = []
+    for index, raw_policy in enumerate(raw_policies, start=1):
+        field_prefix = f"prompt_generation.argument_policies[{index}]"
+        if not isinstance(raw_policy, dict):
+            raise ValueError(f"{field_prefix} must be an object")
+
+        policies.append(
+            PromptArgumentPolicy(
+                server=parse_required_string(raw_policy.get("server"), f"{field_prefix}.server"),
+                tool=parse_required_string(raw_policy.get("tool"), f"{field_prefix}.tool"),
+                test_id=parse_optional_string(raw_policy.get("test_id"), f"{field_prefix}.test_id"),
+                arguments=parse_argument_rules(raw_policy.get("arguments"), f"{field_prefix}.arguments"),
+                guidance=parse_string_list(raw_policy.get("guidance"), f"{field_prefix}.guidance"),
+            )
+        )
+    return policies
+
+
 def string_choice(value: Any, field_name: str, choices: set[str], default: str) -> str:
     if value in (None, ""):
         return default
@@ -248,6 +354,7 @@ def build_generation_settings(
     request_timeout = args.request_timeout
     if request_timeout is None:
         request_timeout = float(prompt_generation.get("request_timeout", 120.0))
+    argument_policies = parse_argument_policies(prompt_generation.get("argument_policies"))
 
     return GenerationSettings(
         model=model,
@@ -258,6 +365,7 @@ def build_generation_settings(
         prompt_source=prompt_source,
         augment_prompts=augment_prompts,
         augment_source=augment_source,
+        argument_policies=argument_policies,
     )
 
 
@@ -492,18 +600,101 @@ def generation_system_prompt() -> str:
     )
 
 
+def policy_matches_test_case(policy: PromptArgumentPolicy, test_case: dict[str, Any]) -> bool:
+    expected_call = test_case.get("expected_call")
+    tool = expected_call.get("tool") if isinstance(expected_call, dict) else None
+    return (
+        policy.server == test_case.get("server")
+        and policy.tool == tool
+        and (policy.test_id is None or policy.test_id == test_case.get("id"))
+    )
+
+
+def prompt_argument_policy_for_case(
+    settings: GenerationSettings,
+    test_case: dict[str, Any],
+) -> MatchedPromptArgumentPolicy:
+    expected_call = test_case.get("expected_call")
+    expected_arguments = expected_call.get("arguments") if isinstance(expected_call, dict) else {}
+    if not isinstance(expected_arguments, dict):
+        expected_arguments = {}
+
+    verbatim_arguments = []
+    argument_guidance: dict[str, list[str]] = {}
+    guidance = []
+    seen_arguments = set()
+    seen_guidance = set()
+    for policy in settings.argument_policies:
+        if not policy_matches_test_case(policy, test_case):
+            continue
+        for argument_name, argument_rule in policy.arguments.items():
+            if argument_name not in expected_arguments:
+                continue
+            if argument_rule.mode == "verbatim" and argument_name not in seen_arguments:
+                seen_arguments.add(argument_name)
+                verbatim_arguments.append(argument_name)
+            if argument_rule.guidance:
+                existing = argument_guidance.setdefault(argument_name, [])
+                for guidance_item in argument_rule.guidance:
+                    if guidance_item not in existing:
+                        existing.append(guidance_item)
+        for guidance_item in policy.guidance:
+            if guidance_item not in seen_guidance:
+                seen_guidance.add(guidance_item)
+                guidance.append(guidance_item)
+    return MatchedPromptArgumentPolicy(
+        verbatim_arguments=tuple(verbatim_arguments),
+        argument_guidance={name: tuple(items) for name, items in argument_guidance.items()},
+        guidance=tuple(guidance),
+    )
+
+
+def verbatim_string_arguments(
+    expected_call: dict[str, Any],
+    argument_names: tuple[str, ...] | list[str] = (),
+) -> list[dict[str, str]]:
+    arguments = expected_call.get("arguments")
+    if not isinstance(arguments, dict) or not argument_names:
+        return []
+
+    if "*" in argument_names:
+        names = list(arguments)
+    else:
+        names = list(argument_names)
+
+    required = []
+    seen_names = set()
+    for name in names:
+        if name in seen_names:
+            continue
+        seen_names.add(name)
+        value = arguments.get(name)
+        if isinstance(value, str) and value:
+            required.append({"name": str(name), "value": value})
+    return required
+
+
 def generation_user_prompt(
     test_case: dict[str, Any],
     tools: list[dict[str, Any]],
     slots: list[PromptSlot],
+    argument_policy: MatchedPromptArgumentPolicy | None = None,
 ) -> str:
+    if argument_policy is None:
+        argument_policy = MatchedPromptArgumentPolicy()
     expected_call = test_case["expected_call"]
     style_specs = [{"id": slot.id, "style": slot.style.id, "description": slot.style.description} for slot in slots]
+    required_arguments = verbatim_string_arguments(expected_call, argument_policy.verbatim_arguments)
     payload = {
         "case_id": test_case["id"],
         "server": test_case["server"],
         "available_tools": tools,
         "expected_call": expected_call,
+        "verbatim_string_arguments": required_arguments,
+        "argument_guidance": {
+            name: list(guidance_items) for name, guidance_items in sorted(argument_policy.argument_guidance.items())
+        },
+        "generation_guidance": list(argument_policy.guidance),
         "requested_prompts": style_specs,
         "output_schema": {
             "prompts": [
@@ -514,14 +705,28 @@ def generation_user_prompt(
             ]
         },
     }
+    verbatim_rule = ""
+    if required_arguments:
+        verbatim_rule = (
+            "- Every prompt must preserve the exact value of each item in verbatim_string_arguments. Include those "
+            "values literally in the prompt text.\n"
+        )
+    guidance_rule = ""
+    if argument_policy.guidance or argument_policy.argument_guidance:
+        guidance_rule = "- Follow every item in generation_guidance and argument_guidance for this case.\n"
     return (
         "Generate benchmark prompt variants for this MCP tool-call case.\n"
         "Rules:\n"
         "- Produce exactly one prompt for each requested prompt id.\n"
         "- The prompt must not mention that it is a benchmark or fixture.\n"
-        "- The prompt should naturally imply the expected tool and arguments.\n"
-        "- Do not include tool-call JSON as the user's prompt unless the expected argument itself is a "
-        "literal JSON string.\n"
+        "- The prompt should naturally imply the expected MCP server, tool, and arguments.\n"
+        "- Treat expected_call.arguments as the source of truth, not as background context to reinterpret.\n"
+        f"{verbatim_rule}"
+        f"{guidance_rule}"
+        "- Natural, lazy, beginner, or terse styles may change wording around the exact values, but must still "
+        "include enough exact information to recover the expected arguments unambiguously.\n"
+        "- Do not include tool-call JSON as the user's prompt unless the expected argument itself is a literal "
+        "JSON string; when it is a literal JSON string, preserve that string exactly.\n"
         "- Return a JSON object with only a 'prompts' list.\n\n"
         f"{json.dumps(payload, indent=2, sort_keys=True)}"
     )
@@ -561,6 +766,24 @@ def validate_generated_prompts(payload: dict[str, Any], expected_ids: list[str])
     if set(seen_ids) != set(expected_ids):
         raise ValueError(f"Generated prompt ids {sorted(seen_ids)} do not match expected ids {sorted(expected_ids)}")
     return sorted(normalized, key=lambda prompt: expected_ids.index(prompt["id"]))
+
+
+def validate_generated_prompt_argument_coverage(
+    prompts: list[dict[str, str]],
+    expected_call: dict[str, Any],
+    argument_names: tuple[str, ...] | list[str] = (),
+) -> None:
+    required_arguments = verbatim_string_arguments(expected_call, argument_names)
+    if not required_arguments:
+        return
+
+    failures = []
+    for prompt in prompts:
+        missing = [argument["name"] for argument in required_arguments if argument["value"] not in prompt["text"]]
+        if missing:
+            failures.append(f"{prompt['id']} missing exact string argument(s): {', '.join(missing)}")
+    if failures:
+        raise ValueError("; ".join(failures))
 
 
 def normalize_existing_prompts(test_case: dict[str, Any]) -> list[dict[str, str]]:
@@ -694,9 +917,10 @@ async def generate_slot_prompts(
     slots: list[PromptSlot],
 ) -> list[dict[str, str]]:
     expected_ids = [slot.id for slot in slots]
+    argument_policy = prompt_argument_policy_for_case(settings, test_case)
     messages = [
         {"role": "system", "content": generation_system_prompt()},
-        {"role": "user", "content": generation_user_prompt(test_case, tools, slots)},
+        {"role": "user", "content": generation_user_prompt(test_case, tools, slots, argument_policy)},
     ]
     kwargs: dict[str, Any] = {
         "model": settings.model,
@@ -713,7 +937,13 @@ async def generate_slot_prompts(
             last_error = ValueError("Generation model returned an empty response")
         else:
             try:
-                return validate_generated_prompts(parse_model_json(content), expected_ids)
+                prompts = validate_generated_prompts(parse_model_json(content), expected_ids)
+                validate_generated_prompt_argument_coverage(
+                    prompts,
+                    test_case["expected_call"],
+                    argument_policy.verbatim_arguments,
+                )
+                return prompts
             except ValueError as exc:
                 last_error = exc
 

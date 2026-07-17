@@ -1490,6 +1490,383 @@ class ExampleServer:
         assert parameters["properties"]["exclusive"]["type"] == "boolean"
         assert parameters["properties"]["exclusive"]["default"] is False
 
+    def test_build_generation_settings_parses_argument_policies(self):
+        fixture = {
+            "prompt_generation": {
+                "model": "fixture-model",
+                "argument_policies": [
+                    {
+                        "server": "flux",
+                        "tool": "submit_command",
+                        "arguments": {
+                            "command": {
+                                "mode": "verbatim",
+                                "guidance": "Keep command exact.",
+                            },
+                            "nodes": {
+                                "mode": "semantic",
+                                "guidance": "Describe the node count clearly.",
+                            },
+                        },
+                        "guidance": ["Keep command exact."],
+                    }
+                ],
+            }
+        }
+        args = argparse.Namespace(
+            model=None,
+            num_prompts=None,
+            styles=None,
+            prompt_source=None,
+            augment_prompts=None,
+            augment_source=None,
+            temperature=None,
+            request_timeout=None,
+        )
+
+        settings = gen_benchmark_fixture.build_generation_settings(fixture, {}, args)
+
+        assert settings.argument_policies == [
+            gen_benchmark_fixture.PromptArgumentPolicy(
+                server="flux",
+                tool="submit_command",
+                test_id=None,
+                arguments={
+                    "command": gen_benchmark_fixture.PromptArgumentRule(
+                        mode="verbatim",
+                        guidance=("Keep command exact.",),
+                    ),
+                    "nodes": gen_benchmark_fixture.PromptArgumentRule(
+                        mode="semantic",
+                        guidance=("Describe the node count clearly.",),
+                    ),
+                },
+                guidance=("Keep command exact.",),
+            )
+        ]
+
+    def test_build_generation_settings_requires_policy_server_and_tool(self):
+        args = argparse.Namespace(
+            model=None,
+            num_prompts=None,
+            styles=None,
+            prompt_source=None,
+            augment_prompts=None,
+            augment_source=None,
+            temperature=None,
+            request_timeout=None,
+        )
+
+        with pytest.raises(ValueError, match=r"argument_policies\[1\]\.server"):
+            gen_benchmark_fixture.build_generation_settings(
+                {"prompt_generation": {"model": "model", "argument_policies": [{"tool": "submit_command"}]}},
+                {},
+                args,
+            )
+
+        with pytest.raises(ValueError, match=r"argument_policies\[1\]\.tool"):
+            gen_benchmark_fixture.build_generation_settings(
+                {"prompt_generation": {"model": "model", "argument_policies": [{"server": "flux"}]}},
+                {},
+                args,
+            )
+
+    def test_prompt_argument_policy_for_case_merges_matching_policies(self):
+        test_case = {
+            "id": "submit_command_full_options",
+            "server": "flux",
+            "expected_call": {
+                "tool": "submit_command",
+                "arguments": {
+                    "command": "python simulate.py --case fluid_test --steps 10",
+                    "nodes": 2,
+                    "tasks": 8,
+                    "time_limit": "30m",
+                    "job_name": "fluid_test_eval",
+                    "working_directory": "/tmp/mada_flux_eval/fluid_test_job",
+                },
+                "match": {"mode": "subset"},
+            },
+        }
+        settings = gen_benchmark_fixture.GenerationSettings(
+            model="model",
+            num_prompts=1,
+            styles=[gen_benchmark_fixture.GenerationStyle("natural", "Natural request")],
+            temperature=None,
+            request_timeout=120.0,
+            prompt_source="generated",
+            augment_prompts=False,
+            augment_source="both",
+            argument_policies=[
+                gen_benchmark_fixture.PromptArgumentPolicy(
+                    server="flux",
+                    tool="submit_command",
+                    test_id=None,
+                    arguments={
+                        "working_directory": gen_benchmark_fixture.PromptArgumentRule(
+                            mode="verbatim",
+                            guidance=("Keep paths exact.",),
+                        ),
+                        "nodes": gen_benchmark_fixture.PromptArgumentRule(
+                            mode="semantic",
+                            guidance=("Describe node count clearly.",),
+                        ),
+                    },
+                    guidance=("Flux guidance.",),
+                ),
+                gen_benchmark_fixture.PromptArgumentPolicy(
+                    server="flux",
+                    tool="submit_command",
+                    test_id=None,
+                    arguments={
+                        "command": gen_benchmark_fixture.PromptArgumentRule(
+                            mode="verbatim",
+                            guidance=("Keep command exact.",),
+                        ),
+                        "working_directory": gen_benchmark_fixture.PromptArgumentRule(
+                            mode="verbatim",
+                            guidance=("Keep paths exact.",),
+                        ),
+                    },
+                    guidance=("Command guidance.",),
+                ),
+                gen_benchmark_fixture.PromptArgumentPolicy(
+                    server="slurm",
+                    tool="submit_command",
+                    test_id=None,
+                    arguments={
+                        "job_name": gen_benchmark_fixture.PromptArgumentRule(
+                            mode="verbatim",
+                            guidance=("Slurm guidance.",),
+                        )
+                    },
+                    guidance=("Slurm guidance.",),
+                ),
+            ],
+        )
+
+        policy = gen_benchmark_fixture.prompt_argument_policy_for_case(settings, test_case)
+
+        assert policy.verbatim_arguments == ("working_directory", "command")
+        assert policy.argument_guidance == {
+            "working_directory": ("Keep paths exact.",),
+            "nodes": ("Describe node count clearly.",),
+            "command": ("Keep command exact.",),
+        }
+        assert policy.guidance == ("Flux guidance.", "Command guidance.")
+
+    def test_prompt_argument_policy_for_case_skips_absent_argument_guidance(self):
+        test_case = {
+            "id": "submit_jobs_generated_runs_default_sbatch",
+            "server": "slurm",
+            "expected_call": {
+                "tool": "submit_jobs",
+                "arguments": {
+                    "run_info_json": "{\"runs\":[]}",
+                },
+                "match": {"mode": "subset"},
+            },
+        }
+        settings = gen_benchmark_fixture.GenerationSettings(
+            model="model",
+            num_prompts=1,
+            styles=[gen_benchmark_fixture.GenerationStyle("natural", "Natural request")],
+            temperature=None,
+            request_timeout=120.0,
+            prompt_source="generated",
+            augment_prompts=False,
+            augment_source="both",
+            argument_policies=[
+                gen_benchmark_fixture.PromptArgumentPolicy(
+                    server="slurm",
+                    tool="submit_jobs",
+                    test_id=None,
+                    arguments={
+                        "run_info_json": gen_benchmark_fixture.PromptArgumentRule(
+                            mode="semantic",
+                            guidance=("Describe run_info_json manifest fields clearly.",),
+                        ),
+                        "account": gen_benchmark_fixture.PromptArgumentRule(
+                            mode="verbatim",
+                            guidance=("Keep account exact.",),
+                        ),
+                        "partition": gen_benchmark_fixture.PromptArgumentRule(
+                            mode="verbatim",
+                            guidance=("Keep partition exact.",),
+                        ),
+                    },
+                    guidance=(),
+                )
+            ],
+        )
+
+        policy = gen_benchmark_fixture.prompt_argument_policy_for_case(settings, test_case)
+
+        assert policy.verbatim_arguments == ()
+        assert policy.argument_guidance == {
+            "run_info_json": ("Describe run_info_json manifest fields clearly.",)
+        }
+
+    def test_generation_user_prompt_uses_configured_argument_policy(self):
+        test_case = {
+            "id": "submit_command_full_options",
+            "server": "flux",
+            "expected_call": {
+                "tool": "submit_command",
+                "arguments": {
+                    "command": "python simulate.py --case fluid_test --steps 10",
+                    "nodes": 2,
+                    "tasks": 8,
+                    "time_limit": "30m",
+                    "job_name": "fluid_test_eval",
+                    "working_directory": "/tmp/mada_flux_eval/fluid_test_job",
+                },
+                "match": {"mode": "subset"},
+            },
+        }
+        slots = [
+            gen_benchmark_fixture.PromptSlot(
+                id="natural",
+                style=gen_benchmark_fixture.GenerationStyle("natural", "Natural request"),
+            )
+        ]
+        argument_policy = gen_benchmark_fixture.MatchedPromptArgumentPolicy(
+            verbatim_arguments=("command", "working_directory"),
+            argument_guidance={
+                "command": ("Keep the command exact.",),
+                "nodes": ("Describe node count clearly.",),
+            },
+            guidance=("Keep Flux command values exact.",),
+        )
+
+        prompt = gen_benchmark_fixture.generation_user_prompt(test_case, [], slots, argument_policy)
+
+        assert "verbatim_string_arguments" in prompt
+        assert "argument_guidance" in prompt
+        assert "generation_guidance" in prompt
+        assert "python simulate.py --case fluid_test --steps 10" in prompt
+        assert "/tmp/mada_flux_eval/fluid_test_job" in prompt
+        assert "Keep Flux command values exact." in prompt
+        assert "Describe node count clearly." in prompt
+        assert "naturally imply the expected MCP server, tool, and arguments" in prompt
+        assert "Every prompt must preserve the exact value" in prompt
+
+    def test_generation_user_prompt_without_policy_has_no_flux_specific_guidance(self):
+        test_case = {
+            "id": "semantic_string_case",
+            "server": "example",
+            "expected_call": {
+                "tool": "search",
+                "arguments": {"query": "fluid simulation"},
+                "match": {"mode": "subset"},
+            },
+        }
+        slots = [
+            gen_benchmark_fixture.PromptSlot(
+                id="natural",
+                style=gen_benchmark_fixture.GenerationStyle("natural", "Natural request"),
+            )
+        ]
+
+        prompt = gen_benchmark_fixture.generation_user_prompt(test_case, [], slots)
+
+        assert '"verbatim_string_arguments": []' in prompt
+        assert '"argument_guidance": {}' in prompt
+        assert '"generation_guidance": []' in prompt
+        assert "Every prompt must preserve the exact value" not in prompt
+        assert "Scheduler/resource arguments" not in prompt
+        assert "Do not substitute a program name" not in prompt
+        assert "naturally imply the expected MCP server, tool, and arguments" in prompt
+
+    def test_validate_generated_prompt_argument_coverage_ignores_unconfigured_string_arguments(self):
+        prompts = [
+            {
+                "id": "natural",
+                "text": (
+                    "Can you run the fluid_test simulation for 10 steps with the usual eval setup? "
+                    "Use the job name fluid_test_eval and the working directory under "
+                    "/tmp/mada_flux_eval/fluid_test_job."
+                ),
+            }
+        ]
+        expected_call = {
+            "tool": "submit_command",
+            "arguments": {
+                "command": "python simulate.py --case fluid_test --steps 10",
+                "job_name": "fluid_test_eval",
+                "working_directory": "/tmp/mada_flux_eval/fluid_test_job",
+            },
+        }
+
+        gen_benchmark_fixture.validate_generated_prompt_argument_coverage(prompts, expected_call)
+
+    def test_validate_generated_prompt_argument_coverage_rejects_configured_missing_exact_command(self):
+        prompts = [
+            {
+                "id": "natural",
+                "text": (
+                    "Can you run the fluid_test simulation for 10 steps with the usual eval setup? "
+                    "Use the job name fluid_test_eval and the working directory under "
+                    "/tmp/mada_flux_eval/fluid_test_job."
+                ),
+            }
+        ]
+        expected_call = {
+            "tool": "submit_command",
+            "arguments": {
+                "command": "python simulate.py --case fluid_test --steps 10",
+                "job_name": "fluid_test_eval",
+                "working_directory": "/tmp/mada_flux_eval/fluid_test_job",
+            },
+        }
+
+        with pytest.raises(ValueError, match="natural missing exact string argument\\(s\\): command"):
+            gen_benchmark_fixture.validate_generated_prompt_argument_coverage(prompts, expected_call, ("command",))
+
+    def test_validate_generated_prompt_argument_coverage_accepts_configured_exact_string_arguments(self):
+        prompts = [
+            {
+                "id": "natural",
+                "text": (
+                    "Use Flux submit_command to run `python simulate.py --case fluid_test --steps 10` "
+                    "from /tmp/mada_flux_eval/fluid_test_job as job fluid_test_eval."
+                ),
+            }
+        ]
+        expected_call = {
+            "tool": "submit_command",
+            "arguments": {
+                "command": "python simulate.py --case fluid_test --steps 10",
+                "job_name": "fluid_test_eval",
+                "working_directory": "/tmp/mada_flux_eval/fluid_test_job",
+            },
+        }
+
+        gen_benchmark_fixture.validate_generated_prompt_argument_coverage(
+            prompts,
+            expected_call,
+            ("command", "job_name", "working_directory"),
+        )
+
+    def test_verbatim_string_arguments_star_selects_all_string_arguments(self):
+        expected_call = {
+            "tool": "submit_command",
+            "arguments": {
+                "command": "python -V",
+                "nodes": 1,
+                "job_name": "python_version",
+                "working_directory": "/tmp/mada_flux_eval/single_command",
+            },
+        }
+
+        arguments = gen_benchmark_fixture.verbatim_string_arguments(expected_call, ("*",))
+
+        assert arguments == [
+            {"name": "command", "value": "python -V"},
+            {"name": "job_name", "value": "python_version"},
+            {"name": "working_directory", "value": "/tmp/mada_flux_eval/single_command"},
+        ]
+
     def test_validate_generated_prompts_rejects_unexpected_ids(self):
         payload = {"prompts": [{"id": "natural", "text": "Run python -V."}]}
 

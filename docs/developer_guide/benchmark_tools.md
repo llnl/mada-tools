@@ -122,6 +122,33 @@ Excerpt from `benchmark/flux_tool_call_eval_cases.input.json`:
     "prompt_source": "generated",
     "augment_prompts": false,
     "augment_source": "both",
+    "argument_policies": [
+      {
+        "server": "flux",
+        "tool": "submit_command",
+        "arguments": {
+          "command": {
+            "mode": "verbatim",
+            "guidance": "Repeat the command exactly as written."
+          },
+          "nodes": {
+            "mode": "semantic",
+            "guidance": "Express the node count clearly enough to recover the expected numeric value."
+          },
+          "time_limit": {
+            "mode": "semantic",
+            "guidance": "Express the time limit clearly enough to recover the expected value."
+          },
+          "working_directory": {
+            "mode": "verbatim",
+            "guidance": "Working directories are paths; preserve the expected value exactly."
+          }
+        },
+        "guidance": [
+          "Flux scheduler/resource arguments such as nodes, tasks, time_limit, job_name, and working_directory are separate tool arguments."
+        ]
+      }
+    ],
     "styles": [
       {
         "id": "natural",
@@ -159,8 +186,27 @@ a no-op stub: prompts are passed through the augmentation functions and returned
 unchanged. `augment_source` controls whether augmentation is applied to
 `generated`, `existing`, or `both` prompt sources.
 
+`argument_policies` is optional. It lets fixture inputs define server/tool
+specific generation constraints without hard-coding those rules in
+`gen_benchmark_fixture.py`. Each policy must specify `server` and `tool`, and
+can optionally specify `test_id` for a single case. Matching policies are merged
+in order.
+
+- `arguments`: map of argument name to a rule.
+- `mode`: `verbatim` means the string value must appear exactly in every
+  generated prompt; `semantic` means the prompt may express the value naturally
+  as long as the expected argument can be recovered in context.
+- `guidance`: extra instructions included only for matching cases or arguments.
+
+When no policy matches a case, generated prompts are not required to quote any
+string argument verbatim. This keeps server-specific semantics, such as Flux
+command handling, in the fixture input that owns the expected calls. Generated
+prompts should still naturally imply the expected MCP server, tool, and
+arguments.
+
 A seed case can include existing prompts or omit them. The generator validates
-`expected_call`, then writes a new output fixture with generated `prompts`.
+`expected_call`, applies any matching prompt-generation policies, then writes a
+new output fixture with generated `prompts`.
 
 Input excerpt:
 

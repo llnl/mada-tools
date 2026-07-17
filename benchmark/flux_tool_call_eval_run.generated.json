@@ -1,0 +1,24 @@
+{
+  "name": "flux",
+  "cases": "flux_tool_call_eval_cases.generated4.json",
+  "models_file": "eval_models.tsv",
+  "level": 0,
+  "output": {
+    "directory": "results",
+    "prefix": "flux_tool_call",
+    "timestamped": true,
+    "results_csv": true,
+    "results_json": true,
+    "summary_csv": true,
+    "summary_json": true,
+    "plots": true,
+    "capture_raw_response": true
+  },
+  "eval": {
+    "num_samples": 3,
+    "max_concurrency": 36,
+    "shard_count": 1,
+    "shard_index": 0,
+    "strict": false
+  }
+}
