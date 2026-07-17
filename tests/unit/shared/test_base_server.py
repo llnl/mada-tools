@@ -14,7 +14,6 @@ import pytest
 from _pytest.logging import LogCaptureFixture
 from _pytest.monkeypatch import MonkeyPatch
 
-import mada_tools.shared.base_server as base_mod
 from mada_tools.shared import BaseMCPServer
 from mada_tools.shared.exceptions import ToolExecutionError
 
@@ -461,7 +460,7 @@ class TestRunWithArgs:
                 Pytest capsys fixture.
         """
         # fmcp = FastMCPStub()
-        monkeypatch.setattr(base_mod, "FastMCP", lambda **kwargs: FastMCPStub(**kwargs))
+        monkeypatch.setattr("fastmcp.FastMCP", lambda **kwargs: FastMCPStub(**kwargs))
 
         register_called = {"n": 0}
         server._register_tools = lambda: register_called.__setitem__("n", register_called["n"] + 1)
@@ -499,7 +498,7 @@ class TestRunWithArgs:
             capsys (LogCaptureFixture):
                 Pytest capsys fixture.
         """
-        monkeypatch.setattr(base_mod, "FastMCP", lambda **kwargs: FastMCPStub(**kwargs))
+        monkeypatch.setattr("fastmcp.FastMCP", lambda **kwargs: FastMCPStub(**kwargs))
 
         register_called = {"n": 0}
         server._register_tools = lambda: register_called.__setitem__("n", register_called["n"] + 1)
@@ -543,7 +542,7 @@ class TestRunWithArgs:
             monkeypatch (MonkeyPatch):
                 Pytest monkeypatch fixture.
         """
-        monkeypatch.setattr(base_mod, "FastMCP", lambda **kwargs: FastMCPStub(**kwargs))
+        monkeypatch.setattr("fastmcp.FastMCP", lambda **kwargs: FastMCPStub(**kwargs))
 
         register_called = {"n": 0}
         server._register_tools = lambda: register_called.__setitem__("n", register_called["n"] + 1)
@@ -604,7 +603,7 @@ class TestRunWithArgs:
             monkeypatch (MonkeyPatch):
                 Pytest monkeypatch fixture.
         """
-        monkeypatch.setattr(base_mod, "FastMCP", lambda **kwargs: FastMCPStub(**kwargs))
+        monkeypatch.setattr("fastmcp.FastMCP", lambda **kwargs: FastMCPStub(**kwargs))
 
         monkeypatch.setattr(
             server,
@@ -633,7 +632,7 @@ class TestRunWithArgs:
             monkeypatch (MonkeyPatch):
                 Pytest monkeypatch fixture.
         """
-        monkeypatch.setattr(base_mod, "FastMCP", lambda **kwargs: FastMCPStub(**kwargs))
+        monkeypatch.setattr("fastmcp.FastMCP", lambda **kwargs: FastMCPStub(**kwargs))
 
         # Force args.host falsy so config host is used
         monkeypatch.setattr(
