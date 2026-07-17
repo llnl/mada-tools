@@ -476,6 +476,12 @@ Cost plot example:
 
 ![flux tool-call cost plot](../assets/images/flux_tool_call_cost.png)
 
+Score and token plots group numbered prompt variants by root style by default.
+For example, `direct`, `direct_2`, and `direct_3` are shown as one `direct`
+prompt-flavor partition. Use `--plot-prompt-details` with
+`plot_tool_call_eval_results.py`, or set `"plot_prompt_details": true` in the
+configured runner's `output` block, to show each prompt ID separately.
+
 ## API Configuration
 
 The script can read API settings from CLI arguments, a config file, or

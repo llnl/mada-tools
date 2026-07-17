@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -165,19 +166,48 @@ def flavor_ids_for_row(row: dict[str, Any]) -> list[str]:
     return flavor_ids
 
 
-def ordered_flavor_ids(rows: list[dict[str, Any]]) -> list[str]:
+def prompt_style_id(prompt_id: str) -> str:
+    return re.sub(r"_\d+$", "", prompt_id)
+
+
+def displayed_flavor_id(prompt_id: str, group_prompt_styles: bool) -> str:
+    if group_prompt_styles:
+        return prompt_style_id(prompt_id)
+    return prompt_id
+
+
+def aggregate_flavor_values(
+    flavor_values: list[tuple[str, float]],
+    group_prompt_styles: bool,
+) -> list[tuple[str, float]]:
+    if not group_prompt_styles:
+        return flavor_values
+
+    grouped: dict[str, float] = {}
+    order = []
+    for flavor_id, value in flavor_values:
+        style_id = prompt_style_id(flavor_id)
+        if style_id not in grouped:
+            grouped[style_id] = 0.0
+            order.append(style_id)
+        grouped[style_id] += value
+    return [(style_id, grouped[style_id]) for style_id in order]
+
+
+def ordered_flavor_ids(rows: list[dict[str, Any]], group_prompt_styles: bool = True) -> list[str]:
     flavor_ids = []
     for row in rows:
         for flavor_id in flavor_ids_for_row(row):
-            if flavor_id not in flavor_ids:
-                flavor_ids.append(flavor_id)
+            displayed_id = displayed_flavor_id(flavor_id, group_prompt_styles)
+            if displayed_id not in flavor_ids:
+                flavor_ids.append(displayed_id)
     return flavor_ids
 
 
-def flavor_color_map(rows: list[dict[str, Any]]) -> dict[str, str]:
+def flavor_color_map(rows: list[dict[str, Any]], group_prompt_styles: bool = True) -> dict[str, str]:
     return {
         flavor_id: FLAVOR_OUTLINE_COLORS[index % len(FLAVOR_OUTLINE_COLORS)]
-        for index, flavor_id in enumerate(ordered_flavor_ids(rows))
+        for index, flavor_id in enumerate(ordered_flavor_ids(rows, group_prompt_styles))
     }
 
 
@@ -245,17 +275,29 @@ def score_axis_label(rows: list[dict[str, Any]], value_field: str, xlabel: str) 
     return f"{xlabel} ({', '.join(notes)})"
 
 
-def flavor_boundary_values(row: dict[str, Any], value_field: str, total_value: float) -> list[tuple[str, float]]:
+def flavor_boundary_values(
+    row: dict[str, Any],
+    value_field: str,
+    total_value: float,
+    group_prompt_styles: bool = True,
+) -> list[tuple[str, float]]:
     flavor_ids = flavor_ids_for_row(row)
     if value_field in {"score_passed", "prompts_passed"}:
-        return [(flavor_id, as_float(row.get(f"{flavor_id}_passed"))) for flavor_id in flavor_ids]
+        return aggregate_flavor_values(
+            [(flavor_id, as_float(row.get(f"{flavor_id}_passed"))) for flavor_id in flavor_ids],
+            group_prompt_styles,
+        )
     if value_field in {"score_total", "prompts_total"}:
-        return [(flavor_id, as_float(row.get(f"{flavor_id}_total"))) for flavor_id in flavor_ids]
+        return aggregate_flavor_values(
+            [(flavor_id, as_float(row.get(f"{flavor_id}_total"))) for flavor_id in flavor_ids],
+            group_prompt_styles,
+        )
 
     flavor_metric_suffix = value_field.removeprefix("avg_")
-    flavor_metric_values = [
-        (flavor_id, as_float(row.get(f"{flavor_id}_avg_{flavor_metric_suffix}"))) for flavor_id in flavor_ids
-    ]
+    flavor_metric_values = aggregate_flavor_values(
+        [(flavor_id, as_float(row.get(f"{flavor_id}_avg_{flavor_metric_suffix}"))) for flavor_id in flavor_ids],
+        group_prompt_styles,
+    )
     total_flavor_metric = sum(value for _flavor_id, value in flavor_metric_values)
     if total_flavor_metric > 0:
         return [
@@ -263,7 +305,10 @@ def flavor_boundary_values(row: dict[str, Any], value_field: str, total_value: f
             for flavor_id, flavor_metric in flavor_metric_values
         ]
 
-    flavor_totals = [(flavor_id, as_float(row.get(f"{flavor_id}_total"))) for flavor_id in flavor_ids]
+    flavor_totals = aggregate_flavor_values(
+        [(flavor_id, as_float(row.get(f"{flavor_id}_total"))) for flavor_id in flavor_ids],
+        group_prompt_styles,
+    )
     total_flavor_count = sum(value for _flavor_id, value in flavor_totals)
     if total_flavor_count <= 0:
         equal_width = total_value / len(flavor_ids) if flavor_ids else 0.0
@@ -281,11 +326,12 @@ def draw_flavor_outlines(
     axis_span: float,
     color_by_flavor: dict[str, str],
     value_field: str,
+    group_prompt_styles: bool = True,
 ) -> None:
     cumulative = 0.0
     marker_width = max(axis_span * 0.004, 0.06)
     y_bottom = y_center - (bar_height / 2)
-    for prompt_id, flavor_value in flavor_boundary_values(row, value_field, total_value):
+    for prompt_id, flavor_value in flavor_boundary_values(row, value_field, total_value, group_prompt_styles):
         outline_color = color_by_flavor.get(prompt_id, FLAVOR_OUTLINE_COLORS[0])
         flavor_left = segment_left + cumulative
         if flavor_value > 0:
@@ -328,6 +374,7 @@ def plot_stacked(
     draw_flavor_boundaries: bool = False,
     show_flavor_order_box: bool = False,
     show_legend_values: bool = True,
+    group_prompt_styles: bool = True,
     row_annotations: dict[str, str] | None = None,
 ) -> None:
     models, cases, values, row_map = matrix_for(rows, value_field)
@@ -336,7 +383,7 @@ def plot_stacked(
 
     case_legend_columns = min(3, len(cases))
     case_legend_rows = (len(cases) + case_legend_columns - 1) // case_legend_columns
-    color_by_flavor = flavor_color_map(rows) if show_flavor_order_box else {}
+    color_by_flavor = flavor_color_map(rows, group_prompt_styles) if show_flavor_order_box else {}
     flavor_legend = flavor_legend_handles(color_by_flavor) if show_flavor_order_box else None
 
     fig_height = max(3.0, 0.55 * len(models) + 1.9 + (0.2 * case_legend_rows))
@@ -381,6 +428,7 @@ def plot_stacked(
                     axis_span=axis_span,
                     color_by_flavor=color_by_flavor,
                     value_field=value_field,
+                    group_prompt_styles=group_prompt_styles,
                 )
         left = [base + value for base, value in zip(left, case_values)]
 
@@ -493,6 +541,11 @@ def parse_args() -> argparse.Namespace:
         default="total_cost_usd",
         help="Summary field to plot for cost blocks (default: total_cost_usd)",
     )
+    parser.add_argument(
+        "--plot-prompt-details",
+        action="store_true",
+        help="Show each prompt id separately instead of grouping numeric variants by root style",
+    )
     return parser.parse_args()
 
 
@@ -516,6 +569,7 @@ def main() -> int:
         legend_title="Test case (mean block score)",
         draw_flavor_boundaries=True,
         show_flavor_order_box=True,
+        group_prompt_styles=not args.plot_prompt_details,
     )
     plot_stacked(
         rows=rows,
@@ -527,6 +581,7 @@ def main() -> int:
         legend_title="Test case (mean block value)",
         draw_flavor_boundaries=True,
         show_flavor_order_box=True,
+        group_prompt_styles=not args.plot_prompt_details,
     )
     if args.cost_output and has_numeric_value(rows, args.cost_field):
         total_cost = sum_numeric_values(rows, args.cost_field)

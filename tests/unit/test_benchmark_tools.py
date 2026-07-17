@@ -28,8 +28,10 @@ def load_benchmark_module(module_name: str, filename: str):
 eval_io = load_benchmark_module("eval_io", "eval_io.py")
 populate_eval_models = load_benchmark_module("populate_eval_models", "populate_eval_models.py")
 mcp_tool_call_eval = load_benchmark_module("mcp_tool_call_eval", "mcp_tool_call_eval.py")
+plot_tool_call_eval_results = load_benchmark_module("plot_tool_call_eval_results", "plot_tool_call_eval_results.py")
 run_tool_call_eval = load_benchmark_module("run_tool_call_eval", "run_tool_call_eval.py")
 merge_tool_call_eval_results = load_benchmark_module("merge_tool_call_eval_results", "merge_tool_call_eval_results.py")
+gen_benchmark_fixture = load_benchmark_module("gen_benchmark_fixture", "gen_benchmark_fixture.py")
 
 
 # eval_io
@@ -1033,6 +1035,38 @@ class TestRunToolCallEval:
             "gpt-test": "Missing Pricing",
         }
 
+    def test_flavor_boundary_values_groups_numeric_prompt_suffixes_by_default(self):
+        row = {
+            "flavor_order": json.dumps(["direct", "direct_2", "natural"]),
+            "direct_passed": 1,
+            "direct_2_passed": 0,
+            "natural_passed": 1,
+        }
+
+        assert plot_tool_call_eval_results.flavor_boundary_values(row, "score_passed", 2) == [
+            ("direct", 1.0),
+            ("natural", 1.0),
+        ]
+
+    def test_flavor_boundary_values_can_show_prompt_details(self):
+        row = {
+            "flavor_order": json.dumps(["direct", "direct_2", "natural"]),
+            "direct_passed": 1,
+            "direct_2_passed": 0,
+            "natural_passed": 1,
+        }
+
+        assert plot_tool_call_eval_results.flavor_boundary_values(
+            row,
+            "score_passed",
+            2,
+            group_prompt_styles=False,
+        ) == [
+            ("direct", 1.0),
+            ("direct_2", 0.0),
+            ("natural", 1.0),
+        ]
+
     def test_generate_plots_writes_cost_plot_when_cost_values_exist(self, tmp_path: Path, monkeypatch):
         summary_csv = tmp_path / "summary.csv"
         summary_csv.write_text("not used", encoding="utf-8")
@@ -1074,6 +1108,31 @@ class TestRunToolCallEval:
         assert calls[-1]["legend_title"] == "Test case"
         assert calls[-1]["show_legend_values"] is False
         assert calls[-1]["row_annotations"] == {}
+        assert calls[0]["group_prompt_styles"] is True
+        assert calls[1]["group_prompt_styles"] is True
+
+    def test_generate_plots_can_request_prompt_details(self, tmp_path: Path, monkeypatch):
+        summary_csv = tmp_path / "summary.csv"
+        summary_csv.write_text("not used", encoding="utf-8")
+        rows = [{"model": "gpt-test", "case_id": "case-a", "score_passed": 1, "avg_total_tokens": 10}]
+        calls = []
+
+        monkeypatch.setattr(run_tool_call_eval, "load_rows", lambda _path: rows)
+        monkeypatch.setattr(
+            run_tool_call_eval,
+            "plot_stacked",
+            lambda **kwargs: calls.append(kwargs),
+        )
+
+        run_tool_call_eval.generate_plots(
+            {"output": {"prefix": "flux_tool_call", "plot_prompt_details": True}},
+            tmp_path,
+            summary_csv,
+            quiet=True,
+        )
+
+        assert calls[0]["group_prompt_styles"] is False
+        assert calls[1]["group_prompt_styles"] is False
 
     def test_generate_plots_marks_models_with_missing_pricing(self, tmp_path: Path, monkeypatch):
         summary_csv = tmp_path / "summary.csv"
@@ -1200,6 +1259,224 @@ class TestMergeToolCallEvalResults:
         assert normalized["input_cost_usd"] == 0.1
         assert normalized["output_cost_usd"] == 0.04
         assert normalized["total_cost_usd"] == 0.14
+
+
+# gen_benchmark_fixture
+
+
+class TestGenBenchmarkFixture:
+    def test_build_generation_settings_prefers_cli_over_fixture_config(self):
+        fixture = {
+            "prompt_generation": {
+                "model": "fixture-model",
+                "num_prompts": 2,
+                "styles": [
+                    {"id": "natural", "description": "Natural request"},
+                    {"id": "terse", "description": "Terse request"},
+                ],
+            }
+        }
+        args = argparse.Namespace(
+            model="cli-model",
+            num_prompts=4,
+            styles=["terse"],
+            temperature=0.2,
+            request_timeout=30.0,
+        )
+
+        settings = gen_benchmark_fixture.build_generation_settings(fixture, {}, args)
+
+        assert settings.model == "cli-model"
+        assert settings.num_prompts == 4
+        assert [style.id for style in settings.styles] == ["terse"]
+        assert settings.temperature == 0.2
+        assert settings.request_timeout == 30.0
+
+    def test_prompt_slots_generates_requested_count_per_style(self):
+        styles = [
+            gen_benchmark_fixture.GenerationStyle("natural", "Natural request"),
+            gen_benchmark_fixture.GenerationStyle("terse", "Terse request"),
+        ]
+
+        slots = gen_benchmark_fixture.prompt_slots(styles, 3)
+
+        assert [(slot.id, slot.style.id) for slot in slots] == [
+            ("natural", "natural"),
+            ("terse", "terse"),
+            ("natural_2", "natural"),
+            ("terse_2", "terse"),
+            ("natural_3", "natural"),
+            ("terse_3", "terse"),
+        ]
+
+    def test_parse_server_py_tools_extracts_docstrings_signatures_and_defaults(self, tmp_path: Path):
+        server_py = tmp_path / "server.py"
+        server_py.write_text(
+            '''
+class ExampleServer:
+    def _register_tools(self):
+        @self.mcp.tool()
+        def submit_command(command: str, nodes: int = 1, exclusive: bool = False) -> str:
+            """
+            Submit one ad hoc command.
+
+            Args:
+                command: Command to run.
+                nodes: Number of nodes to request.
+                exclusive: Whether to request exclusive nodes.
+
+            Returns:
+                Result JSON.
+            """
+            return "{}"
+''',
+            encoding="utf-8",
+        )
+
+        tools = gen_benchmark_fixture.parse_server_py_tools(server_py, "example")
+
+        assert len(tools) == 1
+        function = tools[0]["function"]
+        assert function["name"] == "submit_command"
+        assert "[example] Submit one ad hoc command." in function["description"]
+        parameters = function["parameters"]
+        assert parameters["required"] == ["command"]
+        assert parameters["properties"]["command"]["type"] == "string"
+        assert parameters["properties"]["command"]["description"] == "Command to run."
+        assert parameters["properties"]["nodes"]["type"] == "integer"
+        assert parameters["properties"]["nodes"]["default"] == 1
+        assert parameters["properties"]["exclusive"]["type"] == "boolean"
+        assert parameters["properties"]["exclusive"]["default"] is False
+
+    def test_validate_generated_prompts_rejects_unexpected_ids(self):
+        payload = {"prompts": [{"id": "natural", "text": "Run python -V."}]}
+
+        with pytest.raises(ValueError, match="do not match expected ids"):
+            gen_benchmark_fixture.validate_generated_prompts(payload, ["natural", "terse"])
+
+    def test_validate_generated_prompts_orders_by_expected_ids(self):
+        payload = {
+            "prompts": [
+                {"id": "terse", "text": "Flux submit status."},
+                {"id": "natural", "text": "Please check the Flux job status."},
+            ]
+        }
+
+        prompts = gen_benchmark_fixture.validate_generated_prompts(payload, ["natural", "terse"])
+
+        assert prompts == [
+            {"id": "natural", "text": "Please check the Flux job status."},
+            {"id": "terse", "text": "Flux submit status."},
+        ]
+
+    @pytest.mark.asyncio
+    async def test_generate_slot_prompts_retries_duplicate_prompt_ids(self):
+        class Message:
+            def __init__(self, content: str):
+                self.content = content
+
+        class Choice:
+            def __init__(self, content: str):
+                self.message = Message(content)
+
+        class Response:
+            def __init__(self, content: str):
+                self.choices = [Choice(content)]
+
+        class Completions:
+            def __init__(self):
+                self.calls = 0
+
+            async def create(self, **_kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    return Response(
+                        json.dumps(
+                            {
+                                "prompts": [
+                                    {"id": "direct_2", "text": "Duplicate A"},
+                                    {"id": "direct_2", "text": "Duplicate B"},
+                                ]
+                            }
+                        )
+                    )
+                return Response(
+                    json.dumps(
+                        {
+                            "prompts": [
+                                {"id": "direct", "text": "Use Flux to check all jobs."},
+                                {"id": "direct_2", "text": "Call Flux check_job_status for all tracked jobs."},
+                            ]
+                        }
+                    )
+                )
+
+        class Chat:
+            def __init__(self):
+                self.completions = Completions()
+
+        class Client:
+            def __init__(self):
+                self.chat = Chat()
+
+        client = Client()
+        settings = gen_benchmark_fixture.GenerationSettings(
+            model="model",
+            num_prompts=2,
+            styles=[gen_benchmark_fixture.GenerationStyle("direct", "Direct request")],
+            temperature=None,
+            request_timeout=120.0,
+        )
+        slots = gen_benchmark_fixture.prompt_slots_for_style(settings.styles[0], settings.num_prompts)
+        test_case = {
+            "id": "case",
+            "server": "flux",
+            "expected_call": {"tool": "check_job_status", "arguments": {}, "match": {"mode": "subset"}},
+        }
+
+        prompts = await gen_benchmark_fixture.generate_slot_prompts(client, settings, test_case, [], slots)
+
+        assert client.chat.completions.calls == 2
+        assert prompts == [
+            {"id": "direct", "text": "Use Flux to check all jobs."},
+            {"id": "direct_2", "text": "Call Flux check_job_status for all tracked jobs."},
+        ]
+
+    @pytest.mark.asyncio
+    async def test_generate_fixture_sets_prompts_without_mutating_input(self, monkeypatch):
+        fixture = {
+            "mcp_servers": {"flux": {"url": "http://localhost:8101/mcp"}},
+            "tests": [
+                {
+                    "id": "case",
+                    "server": "flux",
+                    "expected_call": {"tool": "check_job_status", "arguments": {}, "match": {"mode": "subset"}},
+                }
+            ],
+        }
+        settings = gen_benchmark_fixture.GenerationSettings(
+            model="model",
+            num_prompts=1,
+            styles=[gen_benchmark_fixture.GenerationStyle("natural", "Natural request")],
+            temperature=None,
+            request_timeout=120.0,
+        )
+
+        async def fake_generate_case_prompts(_client, _settings, _test_case, _tools):
+            return [{"id": "natural", "text": "Show all Flux jobs."}]
+
+        monkeypatch.setattr(gen_benchmark_fixture, "generate_case_prompts", fake_generate_case_prompts)
+
+        output = await gen_benchmark_fixture.generate_fixture(
+            fixture,
+            {"flux": [{"type": "function", "function": {"name": "check_job_status"}}]},
+            client=object(),
+            settings=settings,
+            quiet=True,
+        )
+
+        assert "prompts" not in fixture["tests"][0]
+        assert output["tests"][0]["prompts"] == [{"id": "natural", "text": "Show all Flux jobs."}]
 
 
 # tool_call_eval_fixtures

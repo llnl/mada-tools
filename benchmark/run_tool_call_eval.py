@@ -250,6 +250,7 @@ def generate_plots(config: dict[str, Any], output_dir: Path, summary_csv: Path, 
     score_field = str(output_config.get("score_field") or DEFAULT_SCORE_FIELD)
     token_field = str(output_config.get("token_field") or DEFAULT_TOKEN_FIELD)
     cost_field = str(output_config.get("cost_field") or DEFAULT_COST_FIELD)
+    group_prompt_styles = not bool_config(output_config.get("plot_prompt_details"), False)
     score_output = output_dir / f"{prefix}_score.png"
     tokens_output = output_dir / f"{prefix}_tokens.png"
     cost_output = output_dir / f"{prefix}_cost.png"
@@ -272,6 +273,7 @@ def generate_plots(config: dict[str, Any], output_dir: Path, summary_csv: Path, 
         legend_title="Test case (mean block score)",
         draw_flavor_boundaries=True,
         show_flavor_order_box=True,
+        group_prompt_styles=group_prompt_styles,
     )
     plot_stacked(
         rows=rows,
@@ -283,6 +285,7 @@ def generate_plots(config: dict[str, Any], output_dir: Path, summary_csv: Path, 
         legend_title="Test case (mean block value)",
         draw_flavor_boundaries=True,
         show_flavor_order_box=True,
+        group_prompt_styles=group_prompt_styles,
     )
     wrote_cost_plot = False
     if has_numeric_value(rows, cost_field):
