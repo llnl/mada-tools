@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +49,14 @@ AGGREGATE_SUMMARY_FIELDS = {
     "score_total",
     "score_rate",
 }
+
+
+@dataclass(frozen=True)
+class ReferenceLine:
+    value: float
+    label: str
+    color: str = "#333333"
+    linestyle: str = "--"
 
 
 def load_rows(path: Path) -> list[dict[str, Any]]:
@@ -275,6 +284,95 @@ def score_axis_label(rows: list[dict[str, Any]], value_field: str, xlabel: str) 
     return f"{xlabel} ({', '.join(notes)})"
 
 
+def rate_label(value: float) -> str:
+    percent = value * 100
+    return f"{percent:g}%"
+
+
+def aggregate_total_by_model(rows: list[dict[str, Any]], total_field: str) -> dict[str, float]:
+    totals_by_model: dict[str, float] = {}
+    for row in rows:
+        model = str(row["model"])
+        totals_by_model[model] = totals_by_model.get(model, 0.0) + as_float(row.get(total_field))
+    return totals_by_model
+
+
+def unique_aggregate_total(rows: list[dict[str, Any]], total_field: str) -> float | None:
+    totals_by_model = aggregate_total_by_model(rows, total_field)
+    possible_totals = sorted(set(totals_by_model.values()))
+    if len(possible_totals) != 1:
+        return None
+    return possible_totals[0]
+
+
+def total_field_for_score_value(value_field: str) -> str | None:
+    if value_field.startswith("score_"):
+        return "score_total"
+    if value_field.startswith("prompts_"):
+        return "prompts_total"
+    return None
+
+
+def score_reference_lines(
+    rows: list[dict[str, Any]],
+    value_field: str,
+    min_pass_rate: float | None = None,
+) -> list[ReferenceLine]:
+    lines = []
+    if value_field.endswith("_rate") or value_field == "pass_rate":
+        if min_pass_rate is not None:
+            lines.append(ReferenceLine(min_pass_rate, f"Min pass rate ({rate_label(min_pass_rate)})"))
+        return lines
+
+    total_field = total_field_for_score_value(value_field)
+    if total_field is None:
+        return lines
+
+    total = unique_aggregate_total(rows, total_field)
+    if total is None or total <= 0:
+        return lines
+
+    lines.append(ReferenceLine(total, "Max possible score"))
+    if min_pass_rate is not None:
+        lines.append(ReferenceLine(total * min_pass_rate, f"Min pass rate ({rate_label(min_pass_rate)})"))
+    return lines
+
+
+def order_legend_entries(
+    handles: list[Any],
+    labels: list[str],
+    reference_lines: list[ReferenceLine] | None = None,
+) -> tuple[list[Any], list[str]]:
+    if not reference_lines:
+        return handles, labels
+
+    reference_labels = [line.label for line in reference_lines]
+    reference_label_set = set(reference_labels)
+    non_reference_entries = [
+        (handle, label) for handle, label in zip(handles, labels) if label not in reference_label_set
+    ]
+    reference_entries_by_label = {
+        label: handle for handle, label in zip(handles, labels) if label in reference_label_set
+    }
+    reference_entries = [
+        (reference_entries_by_label[label], label)
+        for label in reference_labels
+        if label in reference_entries_by_label
+    ]
+    ordered_entries = non_reference_entries + reference_entries
+    return [handle for handle, _label in ordered_entries], [label for _handle, label in ordered_entries]
+
+
+def parse_min_pass_rate(value: str) -> float:
+    try:
+        rate = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("--min-pass-rate must be a number") from exc
+    if rate < 0 or rate > 1:
+        raise argparse.ArgumentTypeError("--min-pass-rate must be between 0 and 1")
+    return rate
+
+
 def flavor_boundary_values(
     row: dict[str, Any],
     value_field: str,
@@ -376,6 +474,7 @@ def plot_stacked(
     show_legend_values: bool = True,
     group_prompt_styles: bool = True,
     row_annotations: dict[str, str] | None = None,
+    reference_lines: list[ReferenceLine] | None = None,
 ) -> None:
     models, cases, values, row_map = matrix_for(rows, value_field)
     if not models or not cases:
@@ -432,6 +531,22 @@ def plot_stacked(
                 )
         left = [base + value for base, value in zip(left, case_values)]
 
+    if reference_lines:
+        max_reference_value = max((line.value for line in reference_lines), default=0.0)
+        max_bar_value = max(left, default=0.0)
+        max_x = max(max_reference_value, max_bar_value)
+        if max_x > 0:
+            ax.set_xlim(0, max_x * 1.04)
+        for line in reference_lines:
+            ax.axvline(
+                line.value,
+                color=line.color,
+                linestyle=line.linestyle,
+                linewidth=1.2,
+                label=line.label,
+                zorder=5,
+            )
+
     ax.set_yticks(y_positions)
     ax.set_yticklabels(models)
     ax.invert_yaxis()
@@ -463,6 +578,7 @@ def plot_stacked(
     flavor_legend_y = 1.0 - (0.24 / fig_height)
     fig.suptitle(title, x=0.08, y=title_y, ha="left", fontweight="bold")
     handles, labels = ax.get_legend_handles_labels()
+    handles, labels = order_legend_entries(handles, labels, reference_lines)
     case_legend = fig.legend(
         handles=handles,
         labels=labels,
@@ -546,6 +662,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Show each prompt id separately instead of grouping numeric variants by root style",
     )
+    parser.add_argument(
+        "--min-pass-rate",
+        type=parse_min_pass_rate,
+        help="Optional minimum pass-rate threshold to show on score plots",
+    )
     return parser.parse_args()
 
 
@@ -570,6 +691,7 @@ def main() -> int:
         draw_flavor_boundaries=True,
         show_flavor_order_box=True,
         group_prompt_styles=not args.plot_prompt_details,
+        reference_lines=score_reference_lines(rows, args.score_field, args.min_pass_rate),
     )
     plot_stacked(
         rows=rows,

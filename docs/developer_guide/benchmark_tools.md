@@ -695,6 +695,7 @@ JSON-only details.
 | `--max-concurrency`, `-c` | Override concurrent model request limit. |
 | `--shard-count N` | Override shard count. |
 | `--shard-index N` | Override 0-based shard index. |
+| `--min-pass-rate RATE` | Override `eval.min_pass_rate`; must be between 0 and 1. |
 | `--prompt-ids IDS` | Comma-separated exact prompt IDs to include. |
 | `--prompt-styles STYLES` | Comma-separated root prompt styles to include. |
 | `--exclude-prompt-ids IDS` | Comma-separated exact prompt IDs to exclude after include filters. |
@@ -737,6 +738,11 @@ JSON-only details.
 | `--token-field FIELD` | Summary field for token plot; default `avg_total_tokens`. |
 | `--cost-field FIELD` | Summary field for cost plot; default `total_cost_usd`. |
 | `--plot-prompt-details` | Plot every prompt ID separately instead of grouping numeric variants by root style. |
+| `--min-pass-rate RATE` | Optional threshold line for score plots; must be between 0 and 1. |
+
+Raw score plots show dashed reference lines for the maximum possible score and,
+when configured, the aggregate score implied by `min_pass_rate`. Run success
+still uses the per-case `pass_rate` rule from `eval.min_pass_rate`.
 
 ### `populate_eval_models.py`
 

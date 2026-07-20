@@ -898,6 +898,7 @@ def cli_overrides(**overrides):
         "max_concurrency": None,
         "shard_count": None,
         "shard_index": None,
+        "min_pass_rate": None,
         "prompt_ids": None,
         "prompt_styles": None,
         "exclude_prompt_ids": None,
@@ -1349,6 +1350,65 @@ class TestRunToolCallEval:
             ("natural", 1.0),
         ]
 
+    def test_score_reference_lines_include_min_rate_and_max_score(self):
+        rows = [
+            {"model": "gpt-test", "case_id": "case-a", "score_total": 3},
+            {"model": "gpt-test", "case_id": "case-b", "score_total": 2},
+            {"model": "gpt-test-2", "case_id": "case-a", "score_total": 3},
+            {"model": "gpt-test-2", "case_id": "case-b", "score_total": 2},
+        ]
+
+        lines = plot_tool_call_eval_results.score_reference_lines(rows, "score_passed", min_pass_rate=0.8)
+
+        assert [(line.value, line.label) for line in lines] == [
+            (5.0, "Max possible score"),
+            (4.0, "Min pass rate (80%)"),
+        ]
+
+    def test_score_reference_lines_skip_count_lines_for_different_totals(self):
+        rows = [
+            {"model": "gpt-test", "case_id": "case-a", "score_total": 3},
+            {"model": "gpt-test-2", "case_id": "case-a", "score_total": 2},
+        ]
+
+        assert plot_tool_call_eval_results.score_reference_lines(rows, "score_passed", min_pass_rate=0.8) == []
+
+    def test_score_reference_lines_can_mark_rate_thresholds(self):
+        rows = [{"model": "gpt-test", "case_id": "case-a", "score_total": 3}]
+
+        lines = plot_tool_call_eval_results.score_reference_lines(rows, "score_rate", min_pass_rate=0.8)
+
+        assert [(line.value, line.label) for line in lines] == [(0.8, "Min pass rate (80%)")]
+
+    def test_order_legend_entries_places_reference_lines_after_cases(self):
+        reference_lines = [
+            plot_tool_call_eval_results.ReferenceLine(5.0, "Max possible score"),
+            plot_tool_call_eval_results.ReferenceLine(4.0, "Min pass rate (80%)"),
+        ]
+
+        _handles, labels = plot_tool_call_eval_results.order_legend_entries(
+            ["max", "case-a", "min", "case-b"],
+            ["Max possible score", "case a", "Min pass rate (80%)", "case b"],
+            reference_lines,
+        )
+
+        assert labels == ["case a", "case b", "Max possible score", "Min pass rate (80%)"]
+
+    def test_build_eval_args_min_pass_rate_cli_overrides_config(self, tmp_path: Path):
+        cases = tmp_path / "cases.json"
+        cases.write_text("{}", encoding="utf-8")
+        output_dir = tmp_path / "results"
+
+        eval_args = run_tool_call_eval.build_eval_args(
+            {"cases": "cases.json", "eval": {"min_pass_rate": 0.5}},
+            tmp_path,
+            cli_overrides(min_pass_rate=0.9),
+            output_dir,
+            ["gpt-test"],
+        )
+
+        assert eval_args.min_pass_rate == 0.9
+
     def test_generate_plots_writes_cost_plot_when_cost_values_exist(self, tmp_path: Path, monkeypatch):
         summary_csv = tmp_path / "summary.csv"
         summary_csv.write_text("not used", encoding="utf-8")
@@ -1420,6 +1480,41 @@ class TestRunToolCallEval:
 
         assert calls[0]["group_prompt_styles"] is False
         assert calls[1]["group_prompt_styles"] is False
+
+    def test_generate_plots_passes_score_reference_lines(self, tmp_path: Path, monkeypatch):
+        summary_csv = tmp_path / "summary.csv"
+        summary_csv.write_text("not used", encoding="utf-8")
+        rows = [
+            {
+                "model": "gpt-test",
+                "case_id": "case-a",
+                "score_passed": 4,
+                "score_total": 5,
+                "avg_total_tokens": 10,
+            }
+        ]
+        calls = []
+
+        monkeypatch.setattr(run_tool_call_eval, "load_rows", lambda _path: rows)
+        monkeypatch.setattr(
+            run_tool_call_eval,
+            "plot_stacked",
+            lambda **kwargs: calls.append(kwargs),
+        )
+
+        run_tool_call_eval.generate_plots(
+            {"output": {"prefix": "flux_tool_call"}},
+            tmp_path,
+            summary_csv,
+            quiet=True,
+            min_pass_rate=0.8,
+        )
+
+        assert [(line.value, line.label) for line in calls[0]["reference_lines"]] == [
+            (5.0, "Max possible score"),
+            (4.0, "Min pass rate (80%)"),
+        ]
+        assert "reference_lines" not in calls[1]
 
     def test_generate_plots_marks_models_with_missing_pricing(self, tmp_path: Path, monkeypatch):
         summary_csv = tmp_path / "summary.csv"

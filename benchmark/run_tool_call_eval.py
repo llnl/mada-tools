@@ -332,6 +332,16 @@ def parse_level(value: str) -> int:
         raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
+def parse_min_pass_rate(value: str) -> float:
+    try:
+        rate = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("--min-pass-rate must be a number") from exc
+    if rate < 0 or rate > 1:
+        raise argparse.ArgumentTypeError("--min-pass-rate must be between 0 and 1")
+    return rate
+
+
 def flavor_field_names(prompt_id: str) -> tuple[str, str, str]:
     return (f"{prompt_id}_passed", f"{prompt_id}_total", f"{prompt_id}_rate")
 
@@ -1486,6 +1496,7 @@ from plot_tool_call_eval_results import (  # noqa: E402
     missing_cost_annotations,
     plot_stacked,
     score_axis_label,
+    score_reference_lines,
     sum_numeric_values,
 )
 
@@ -1564,6 +1575,12 @@ def float_or_none(value: Any) -> float | None:
     if value in (None, ""):
         return None
     return float(value)
+
+
+def min_pass_rate_config(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    return parse_min_pass_rate(str(value))
 
 
 def optional_string(value: Any, field_name: str) -> str | None:
@@ -1879,7 +1896,9 @@ def build_eval_args(
         if cli_args.shard_index is not None
         else int_config(eval_config.get("shard_index"), 0, parse_shard_index),
         strict=bool_config(eval_config.get("strict"), False),
-        min_pass_rate=float_or_none(eval_config.get("min_pass_rate")),
+        min_pass_rate=cli_args.min_pass_rate
+        if cli_args.min_pass_rate is not None
+        else min_pass_rate_config(eval_config.get("min_pass_rate")),
         prompt_ids=cli_args.prompt_ids or optional_string_list(eval_config.get("prompt_ids"), "eval.prompt_ids"),
         prompt_styles=cli_args.prompt_styles
         or optional_string_list(eval_config.get("prompt_styles"), "eval.prompt_styles"),
@@ -1915,7 +1934,13 @@ def write_run_report(**kwargs):
     return _write_run_report(**kwargs)
 
 
-def generate_plots(config: dict[str, Any], output_dir: Path, summary_csv: Path, quiet: bool) -> list[Path]:
+def generate_plots(
+    config: dict[str, Any],
+    output_dir: Path,
+    summary_csv: Path,
+    quiet: bool,
+    min_pass_rate: float | None = None,
+) -> list[Path]:
     output_config = config.get("output", {})
     if not isinstance(output_config, dict):
         raise ValueError("Run config field 'output' must be an object when provided")
@@ -1948,6 +1973,7 @@ def generate_plots(config: dict[str, Any], output_dir: Path, summary_csv: Path, 
         draw_flavor_boundaries=True,
         show_flavor_order_box=True,
         group_prompt_styles=group_prompt_styles,
+        reference_lines=score_reference_lines(rows, score_field, min_pass_rate),
     )
     plot_stacked(
         rows=rows,
@@ -2000,6 +2026,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-concurrency", "-c", type=parse_max_concurrency, help="Override max concurrency")
     parser.add_argument("--shard-count", type=parse_shard_count, help="Override shard count")
     parser.add_argument("--shard-index", type=parse_shard_index, help="Override shard index")
+    parser.add_argument("--min-pass-rate", type=parse_min_pass_rate, help="Override eval.min_pass_rate")
     parser.add_argument(
         "--prompt-ids",
         type=parse_prompt_filter_list,
@@ -2058,7 +2085,13 @@ async def run(args: argparse.Namespace) -> int:
     plot_paths = []
     if plots_enabled(config, args):
         if eval_args.summary_csv is not None and eval_args.summary_csv.exists():
-            plot_paths = generate_plots(config, output_dir, eval_args.summary_csv, eval_args.quiet)
+            plot_paths = generate_plots(
+                config,
+                output_dir,
+                eval_args.summary_csv,
+                eval_args.quiet,
+                min_pass_rate=eval_args.min_pass_rate,
+            )
         elif not eval_args.quiet:
             print(f"Skipping plot generation because {eval_args.summary_csv} was not created.", file=sys.stderr)
 
