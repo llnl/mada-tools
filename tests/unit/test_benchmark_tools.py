@@ -2755,6 +2755,9 @@ class TestGenBenchmarkReport:
         assert "- Models: gpt-test" in report
         assert "- Prompt:" in report
         assert "Prompt." in report
+        assert "### flux / case_one / check_job_status" in report
+        assert "#### Prompt Flavor: direct" in report
+        assert "##### Prompt: direct" in report
         assert "##### Prompt Flavor: direct" in report
         assert "Unused prompt." not in report
 
@@ -2833,15 +2836,85 @@ class TestGenBenchmarkReport:
 
         assert "# Benchmark Run Report: results" in report
         assert "![Flux Tool Call Score](flux_tool_call_score.png)" in report
-        assert "### gpt-test / flux / case_one / direct" in report
+        assert "### flux / case_one / check_job_status" in report
+        assert "- Expected tool: `check_job_status`" in report
+        assert "- Match mode: `subset`" in report
+        assert "#### Prompt Flavor: direct" in report
+        assert "##### Prompt: direct" in report
+        assert "###### Model: gpt-test" in report
         assert "- Passed: 0/2" in report
-        assert "- Prompt:" in report
+        assert "- Prompt text:" in report
         assert "Prompt." in report
-        assert "2x `wrong_tool`: got `submit_command`" in report
+        assert "2x sample=1,2 `wrong_tool`: got `submit_command`" in report
         assert "Expected tool check_job_status, got submit_command" in report
         assert "Returned arguments:" in report
         assert '{"command": "status"}' in report
         assert "## Benchmark Fixture: cases" in report
+
+    def test_render_run_report_can_use_legacy_prompt_grouped_failures(self, tmp_path: Path):
+        fixture = {
+            "mcp_servers": {"flux": {"url": "http://localhost:8101/mcp"}},
+            "tests": [
+                {
+                    "id": "case_one",
+                    "server": "flux",
+                    "prompts": [{"id": "direct", "text": "Prompt."}],
+                    "expected_call": {
+                        "tool": "check_job_status",
+                        "arguments": {"job_id": "job_000123"},
+                        "match": {"mode": "subset"},
+                    },
+                }
+            ],
+        }
+        eval_args = argparse.Namespace(
+            models=["gpt-test"],
+            cases=tmp_path / "cases.json",
+            num_samples=1,
+            max_concurrency=1,
+            shard_index=0,
+            shard_count=1,
+            strict=False,
+            prompt_ids=None,
+            prompt_styles=None,
+            exclude_prompt_ids=None,
+            exclude_prompt_styles=None,
+        )
+        detailed_rows = [
+            {
+                "model": "gpt-test",
+                "server": "flux",
+                "case_id": "case_one",
+                "prompt_id": "direct",
+                "sample_index": 1,
+                "passed": False,
+                "error_type": "wrong_tool",
+                "error": "Expected tool check_job_status, got submit_command",
+                "expected_tool": "check_job_status",
+                "actual_tool": "submit_command",
+                "expected_call": fixture["tests"][0]["expected_call"],
+                "actual_arguments": {"command": "status"},
+            }
+        ]
+
+        report = gen_benchmark_report.render_run_report(
+            fixture=fixture,
+            cases_path=tmp_path / "cases.json",
+            run_config_path=tmp_path / "run.json",
+            run_config={"name": "flux"},
+            eval_args=eval_args,
+            output_dir=tmp_path / "results",
+            report_path=tmp_path / "results" / "flux_tool_call_report.md",
+            eval_status=1,
+            plot_paths=[],
+            detailed_rows=detailed_rows,
+            failure_grouping="prompt",
+        )
+
+        assert "### gpt-test / flux / case_one / direct" in report
+        assert "- Prompt:" in report
+        assert "Prompt." in report
+        assert "1x sample=1 `wrong_tool`: got `submit_command`" in report
 
 
 # tool_call_eval_fixtures

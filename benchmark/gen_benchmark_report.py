@@ -10,7 +10,6 @@ run settings, and grouped failure details.
 from __future__ import annotations
 
 import argparse
-import collections
 import copy
 import json
 import sys
@@ -28,6 +27,9 @@ from run_tool_call_eval import (  # noqa: E402
     normalize_prompts,
     prompt_style_id,
 )
+
+FAILURE_GROUPINGS = {"expected_call", "prompt"}
+DEFAULT_FAILURE_GROUPING = "expected_call"
 
 
 def default_output_path(cases_path: Path) -> Path:
@@ -248,6 +250,37 @@ def load_detailed_rows(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def fixture_prompt_index(fixture: dict[str, Any]) -> dict[tuple[str, str, str], str]:
+    """Return prompt text by `(server, case_id, prompt_id)` from a fixture."""
+    index = {}
+    for test_case in fixture.get("tests", []):
+        if not isinstance(test_case, dict):
+            continue
+        server = str(test_case.get("server", ""))
+        case_id = str(test_case.get("id", ""))
+        try:
+            prompts = normalize_prompts(test_case)
+        except ValueError:
+            continue
+        for prompt in prompts:
+            index[(server, case_id, prompt["id"])] = prompt["text"]
+    return index
+
+
+def fixture_expected_call_index(fixture: dict[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
+    """Return expected call payloads by `(server, case_id)` from a fixture."""
+    index = {}
+    for test_case in fixture.get("tests", []):
+        if not isinstance(test_case, dict):
+            continue
+        server = str(test_case.get("server", ""))
+        case_id = str(test_case.get("id", ""))
+        expected_call = test_case.get("expected_call")
+        if isinstance(expected_call, dict):
+            index[(server, case_id)] = expected_call
+    return index
+
+
 def bool_label(value: Any) -> str:
     return "yes" if bool(value) else "no"
 
@@ -335,7 +368,100 @@ def failure_signature(row: dict[str, Any]) -> tuple[str, str, str, str]:
     )
 
 
-def render_failure_lines(detailed_rows: list[dict[str, Any]]) -> list[str]:
+def row_expected_call(
+    row: dict[str, Any],
+    expected_call_by_case: dict[tuple[str, str], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Return the expected call for a row, falling back to fixture data."""
+    expected_call = row.get("expected_call")
+    if isinstance(expected_call, dict):
+        return expected_call
+
+    if expected_call_by_case is not None:
+        key = (str(row.get("server", "")), str(row.get("case_id", "")))
+        expected_call = expected_call_by_case.get(key)
+        if isinstance(expected_call, dict):
+            return expected_call
+
+    expected_tool = row.get("expected_tool")
+    if isinstance(expected_tool, str) and expected_tool:
+        return {"tool": expected_tool, "arguments": {}}
+    return {}
+
+
+def row_prompt_text(
+    row: dict[str, Any],
+    prompt_text_by_id: dict[tuple[str, str, str], str] | None = None,
+) -> str:
+    """Return prompt text for a row, falling back to fixture data."""
+    prompt = row.get("prompt")
+    if isinstance(prompt, str):
+        return prompt
+
+    if prompt_text_by_id is None:
+        return ""
+    key = (str(row.get("server", "")), str(row.get("case_id", "")), str(row.get("prompt_id", "")))
+    return prompt_text_by_id.get(key, "")
+
+
+def row_sample_index(row: dict[str, Any]) -> int:
+    """Return a row sample index as an integer when possible."""
+    try:
+        return int(row.get("sample_index", 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def sample_index_label(rows: list[dict[str, Any]]) -> str:
+    """Return a compact label for the failed sample indexes in a signature group."""
+    sample_indexes = sorted(index for index in (row_sample_index(row) for row in rows) if index > 0)
+    if not sample_indexes:
+        return ""
+    return " sample=" + ",".join(str(index) for index in sample_indexes)
+
+
+def group_rows_in_order(rows: list[dict[str, Any]], key_func: Any) -> list[tuple[Any, list[dict[str, Any]]]]:
+    """Group rows by key while preserving first-seen key order."""
+    grouped: dict[Any, list[dict[str, Any]]] = {}
+    order = []
+    for row in rows:
+        key = key_func(row)
+        if key not in grouped:
+            grouped[key] = []
+            order.append(key)
+        grouped[key].append(row)
+    return [(key, grouped[key]) for key in order]
+
+
+def append_failure_signature_lines(lines: list[str], failures: list[dict[str, Any]]) -> None:
+    """Append grouped failure-signature details to report lines."""
+    signatures: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
+    for row in failures:
+        signatures.setdefault(failure_signature(row), []).append(row)
+
+    for signature, signature_rows in sorted(signatures.items(), key=lambda item: (-len(item[1]), item[0])):
+        error_type, error, actual_tool, actual_args = signature
+        actual_tool_label = actual_tool or "<none>"
+        reason = compact_text(error) if error else "No evaluator error detail"
+        sample_label = sample_index_label(signature_rows)
+        lines.extend(
+            [
+                f"  - {len(signature_rows)}x{sample_label} `{error_type}`: got `{actual_tool_label}`.",
+                "    Reason:",
+                "",
+                indent_block(text_block(reason)),
+                "",
+            ]
+        )
+        if actual_args:
+            lines.extend(["    Returned arguments:", "", indent_block(text_block(actual_args)), ""])
+
+
+def render_prompt_grouped_failure_lines(
+    detailed_rows: list[dict[str, Any]],
+    *,
+    fixture: dict[str, Any] | None = None,
+) -> list[str]:
     """Render grouped failure details from detailed evaluator rows.
 
     Failures are grouped by model/server/case/prompt, then counted by common
@@ -352,6 +478,8 @@ def render_failure_lines(detailed_rows: list[dict[str, Any]]) -> list[str]:
         lines.extend(["No failures found.", ""])
         return lines
 
+    prompt_text_by_id = fixture_prompt_index(fixture) if fixture is not None else {}
+    expected_call_by_case = fixture_expected_call_index(fixture) if fixture is not None else {}
     grouped: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
     for row in detailed_rows:
         key = (
@@ -370,11 +498,10 @@ def render_failure_lines(detailed_rows: list[dict[str, Any]]) -> list[str]:
         model, server, case_id, prompt_id = key
         passed = len(prompt_rows) - len(prompt_failures)
         total = len(prompt_rows)
-        expected_call = prompt_failures[0].get("expected_call") or {}
+        expected_call = row_expected_call(prompt_failures[0], expected_call_by_case)
         expected_tool = expected_call.get("tool") or prompt_failures[0].get("expected_tool") or ""
         expected_args = expected_call.get("arguments") or {}
-        prompt_text = prompt_failures[0].get("prompt") or ""
-        signatures = collections.Counter(failure_signature(row) for row in prompt_failures)
+        prompt_text = row_prompt_text(prompt_failures[0], prompt_text_by_id)
 
         lines.extend(
             [
@@ -393,23 +520,116 @@ def render_failure_lines(detailed_rows: list[dict[str, Any]]) -> list[str]:
                 "- Common failure patterns:",
             ]
         )
-        for (error_type, error, actual_tool, actual_args), count in signatures.most_common():
-            actual_tool_label = actual_tool or "<none>"
-            reason = compact_text(error) if error else "No evaluator error detail"
-            lines.extend(
-                [
-                    f"  - {count}x `{error_type}`: got `{actual_tool_label}`.",
-                    "    Reason:",
-                    "",
-                    indent_block(text_block(reason)),
-                    "",
-                ]
-            )
-            if actual_args:
-                lines.extend(["    Returned arguments:", "", indent_block(text_block(actual_args)), ""])
+        append_failure_signature_lines(lines, prompt_failures)
         lines.append("")
 
     return lines
+
+
+def render_expected_call_grouped_failure_lines(
+    detailed_rows: list[dict[str, Any]],
+    *,
+    fixture: dict[str, Any] | None = None,
+) -> list[str]:
+    """Render failures grouped by expected call, prompt flavor, prompt, and model."""
+    lines = [heading(2, "Failures"), ""]
+    if not detailed_rows:
+        lines.extend(["No detailed result rows were available.", ""])
+        return lines
+
+    failed_rows = [row for row in detailed_rows if not row.get("passed")]
+    if not failed_rows:
+        lines.extend(["No failures found.", ""])
+        return lines
+
+    prompt_text_by_id = fixture_prompt_index(fixture) if fixture is not None else {}
+    expected_call_by_case = fixture_expected_call_index(fixture) if fixture is not None else {}
+
+    def expected_call_key(row: dict[str, Any]) -> tuple[str, str, str]:
+        server = str(row.get("server", ""))
+        case_id = str(row.get("case_id", ""))
+        return (server, case_id, compact_json(row_expected_call(row, expected_call_by_case), max_length=10000))
+
+    for (server, case_id, _expected_call_json), case_rows in group_rows_in_order(detailed_rows, expected_call_key):
+        case_failures = [row for row in case_rows if not row.get("passed")]
+        if not case_failures:
+            continue
+
+        expected_call = row_expected_call(case_failures[0], expected_call_by_case)
+        expected_tool = expected_call.get("tool") or case_failures[0].get("expected_tool") or ""
+        match = expected_call.get("match") if isinstance(expected_call.get("match"), dict) else {}
+        match_mode = match.get("mode", "subset") if isinstance(match, dict) else "subset"
+        match_profile = match.get("profile") if isinstance(match, dict) else None
+
+        lines.extend(
+            [
+                heading(3, f"{server} / {case_id} / {expected_tool or '<unknown tool>'}"),
+                "",
+                f"- Expected tool: `{expected_tool or '<unknown>'}`",
+                f"- Match mode: `{match_mode}`",
+            ]
+        )
+        if match_profile is not None:
+            lines.append(f"- Match profile: `{match_profile}`")
+        lines.extend(["- Expected call:", "", json_block(expected_call), ""])
+
+        for flavor, flavor_rows in group_rows_in_order(
+            case_rows,
+            lambda row: prompt_style_id(str(row.get("prompt_id", ""))),
+        ):
+            flavor_failures = [row for row in flavor_rows if not row.get("passed")]
+            if not flavor_failures:
+                continue
+            lines.extend([heading(4, f"Prompt Flavor: {flavor}"), ""])
+
+            for prompt_id, prompt_rows in group_rows_in_order(flavor_rows, lambda row: str(row.get("prompt_id", ""))):
+                prompt_failures = [row for row in prompt_rows if not row.get("passed")]
+                if not prompt_failures:
+                    continue
+                prompt_text = row_prompt_text(prompt_failures[0], prompt_text_by_id)
+                lines.extend(
+                    [
+                        heading(5, f"Prompt: {prompt_id}"),
+                        "",
+                        "- Prompt text:",
+                        "",
+                        text_block(prompt_text),
+                        "",
+                    ]
+                )
+
+                for model, model_rows in group_rows_in_order(prompt_rows, lambda row: str(row.get("model", ""))):
+                    model_failures = [row for row in model_rows if not row.get("passed")]
+                    if not model_failures:
+                        continue
+                    passed = len(model_rows) - len(model_failures)
+                    total = len(model_rows)
+                    lines.extend(
+                        [
+                            heading(6, f"Model: {model}"),
+                            "",
+                            f"- Passed: {passed}/{total}",
+                            "- Failure patterns:",
+                        ]
+                    )
+                    append_failure_signature_lines(lines, model_failures)
+                lines.append("")
+
+    return lines
+
+
+def render_failure_lines(
+    detailed_rows: list[dict[str, Any]],
+    *,
+    fixture: dict[str, Any] | None = None,
+    failure_grouping: str = DEFAULT_FAILURE_GROUPING,
+) -> list[str]:
+    """Render run-report failure details using the selected grouping mode."""
+    if failure_grouping == "prompt":
+        return render_prompt_grouped_failure_lines(detailed_rows, fixture=fixture)
+    if failure_grouping == "expected_call":
+        return render_expected_call_grouped_failure_lines(detailed_rows, fixture=fixture)
+    raise ValueError(f"failure_grouping must be one of: {', '.join(sorted(FAILURE_GROUPINGS))}")
 
 
 def render_run_report(
@@ -424,6 +644,7 @@ def render_run_report(
     eval_status: int,
     plot_paths: list[Path],
     detailed_rows: list[dict[str, Any]] | None,
+    failure_grouping: str = DEFAULT_FAILURE_GROUPING,
 ) -> str:
     """Render a complete Markdown report for one completed benchmark run."""
     title = output_dir.name or fixture_title(cases_path)
@@ -438,7 +659,7 @@ def render_run_report(
             eval_status=eval_status,
         ),
         *render_plot_lines(plot_paths, report_path),
-        *render_failure_lines(detailed_rows or []),
+        *render_failure_lines(detailed_rows or [], fixture=fixture, failure_grouping=failure_grouping),
         *render_fixture_lines(fixture, cases_path, title_level=2, title_prefix="Benchmark Fixture: "),
     ]
     return "\n".join(lines).rstrip() + "\n"
@@ -455,6 +676,7 @@ def write_run_report(
     eval_status: int,
     plot_paths: list[Path],
     detailed_rows_path: Path | None,
+    failure_grouping: str = DEFAULT_FAILURE_GROUPING,
 ) -> Path:
     """Load run artifacts, render a run report, and write it to disk."""
     fixture = load_json(cases_path)
@@ -476,6 +698,7 @@ def write_run_report(
             eval_status=eval_status,
             plot_paths=plot_paths,
             detailed_rows=detailed_rows,
+            failure_grouping=failure_grouping,
         ),
         encoding="utf-8",
     )
@@ -631,6 +854,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="Write Markdown report here (default: fixture .md, or <run-output>/<prefix>_report.md in run mode)",
     )
+    parser.add_argument(
+        "--failure-grouping",
+        choices=sorted(FAILURE_GROUPINGS),
+        default=DEFAULT_FAILURE_GROUPING,
+        help=f"Failure grouping for run-report mode (default: {DEFAULT_FAILURE_GROUPING})",
+    )
     return parser.parse_args()
 
 
@@ -660,6 +889,7 @@ def run(args: argparse.Namespace) -> int:
                 eval_status=run_status_from_rows(rows, getattr(args, "eval_status", None)),
                 plot_paths=infer_plot_paths(run_output, getattr(args, "plots", None)),
                 detailed_rows=rows,
+                failure_grouping=getattr(args, "failure_grouping", DEFAULT_FAILURE_GROUPING),
             ),
             encoding="utf-8",
         )
