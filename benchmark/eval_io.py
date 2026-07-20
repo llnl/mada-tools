@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Shared file helpers for benchmark evaluation scripts."""
+"""Shared file helpers for benchmark evaluation scripts.
+
+These helpers centralize the row and model-list file formats used by the
+benchmark tools. Model lists may be plain text or level-aware TSV files; result
+and summary rows may be CSV or JSON depending on the caller.
+"""
 
 from __future__ import annotations
 
@@ -28,7 +33,12 @@ def parse_model_level(value: str, option_name: str = "--level") -> int:
 
 
 def load_models_file(path: Path, level: int = 0) -> list[str]:
-    """Load model IDs from a file, optionally filtering .tsv rows by level."""
+    """Load model IDs from text or level-aware TSV files.
+
+    TSV rows are selected when their configured level is less than or equal to
+    the requested level. Plain text model files ignore `level` after validating
+    that it is non-negative.
+    """
     parse_model_level(str(level), "level")
     if path.suffix.lower() == ".tsv":
         return load_model_levels_file(path, level)
@@ -50,7 +60,7 @@ def load_plain_models_file(path: Path) -> list[str]:
 
 
 def load_model_levels_file(path: Path, level: int = 0) -> list[str]:
-    """Load models from a whitespace-delimited level/model file."""
+    """Load enabled models from a whitespace-delimited level/model file."""
     selected_level = parse_model_level(str(level), "level")
     model_levels = load_model_levels(path)
     models = [model for model, model_level in model_levels.items() if model_level <= selected_level]
@@ -60,7 +70,11 @@ def load_model_levels_file(path: Path, level: int = 0) -> list[str]:
 
 
 def load_model_levels(path: Path) -> dict[str, int]:
-    """Load enabled model levels from an existing level-aware TSV file."""
+    """Load enabled model levels from an existing level-aware TSV file.
+
+    Blank lines and comments are ignored. Missing files return an empty mapping
+    so callers can preserve known levels only when a previous file exists.
+    """
     if not path.exists():
         return {}
 
@@ -78,7 +92,7 @@ def load_model_levels(path: Path) -> dict[str, int]:
 
 
 def write_model_level_file(path: Path, model_ids: list[str], levels: dict[str, int] | None = None) -> None:
-    """Write model IDs as level-aware TSV rows."""
+    """Write model IDs as level-aware TSV rows while preserving known levels."""
     path.parent.mkdir(parents=True, exist_ok=True)
     known_levels = levels or {}
     rows = [MODEL_LEVEL_HEADER]
@@ -111,7 +125,7 @@ def load_csv_rows(path: Path) -> list[dict[str, Any]]:
 
 
 def load_csv_or_json_rows(path: Path, *, description: str = "Input") -> list[dict[str, Any]]:
-    """Load row dictionaries from JSON when the suffix is .json, otherwise CSV."""
+    """Load row dictionaries from JSON when the suffix is `.json`, otherwise CSV."""
     if path.suffix.lower() == ".json":
         try:
             return load_json_rows(path)

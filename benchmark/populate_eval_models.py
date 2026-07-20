@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Discover available LLM model IDs and update eval model list files."""
+"""Discover available LLM model IDs and update eval model list files.
+
+This script queries an OpenAI-compatible `/models` endpoint, writes a full
+discovery snapshot, and initializes the curated enabled-model file when it does
+not already exist. Existing curated model levels are preserved across refreshes.
+"""
 
 from __future__ import annotations
 
@@ -94,7 +99,7 @@ def fetch_models_payload(base_url: str, api_key: str, timeout: float) -> Any:
 
 
 def known_model_levels(all_output: Path, enabled_output: Path) -> dict[str, int]:
-    """Prefer curated levels, then fall back to the existing discovery snapshot."""
+    """Prefer curated model levels, then fall back to the discovery snapshot."""
     if enabled_output.exists():
         return load_model_levels(enabled_output)
     return load_model_levels(all_output)
@@ -112,6 +117,7 @@ def refresh_model_files(model_ids: list[str], all_output: Path, enabled_output: 
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse the model-list population CLI."""
     parser = argparse.ArgumentParser(description="Populate shared eval model list files from an OpenAI-compatible API.")
     parser.add_argument("--config", type=Path, help="Optional JSON config with model.api_key and model.base_url")
     parser.add_argument("--api-key", help="OpenAI-compatible API key")
@@ -138,6 +144,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """CLI entrypoint for model discovery and model-list refresh."""
     try:
         args = parse_args()
         api_key, base_url = resolve_api_settings(args)

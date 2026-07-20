@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Create stacked horizontal bar charts from MCP tool-call eval summaries."""
+"""Create stacked horizontal bar charts from MCP tool-call eval summaries.
+
+The plotter consumes evaluator summary CSV/JSON rows and writes model-level
+score, token, and cost charts. Each model bar is stacked by test case; optional
+prompt-flavor outlines show how each case score is distributed across prompt
+variants.
+"""
 
 from __future__ import annotations
 
@@ -53,6 +59,8 @@ AGGREGATE_SUMMARY_FIELDS = {
 
 @dataclass(frozen=True)
 class ReferenceLine:
+    """Vertical guide line drawn on score plots."""
+
     value: float
     label: str
     color: str = "#333333"
@@ -60,6 +68,7 @@ class ReferenceLine:
 
 
 def load_rows(path: Path) -> list[dict[str, Any]]:
+    """Load summary rows from CSV or JSON."""
     return load_csv_or_json_rows(path, description="Summary")
 
 
@@ -70,6 +79,7 @@ def as_float(value: Any, default: float = 0.0) -> float:
 
 
 def has_numeric_value(rows: list[dict[str, Any]], field: str) -> bool:
+    """Return whether any row has a parseable numeric value for a field."""
     for row in rows:
         value = row.get(field)
         if value in (None, ""):
@@ -83,6 +93,7 @@ def has_numeric_value(rows: list[dict[str, Any]], field: str) -> bool:
 
 
 def sum_numeric_values(rows: list[dict[str, Any]], field: str) -> float:
+    """Sum all parseable numeric values for a field, ignoring blanks."""
     total = 0.0
     for row in rows:
         value = row.get(field)
@@ -106,6 +117,7 @@ def is_missing_numeric_value(value: Any) -> bool:
 
 
 def missing_cost_annotations(rows: list[dict[str, Any]], cost_field: str) -> dict[str, str]:
+    """Build per-model annotations when all cost values are missing."""
     rows_by_model: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         model = str(row["model"])
@@ -133,6 +145,7 @@ def case_label(case_id: str) -> str:
 
 
 def ordered_values(rows: list[dict[str, Any]], field: str) -> list[str]:
+    """Return field values in first-seen row order."""
     values = []
     for row in rows:
         value = str(row[field])
@@ -144,6 +157,7 @@ def ordered_values(rows: list[dict[str, Any]], field: str) -> list[str]:
 def matrix_for(
     rows: list[dict[str, Any]], value_field: str
 ) -> tuple[list[str], list[str], dict[tuple[str, str], float], dict[tuple[str, str], dict[str, Any]]]:
+    """Build the model-by-case value matrix used for stacked bars."""
     models = ordered_values(rows, "model")
     cases = ordered_values(rows, "case_id")
     values = {}
@@ -156,6 +170,11 @@ def matrix_for(
 
 
 def flavor_ids_for_row(row: dict[str, Any]) -> list[str]:
+    """Return prompt flavor IDs represented in a summary row.
+
+    Newer summaries carry explicit `flavor_order`; older or hand-built rows are
+    supported by scanning prompt-specific `*_total` fields.
+    """
     flavor_order = row.get("flavor_order")
     if isinstance(flavor_order, str) and flavor_order:
         try:
@@ -180,6 +199,7 @@ def prompt_style_id(prompt_id: str) -> str:
 
 
 def displayed_flavor_id(prompt_id: str, group_prompt_styles: bool) -> str:
+    """Return the prompt flavor label to display on plots."""
     if group_prompt_styles:
         return prompt_style_id(prompt_id)
     return prompt_id
@@ -189,6 +209,7 @@ def aggregate_flavor_values(
     flavor_values: list[tuple[str, float]],
     group_prompt_styles: bool,
 ) -> list[tuple[str, float]]:
+    """Optionally aggregate numbered prompt IDs by root style."""
     if not group_prompt_styles:
         return flavor_values
 
@@ -204,6 +225,7 @@ def aggregate_flavor_values(
 
 
 def ordered_flavor_ids(rows: list[dict[str, Any]], group_prompt_styles: bool = True) -> list[str]:
+    """Return display flavor IDs in first-seen row order."""
     flavor_ids = []
     for row in rows:
         for flavor_id in flavor_ids_for_row(row):
@@ -214,6 +236,7 @@ def ordered_flavor_ids(rows: list[dict[str, Any]], group_prompt_styles: bool = T
 
 
 def flavor_color_map(rows: list[dict[str, Any]], group_prompt_styles: bool = True) -> dict[str, str]:
+    """Assign outline colors to prompt flavors."""
     return {
         flavor_id: FLAVOR_OUTLINE_COLORS[index % len(FLAVOR_OUTLINE_COLORS)]
         for index, flavor_id in enumerate(ordered_flavor_ids(rows, group_prompt_styles))
@@ -221,6 +244,7 @@ def flavor_color_map(rows: list[dict[str, Any]], group_prompt_styles: bool = Tru
 
 
 def flavor_legend_handles(color_by_flavor: dict[str, str]) -> tuple[str, list[Any]] | None:
+    """Build legend handles for prompt-flavor outlines."""
     if not color_by_flavor:
         return None
 
@@ -239,6 +263,7 @@ def flavor_legend_handles(color_by_flavor: dict[str, str]) -> tuple[str, list[An
 
 
 def axis_label_with_case_count(rows: list[dict[str, Any]], xlabel: str) -> str:
+    """Insert the number of plotted test cases into an axis label."""
     case_count = len(ordered_values(rows, "case_id"))
     if case_count < 1 or "test cases" not in xlabel:
         return xlabel
@@ -247,6 +272,7 @@ def axis_label_with_case_count(rows: list[dict[str, Any]], xlabel: str) -> str:
 
 
 def score_axis_label(rows: list[dict[str, Any]], value_field: str, xlabel: str) -> str:
+    """Describe score scale details in the x-axis label when available."""
     xlabel = axis_label_with_case_count(rows, xlabel)
     if value_field.endswith("_rate") or value_field == "pass_rate":
         return xlabel
@@ -318,6 +344,7 @@ def score_reference_lines(
     value_field: str,
     min_pass_rate: float | None = None,
 ) -> list[ReferenceLine]:
+    """Build score plot guide lines for maximum and minimum-pass thresholds."""
     lines = []
     if value_field.endswith("_rate") or value_field == "pass_rate":
         if min_pass_rate is not None:
@@ -343,6 +370,7 @@ def order_legend_entries(
     labels: list[str],
     reference_lines: list[ReferenceLine] | None = None,
 ) -> tuple[list[Any], list[str]]:
+    """Move reference-line legend entries after case entries."""
     if not reference_lines:
         return handles, labels
 
@@ -355,9 +383,7 @@ def order_legend_entries(
         label: handle for handle, label in zip(handles, labels) if label in reference_label_set
     }
     reference_entries = [
-        (reference_entries_by_label[label], label)
-        for label in reference_labels
-        if label in reference_entries_by_label
+        (reference_entries_by_label[label], label) for label in reference_labels if label in reference_entries_by_label
     ]
     ordered_entries = non_reference_entries + reference_entries
     return [handle for handle, _label in ordered_entries], [label for _handle, label in ordered_entries]
@@ -379,6 +405,13 @@ def flavor_boundary_values(
     total_value: float,
     group_prompt_styles: bool = True,
 ) -> list[tuple[str, float]]:
+    """Return prompt-flavor widths within one case bar segment.
+
+    Score fields use prompt pass/total counts directly. Metric fields such as
+    average tokens divide the case segment proportionally by per-flavor metric
+    values, falling back to prompt totals or equal widths when metrics are
+    unavailable.
+    """
     flavor_ids = flavor_ids_for_row(row)
     if value_field in {"score_passed", "prompts_passed"}:
         return aggregate_flavor_values(
@@ -426,6 +459,7 @@ def draw_flavor_outlines(
     value_field: str,
     group_prompt_styles: bool = True,
 ) -> None:
+    """Draw prompt-flavor outlines inside one stacked case segment."""
     cumulative = 0.0
     marker_width = max(axis_span * 0.004, 0.06)
     y_bottom = y_center - (bar_height / 2)
@@ -476,6 +510,12 @@ def plot_stacked(
     row_annotations: dict[str, str] | None = None,
     reference_lines: list[ReferenceLine] | None = None,
 ) -> None:
+    """Render one stacked horizontal bar chart from evaluator summary rows.
+
+    Rows are grouped by model and test case. Each case contributes one colored
+    segment to each model bar; optional flavor outlines subdivide those segments
+    to show prompt-style coverage without changing the stacked value itself.
+    """
     models, cases, values, row_map = matrix_for(rows, value_field)
     if not models or not cases:
         raise ValueError("No rows available to plot")
@@ -618,6 +658,7 @@ def plot_stacked(
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse the standalone plotting CLI."""
     parser = argparse.ArgumentParser(description="Plot MCP tool-call eval summary results.")
     parser.add_argument(
         "--summary",
@@ -671,6 +712,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """CLI entrypoint for plot generation."""
     args = parse_args()
     rows = load_rows(args.summary)
     score_value_format = "{:.2f}" if args.score_field.endswith("_rate") or args.score_field == "pass_rate" else "{:.0f}"

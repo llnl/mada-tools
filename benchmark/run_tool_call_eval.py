@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-"""Evaluate LLM MCP tool-call selection and arguments from JSON fixtures."""
+"""Evaluate LLM MCP tool-call selection and arguments from JSON fixtures.
+
+This script is the main benchmark runner. It loads a fixture of prompts and
+expected MCP tool calls, exposes the configured MCP server tools to an
+OpenAI-compatible chat-completions model, records the first returned tool call,
+and compares the tool name and JSON arguments against the fixture.
+
+The evaluator never executes the selected MCP tool. It only evaluates tool
+selection and argument construction, then writes per-attempt rows, per-case
+summaries, optional plots, and an optional Markdown run report.
+"""
 
 from __future__ import annotations
 
@@ -102,12 +112,21 @@ DEFAULT_MODELS_PATH = Path(__file__).resolve().with_name("eval_models.tsv")
 
 @dataclass(frozen=True)
 class ModelPricing:
+    """Per-token pricing metadata used to estimate benchmark run cost."""
+
     input_cost_per_token: float
     output_cost_per_token: float
 
 
 @dataclass
 class ToolCallResult:
+    """Normalized result of one model request for an MCP tool-call prompt.
+
+    The evaluator stores both parsed tool-call data and raw response fragments so
+    failures can be debugged after a run. Error fields are populated for API
+    failures, missing tool calls, and malformed JSON arguments.
+    """
+
     tool_name: str | None
     tool_arguments: dict[str, Any] | None
     tool_arguments_raw: str | None
@@ -123,6 +142,8 @@ class ToolCallResult:
 
 @dataclass(frozen=True)
 class ExpectedCall:
+    """Expected tool call extracted from one fixture test case."""
+
     tool: str
     arguments: dict[str, Any]
     match_mode: str = "subset"
@@ -131,6 +152,8 @@ class ExpectedCall:
 
 @dataclass(frozen=True)
 class EvalWorkItem:
+    """One model/case/prompt/sample attempt scheduled by the evaluator."""
+
     ordinal: int
     model: str
     test_case: dict[str, Any]
@@ -140,6 +163,8 @@ class EvalWorkItem:
 
 @dataclass
 class CompletedWorkItem:
+    """Completed evaluator attempt with output rows and pass/fail metadata."""
+
     work_item: EvalWorkItem
     row: dict[str, Any]
     detailed_row: dict[str, Any]
@@ -150,6 +175,8 @@ class CompletedWorkItem:
 
 @dataclass(frozen=True)
 class IntegerArgumentValidator:
+    """Reusable argparse integer validator with an inclusive lower bound."""
+
     option_name: str
     minimum: int
 
@@ -169,6 +196,12 @@ def expand_env_var(value: str) -> str:
 
 
 def load_json(path: Path) -> dict[str, Any]:
+    """Load and validate a benchmark fixture from disk.
+
+    Fixtures must be JSON objects containing `mcp_servers` and `tests`. Each
+    test selects one configured server, supplies prompts, and defines an
+    `expected_call` used later for tool-name and argument matching.
+    """
     with path.open("r", encoding="utf-8") as f:
         loaded = json.load(f)
 
@@ -188,6 +221,7 @@ load_config = load_json_object_config
 
 
 def load_model_prices(path: Path | None) -> dict[str, ModelPricing]:
+    """Load optional model pricing metadata keyed by model ID."""
     if path is None:
         return {}
     if not path.exists():
@@ -220,6 +254,11 @@ def calculate_costs(
     completion_tokens: int | None,
     model_prices: dict[str, ModelPricing],
 ) -> dict[str, float | None]:
+    """Calculate token cost fields for one evaluator row.
+
+    Missing pricing or missing token usage is represented with `None` cost
+    values while still preserving known per-token prices when available.
+    """
     pricing = model_prices.get(model)
     if pricing is None or prompt_tokens is None or completion_tokens is None:
         return {
@@ -242,6 +281,12 @@ def calculate_costs(
 
 
 def normalize_prompts(test_case: dict[str, Any]) -> list[dict[str, str]]:
+    """Return fixture prompts as dictionaries with stable `id` and `text`.
+
+    Prompt entries may already be objects or may be plain strings. Plain strings
+    are assigned deterministic IDs (`prompt_1`, `prompt_2`, ...), matching the
+    fixture format documented for benchmark authors.
+    """
     prompts = test_case.get("prompts")
     if not isinstance(prompts, list) or not prompts:
         raise ValueError(f"Test case {test_case.get('id', '<missing id>')} must contain a non-empty prompts list")
@@ -259,6 +304,7 @@ def normalize_prompts(test_case: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def prompt_style_id(prompt_id: str) -> str:
+    """Return the root prompt style by stripping a numeric suffix."""
     return re.sub(r"_\d+$", "", prompt_id)
 
 
@@ -276,6 +322,7 @@ def prompt_selected(
     exclude_prompt_ids: set[str],
     exclude_prompt_styles: set[str],
 ) -> bool:
+    """Return whether one prompt ID passes include and exclude filters."""
     style_id = prompt_style_id(prompt_id)
     if include_prompt_ids or include_prompt_styles:
         if prompt_id not in include_prompt_ids and style_id not in include_prompt_styles:
@@ -292,6 +339,13 @@ def filter_fixture_prompts(
     exclude_prompt_ids: list[str] | None = None,
     exclude_prompt_styles: list[str] | None = None,
 ) -> dict[str, Any]:
+    """Apply prompt include/exclude filters to every fixture test case.
+
+    Filters may target exact prompt IDs or root prompt styles. The function
+    returns a deep copy when filtering is active and rejects filters that would
+    leave any test case without prompts, because downstream summaries assume at
+    least one prompt per case.
+    """
     include_ids = set(include_prompt_ids or [])
     include_styles = set(include_prompt_styles or [])
     exclude_ids = set(exclude_prompt_ids or [])
@@ -333,6 +387,7 @@ def parse_level(value: str) -> int:
 
 
 def parse_min_pass_rate(value: str) -> float:
+    """Parse a minimum pass-rate threshold in the inclusive range [0, 1]."""
     try:
         rate = float(value)
     except ValueError as exc:
@@ -356,6 +411,11 @@ def flavor_metric_field_names(prompt_id: str) -> tuple[str, str, str, str]:
 
 
 def summary_fields_for_fixture(fixture: dict[str, Any]) -> list[str]:
+    """Build the stable summary CSV field order for a fixture.
+
+    Summary rows include fixed aggregate fields plus prompt-specific pass-rate
+    and metric columns in first-seen fixture order.
+    """
     flavor_fields: list[str] = []
     seen_prompt_ids: set[str] = set()
     for test_case in fixture["tests"]:
@@ -374,6 +434,7 @@ def prompt_ids_for_case(test_case: dict[str, Any]) -> list[str]:
 
 
 def prompt_ids_by_case(fixture: dict[str, Any]) -> dict[tuple[str, str], list[str]]:
+    """Return prompt IDs keyed by `(server, case_id)`."""
     mapping = {}
     for test_case in fixture["tests"]:
         mapping[(test_case["server"], test_case["id"])] = prompt_ids_for_case(test_case)
@@ -391,11 +452,18 @@ def progress_shard_suffix(shard_count: int, shard_index: int) -> str:
 
 
 def validate_shard_args(args: argparse.Namespace) -> None:
+    """Validate that a shard index selects one shard in the configured range."""
     if args.shard_index >= args.shard_count:
         raise ValueError("--shard-index must be less than --shard-count")
 
 
 def expected_call_from_test_case(test_case: dict[str, Any]) -> ExpectedCall:
+    """Parse and validate one test case's expected tool call contract.
+
+    Supported match modes are `subset` and `exact`. Supported match profiles add
+    domain-specific argument equivalence without changing the fixture's expected
+    call shape.
+    """
     case_id = test_case.get("id", "<missing id>")
     expected_call = test_case.get("expected_call")
     if not isinstance(expected_call, dict):
@@ -431,6 +499,7 @@ def expected_call_from_test_case(test_case: dict[str, Any]) -> ExpectedCall:
 
 
 def validate_fixture(fixture: dict[str, Any]) -> None:
+    """Validate the fixture shape needed for live tool-call evaluation."""
     mcp_servers = fixture.get("mcp_servers")
     tests = fixture.get("tests")
     if not isinstance(mcp_servers, dict) or not mcp_servers:
@@ -452,6 +521,7 @@ def validate_fixture(fixture: dict[str, Any]) -> None:
 
 
 def tool_to_openai_format(tool: Any, server_name: str) -> dict[str, Any]:
+    """Convert an MCP tool object into OpenAI chat-completions tool format."""
     return {
         "type": "function",
         "function": {
@@ -463,17 +533,20 @@ def tool_to_openai_format(tool: Any, server_name: str) -> dict[str, Any]:
 
 
 def progress(message: str, quiet: bool = False) -> None:
+    """Print a progress message unless quiet mode is enabled."""
     if not quiet:
         print(message, flush=True)
 
 
 def model_dump(value: Any) -> Any:
+    """Serialize Pydantic-like objects when supported."""
     if hasattr(value, "model_dump"):
         return value.model_dump(mode="json")
     return value
 
 
 def exception_messages(exc: BaseException) -> list[str]:
+    """Flatten exception groups into readable error messages."""
     nested_exceptions = getattr(exc, "exceptions", None)
     if isinstance(nested_exceptions, tuple) and all(
         isinstance(sub_exception, BaseException) for sub_exception in nested_exceptions
@@ -486,6 +559,7 @@ def exception_messages(exc: BaseException) -> list[str]:
 
 
 def load_mcp_client_dependencies() -> tuple[type["ClientSession"], Any]:
+    """Import MCP client dependencies lazily for benchmark-only execution."""
     try:
         from mcp.client.session import ClientSession
         from mcp.client.streamable_http import streamablehttp_client
@@ -502,6 +576,7 @@ async def connect_server(
     stack: AsyncExitStack,
     quiet: bool = False,
 ) -> tuple[ClientSession, list[dict[str, Any]]]:
+    """Connect to one MCP server and return its session and OpenAI tool schemas."""
     client_session_cls, streamablehttp_client = load_mcp_client_dependencies()
 
     url = server_config.get("url")
@@ -535,6 +610,7 @@ async def connect_required_servers(
     stack: AsyncExitStack,
     quiet: bool = False,
 ) -> dict[str, tuple[ClientSession, list[dict[str, Any]]]]:
+    """Connect only to MCP servers referenced by the fixture tests."""
     server_configs = fixture["mcp_servers"]
     tests = fixture["tests"]
     required_servers = sorted({test["server"] for test in tests})
@@ -548,6 +624,7 @@ async def connect_required_servers(
 
 
 def usage_dict(usage: Any) -> dict[str, int | None]:
+    """Normalize OpenAI usage metadata into evaluator row fields."""
     return {
         "prompt_tokens": getattr(usage, "prompt_tokens", None) if usage else None,
         "completion_tokens": getattr(usage, "completion_tokens", None) if usage else None,
@@ -564,6 +641,13 @@ async def get_tool_call(
     temperature: float | None,
     capture_raw_response: bool = False,
 ) -> ToolCallResult:
+    """Ask a model to choose an MCP tool and parse its first tool call.
+
+    The benchmark intentionally evaluates only the first returned tool call. A
+    successful result contains a tool name and object-valued JSON arguments;
+    model/API failures are returned as structured `ToolCallResult` errors so the
+    run can continue and record the failure.
+    """
     started = time.perf_counter()
     kwargs: dict[str, Any] = {
         "model": model,
@@ -664,6 +748,12 @@ async def get_tool_call(
 
 
 def compare_values(expected: Any, actual: Any, path: str = "$") -> list[str]:
+    """Recursively compare expected values against actual values.
+
+    Dictionaries use subset semantics: all expected keys must be present and
+    equal, but extra actual keys are allowed. Lists and scalar values must match
+    exactly.
+    """
     errors = []
     if isinstance(expected, dict):
         if not isinstance(actual, dict):
@@ -691,6 +781,7 @@ def compare_values(expected: Any, actual: Any, path: str = "$") -> list[str]:
 
 
 def is_parameter_spec(value: Any, parameter_type: str | None = None) -> bool:
+    """Return whether a value matches the shared parameter-spec tuple shape."""
     if not isinstance(value, list) or len(value) < 3 or not isinstance(value[0], str):
         return False
     if parameter_type is not None:
@@ -699,10 +790,12 @@ def is_parameter_spec(value: Any, parameter_type: str | None = None) -> bool:
 
 
 def is_zip_parameter_spec(value: Any, parameter_type: str | None = None) -> bool:
+    """Return whether a parameter spec uses zip selection."""
     return is_parameter_spec(value, parameter_type) and len(value) >= 3 and value[1] == "zip"
 
 
 def zip_group_id(spec: list[Any]) -> Any:
+    """Return an explicit zip group ID, or the implicit default group."""
     return spec[3] if len(spec) >= 4 else 1
 
 
@@ -714,6 +807,7 @@ def set_zip_group_id(spec: list[Any], group_id: Any) -> None:
 
 
 def parameter_specs_match_ignoring_zip_group(expected: Any, actual: Any) -> bool:
+    """Compare parameter specs while allowing different zip group labels."""
     if not is_parameter_spec(expected) or not is_parameter_spec(actual):
         return False
     if is_zip_parameter_spec(expected) and is_zip_parameter_spec(actual):
@@ -739,6 +833,7 @@ def actual_group_is_mapped(group_mappings: list[tuple[Any, Any]], actual_group: 
 
 
 def normalize_input_deck_path(expected_arguments: dict[str, Any], actual_arguments: dict[str, Any]) -> None:
+    """Treat an input deck path that includes the entrypoint as equivalent."""
     expected_deck_path = expected_arguments.get("input_deck_path")
     expected_entrypoint = expected_arguments.get("input_deck_entrypoint")
     actual_deck_path = actual_arguments.get("input_deck_path")
@@ -756,6 +851,7 @@ def normalize_input_deck_path(expected_arguments: dict[str, Any], actual_argumen
 
 
 def normalize_dependency_paths(expected_arguments: dict[str, Any], actual_arguments: dict[str, Any]) -> None:
+    """Convert dependency paths made absolute under the deck path back to relative paths."""
     expected_deck_path = expected_arguments.get("input_deck_path")
     expected_dependencies = expected_arguments.get("dependency_paths")
     actual_dependencies = actual_arguments.get("dependency_paths")
@@ -788,6 +884,7 @@ def normalize_dependency_paths(expected_arguments: dict[str, Any], actual_argume
 def normalize_executable_parameter_aliases(
     expected_arguments: dict[str, Any], actual_arguments: dict[str, Any]
 ) -> None:
+    """Allow executable parameters to be keyed by equivalent generated names."""
     expected_parameters = expected_arguments.get("parameters")
     actual_parameters = actual_arguments.get("parameters")
     if not isinstance(expected_parameters, dict) or not isinstance(actual_parameters, dict):
@@ -808,6 +905,12 @@ def normalize_executable_parameter_aliases(
 
 
 def normalize_zip_group_identifiers(expected_arguments: dict[str, Any], actual_arguments: dict[str, Any]) -> None:
+    """Normalize zip parameter group IDs when group structure is equivalent.
+
+    Models may choose different zip group labels while preserving the same
+    grouping relationships. This maps actual group identifiers to expected ones
+    only when the mapping is one-to-one and unambiguous.
+    """
     expected_parameters = expected_arguments.get("parameters")
     actual_parameters = actual_arguments.get("parameters")
     if not isinstance(expected_parameters, dict) or not isinstance(actual_parameters, dict):
@@ -843,6 +946,7 @@ def normalize_zip_group_identifiers(expected_arguments: dict[str, Any], actual_a
 
 
 def cli_value_to_tokens(value: Any) -> list[str] | None:
+    """Normalize a CLI value string or token list into argv tokens."""
     if isinstance(value, str):
         if not value:
             return None
@@ -857,6 +961,7 @@ def cli_value_to_tokens(value: Any) -> list[str] | None:
 
 
 def cli_spec_token_sequences(spec: Any) -> list[list[str]] | None:
+    """Return tokenized CLI value sequences from a CLI parameter spec."""
     if not is_parameter_spec(spec, "cli"):
         return None
     values = spec[2]
@@ -873,12 +978,14 @@ def cli_spec_token_sequences(spec: Any) -> list[list[str]] | None:
 
 
 def contains_subsequence(tokens: list[str], expected: list[str]) -> bool:
+    """Return whether `expected` appears contiguously inside `tokens`."""
     if not expected or len(expected) > len(tokens):
         return False
     return any(tokens[index : index + len(expected)] == expected for index in range(len(tokens) - len(expected) + 1))
 
 
 def normalize_cli_parameter_values(expected_arguments: dict[str, Any], actual_arguments: dict[str, Any]) -> None:
+    """Normalize CLI parameter values that tokenize to the same argv sequence."""
     expected_parameters = expected_arguments.get("parameters")
     actual_parameters = actual_arguments.get("parameters")
     if not isinstance(expected_parameters, dict) or not isinstance(actual_parameters, dict):
@@ -900,6 +1007,7 @@ def normalize_cli_parameter_values(expected_arguments: dict[str, Any], actual_ar
 
 
 def normalize_cli_parameter_aliases(expected_arguments: dict[str, Any], actual_arguments: dict[str, Any]) -> None:
+    """Recognize expected discrete CLI fragments embedded in actual CLI parameters."""
     expected_parameters = expected_arguments.get("parameters")
     actual_parameters = actual_arguments.get("parameters")
     if not isinstance(expected_parameters, dict) or not isinstance(actual_parameters, dict):
@@ -931,6 +1039,7 @@ def normalize_cli_parameter_aliases(expected_arguments: dict[str, Any], actual_a
 def normalize_discrete_def_numeric_strings(
     expected_arguments: dict[str, Any], actual_arguments: dict[str, Any]
 ) -> None:
+    """Treat numeric strings as numeric values for discrete `def` parameters."""
     expected_parameters = expected_arguments.get("parameters")
     actual_parameters = actual_arguments.get("parameters")
     if not isinstance(expected_parameters, dict) or not isinstance(actual_parameters, dict):
@@ -968,6 +1077,7 @@ def normalize_discrete_def_numeric_strings(
 
 
 def normalize_json_string_values(expected_arguments: dict[str, Any], actual_arguments: dict[str, Any]) -> None:
+    """Decode JSON-string lists when they match expected parameter value lists."""
     expected_parameters = expected_arguments.get("parameters")
     actual_parameters = actual_arguments.get("parameters")
     if not isinstance(expected_parameters, dict) or not isinstance(actual_parameters, dict):
@@ -995,6 +1105,13 @@ def normalize_actual_arguments_for_matching(
     actual_arguments: dict[str, Any],
     match_profile: str | None,
 ) -> dict[str, Any]:
+    """Return actual arguments normalized for the selected match profile.
+
+    The default profile performs no normalization. The `parameter_runs` profile
+    accepts common equivalent representations produced by LLMs for simulation
+    parameter generation prompts, such as split deck paths, relabeled zip groups,
+    CLI strings versus token lists, and JSON-encoded value lists.
+    """
     normalized = copy.deepcopy(actual_arguments)
     if match_profile is None:
         return normalized
@@ -1017,6 +1134,7 @@ def evaluate_result(
     result: ToolCallResult,
     strict: bool,
 ) -> tuple[bool, str | None, str | None]:
+    """Evaluate one model response against a fixture test case."""
     if result.error_type:
         return False, result.error_type, result.error
 
@@ -1055,6 +1173,7 @@ def build_row(
     error: str | None,
     model_prices: dict[str, ModelPricing] | None = None,
 ) -> dict[str, Any]:
+    """Build the compact per-attempt row used for CSV and summary aggregation."""
     usage = result.usage
     expected_call = expected_call_from_test_case(test_case)
     cost_fields = calculate_costs(
@@ -1083,6 +1202,7 @@ def build_row(
 
 
 def average(values: list[int | None]) -> float | None:
+    """Return the rounded average of present integer values."""
     present = [value for value in values if value is not None]
     if not present:
         return None
@@ -1090,6 +1210,7 @@ def average(values: list[int | None]) -> float | None:
 
 
 def sum_present(values: list[int | float | None]) -> int | float | None:
+    """Return the sum of present numeric values, preserving all-missing as None."""
     present = [value for value in values if value is not None]
     if not present:
         return None
@@ -1100,6 +1221,7 @@ def sum_present(values: list[int | float | None]) -> int | float | None:
 
 
 def summarize(fixture: dict[str, Any], rows: list[dict[str, Any]], num_samples: int) -> list[dict[str, Any]]:
+    """Aggregate per-attempt rows into per-model/per-server/per-case summaries."""
     case_prompt_ids = prompt_ids_by_case(fixture)
     grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
     for row in rows:
@@ -1167,6 +1289,7 @@ def summarize(fixture: dict[str, Any], rows: list[dict[str, Any]], num_samples: 
 
 
 def total_prompt_count(fixture: dict[str, Any], models: list[str], num_samples: int) -> int:
+    """Return the logical number of model prompt attempts in a full run."""
     return len(models) * sum(len(normalize_prompts(test_case)) for test_case in fixture["tests"]) * num_samples
 
 
@@ -1177,6 +1300,11 @@ def build_work_items(
     shard_count: int,
     shard_index: int,
 ) -> list[EvalWorkItem]:
+    """Create deterministic evaluator work items and select this process's shard.
+
+    `ordinal` is assigned before sharding so independently executed shards share
+    the same canonical ordering and can later be merged without ambiguity.
+    """
     work_items = []
     ordinal = 0
     for model in models:
@@ -1204,6 +1332,7 @@ def build_detailed_row(
     expected_call: dict[str, Any],
     result: ToolCallResult,
 ) -> dict[str, Any]:
+    """Extend a compact row with prompt, expected call, and raw model response data."""
     return {
         **row,
         "prompt": prompt_text,
@@ -1228,6 +1357,7 @@ async def execute_work_item(
     semaphore: asyncio.Semaphore,
     model_prices: dict[str, ModelPricing],
 ) -> CompletedWorkItem:
+    """Execute and score one evaluator work item."""
     async with semaphore:
         _session, tools = connected_servers[work_item.test_case["server"]]
         result = await get_tool_call(
@@ -1280,6 +1410,7 @@ async def execute_work_items(
     csv_file: Any,
     model_prices: dict[str, ModelPricing],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Execute work items concurrently while preserving canonical output order."""
     rows: list[dict[str, Any]] = []
     detailed_rows: list[dict[str, Any]] = []
     if not work_items:
@@ -1350,6 +1481,7 @@ async def execute_work_items(
 
 
 def print_rows(rows: list[dict[str, Any]], summary_rows: list[dict[str, Any]]) -> None:
+    """Print human-readable result and summary tables to stdout."""
     print("\nResults")
     print("model | server | case | prompt | sample | result | tokens | latency_ms | error")
     print("-" * 112)
@@ -1379,6 +1511,7 @@ def format_tokens(row: dict[str, Any]) -> str:
 
 
 async def run_evaluator(args: argparse.Namespace) -> int:
+    """Run the live evaluator from parsed evaluator arguments."""
     from openai import AsyncOpenAI
 
     validate_shard_args(args)
@@ -1509,6 +1642,8 @@ DEFAULT_COST_FIELD = "total_cost_usd"
 
 @dataclass(frozen=True)
 class ServerManagementSettings:
+    """Run-config settings for starting MCP servers around an evaluation."""
+
     enabled: bool
     config_path: Path | None = None
     randomize_ports: bool = True
@@ -1517,6 +1652,8 @@ class ServerManagementSettings:
 
 @dataclass
 class ManagedServerRun:
+    """State needed to stop managed servers and report effective config paths."""
+
     manager: ServerManager
     required_servers: list[str]
     cases_path: Path
@@ -1536,6 +1673,7 @@ def expand_config_env(value: Any) -> Any:
 
 
 def load_run_config(path: Path) -> dict[str, Any]:
+    """Load a run config and expand environment placeholders recursively."""
     with path.open("r", encoding="utf-8") as f:
         loaded = json.load(f)
     if not isinstance(loaded, dict):
@@ -1544,6 +1682,7 @@ def load_run_config(path: Path) -> dict[str, Any]:
 
 
 def path_from_config(config_dir: Path, value: Any, field_name: str, required: bool = False) -> Path | None:
+    """Resolve a run-config path relative to the run-config directory."""
     if value in (None, ""):
         if required:
             raise ValueError(f"Run config field {field_name!r} is required")
@@ -1606,6 +1745,7 @@ def server_management_settings(
     config_dir: Path,
     cli_args: argparse.Namespace,
 ) -> ServerManagementSettings:
+    """Resolve whether this run should start and stop MCP servers itself."""
     raw = config.get("server_management", {})
     if raw in (None, ""):
         raw = {}
@@ -1630,6 +1770,7 @@ def server_management_settings(
 
 
 def load_fixture_for_managed_servers(path: Path) -> dict[str, Any]:
+    """Load fixture data before managed-server URLs have been injected."""
     with path.open("r", encoding="utf-8") as f:
         loaded = json.load(f)
     if not isinstance(loaded, dict):
@@ -1651,6 +1792,7 @@ def load_fixture_for_managed_servers(path: Path) -> dict[str, Any]:
 
 
 def required_server_names(fixture: dict[str, Any]) -> list[str]:
+    """Return fixture server names in first-use order."""
     names = []
     for test_case in fixture["tests"]:
         server_name = test_case["server"]
@@ -1660,6 +1802,7 @@ def required_server_names(fixture: dict[str, Any]) -> list[str]:
 
 
 def load_server_management_json(path: Path) -> dict[str, Any]:
+    """Load and validate a server-management config used for managed runs."""
     with path.open("r", encoding="utf-8") as f:
         loaded = json.load(f)
     if not isinstance(loaded, dict):
@@ -1675,6 +1818,11 @@ def randomize_server_ports(
     required_servers: list[str],
     randomize_ports: bool,
 ) -> dict[str, int]:
+    """Assign effective ports for required managed servers.
+
+    Randomizing ports allows concurrent benchmark runs to start their own MCP
+    servers without colliding with static development ports.
+    """
     servers = servers_data["servers"]
     missing = [name for name in required_servers if name not in servers]
     if missing:
@@ -1699,6 +1847,7 @@ def effective_mcp_fixture(
     required_servers: list[str],
     port_map: dict[str, int],
 ) -> dict[str, Any]:
+    """Build the fixture copy used by the evaluator for managed servers."""
     effective = copy.deepcopy(fixture)
     mcp_servers = effective.get("mcp_servers")
     if not isinstance(mcp_servers, dict):
@@ -1731,6 +1880,7 @@ def start_managed_servers(
     output_dir: Path,
     quiet: bool,
 ) -> ManagedServerRun:
+    """Write effective server/case configs and start required MCP servers."""
     if not settings.enabled or settings.config_path is None:
         raise ValueError("Server management is not enabled")
 
@@ -1762,6 +1912,7 @@ def start_managed_servers(
 
 
 def stop_managed_servers(managed: ManagedServerRun | None, quiet: bool) -> None:
+    """Stop managed MCP servers when the run config requests cleanup."""
     if managed is None or not managed.stop_on_exit:
         return
     progress("Stopping managed MCP server(s): " + ", ".join(managed.required_servers), quiet)
@@ -1769,6 +1920,7 @@ def stop_managed_servers(managed: ManagedServerRun | None, quiet: bool) -> None:
 
 
 def level_from_config(config: dict[str, Any], cli_args: argparse.Namespace) -> int:
+    """Resolve the maximum model-list level from CLI or run config."""
     cli_level = getattr(cli_args, "level", None)
     if cli_level is not None:
         return cli_level
@@ -1785,6 +1937,7 @@ def models_from_config(
     models_override: list[str] | None = None,
     level: int = 0,
 ) -> list[str]:
+    """Resolve the model list from CLI overrides, run config, or model files."""
     if models_override is not None:
         if not models_override:
             raise ValueError("--models must include at least one model")
@@ -1807,12 +1960,14 @@ def models_from_config(
 
 
 def output_path(output_dir: Path, prefix: str, suffix: str, enabled: bool) -> Path | None:
+    """Return a prefixed output path only when that artifact is enabled."""
     if not enabled:
         return None
     return output_dir / f"{prefix}_{suffix}"
 
 
 def report_output_path(config: dict[str, Any], output_dir: Path) -> Path | None:
+    """Resolve the optional Markdown report output path for a run."""
     output_config = config.get("output", {})
     if not isinstance(output_config, dict):
         raise ValueError("Run config field 'output' must be an object when provided")
@@ -1831,6 +1986,7 @@ def report_output_path(config: dict[str, Any], output_dir: Path) -> Path | None:
 
 
 def build_output_dir(config: dict[str, Any], config_dir: Path, output_dir_override: Path | None) -> Path:
+    """Resolve and optionally timestamp the run output directory."""
     output_config = config.get("output", {})
     if not isinstance(output_config, dict):
         raise ValueError("Run config field 'output' must be an object when provided")
@@ -1855,6 +2011,7 @@ def build_eval_args(
     output_dir: Path,
     models: list[str],
 ) -> argparse.Namespace:
+    """Translate the high-level run config into evaluator arguments."""
     eval_config = config.get("eval", {})
     output_config = config.get("output", {})
     model_api_config = config.get("model_api", {})
@@ -1920,6 +2077,7 @@ def build_eval_args(
 
 
 def plots_enabled(config: dict[str, Any], cli_args: argparse.Namespace) -> bool:
+    """Return whether run-level plot generation should occur."""
     if cli_args.no_plots:
         return False
     output_config = config.get("output", {})
@@ -1929,6 +2087,7 @@ def plots_enabled(config: dict[str, Any], cli_args: argparse.Namespace) -> bool:
 
 
 def write_run_report(**kwargs):
+    """Import lazily and write a Markdown benchmark run report."""
     from gen_benchmark_report import write_run_report as _write_run_report
 
     return _write_run_report(**kwargs)
@@ -1941,6 +2100,7 @@ def generate_plots(
     quiet: bool,
     min_pass_rate: float | None = None,
 ) -> list[Path]:
+    """Generate score, token, and optional cost plots for a completed run."""
     output_config = config.get("output", {})
     if not isinstance(output_config, dict):
         raise ValueError("Run config field 'output' must be an object when provided")
@@ -2017,6 +2177,7 @@ def generate_plots(
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse the run-config CLI for benchmark evaluation."""
     parser = argparse.ArgumentParser(description="Run MCP tool-call evaluation from a JSON run config.")
     parser.add_argument("--run-config", required=True, type=Path, help="JSON run configuration")
     parser.add_argument("--models", nargs="+", help="Explicit model names to evaluate")
@@ -2055,6 +2216,7 @@ def parse_args() -> argparse.Namespace:
 
 
 async def run(args: argparse.Namespace) -> int:
+    """Run the configured benchmark, including optional servers, plots, and report."""
     config_path = args.run_config.resolve()
     config = load_run_config(config_path)
     config_dir = config_path.parent
@@ -2117,6 +2279,7 @@ async def run(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    """CLI entrypoint for the benchmark runner."""
     try:
         return asyncio.run(run(parse_args()))
     except KeyboardInterrupt:

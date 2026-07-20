@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Merge sharded MCP tool-call eval row outputs and regenerate summaries."""
+"""Merge sharded MCP tool-call eval row outputs and regenerate summaries.
+
+The evaluator can split work by shard. This script recombines shard row files,
+validates that each expected model/server/case/prompt/sample row appears exactly
+once, restores canonical evaluator ordering, and writes merged rows and summary
+artifacts.
+"""
 
 from __future__ import annotations
 
@@ -37,6 +43,7 @@ FALSE_VALUES = {"0", "false", "f", "no", "n"}
 
 
 def parse_optional_int(value: Any, field_name: str, source: Path) -> int | None:
+    """Parse an optional integer row field from CSV or JSON input."""
     if value is None or value == "":
         return None
     if isinstance(value, bool):
@@ -55,6 +62,7 @@ def parse_required_int(value: Any, field_name: str, source: Path) -> int:
 
 
 def parse_optional_float(value: Any, field_name: str, source: Path) -> float | None:
+    """Parse an optional floating-point row field from CSV or JSON input."""
     if value is None or value == "":
         return None
     if isinstance(value, bool):
@@ -66,6 +74,7 @@ def parse_optional_float(value: Any, field_name: str, source: Path) -> float | N
 
 
 def parse_passed(value: Any, source: Path) -> bool:
+    """Parse the row pass/fail field from booleans or boolean-like strings."""
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
@@ -78,6 +87,7 @@ def parse_passed(value: Any, source: Path) -> bool:
 
 
 def normalize_base_row(row: dict[str, Any], source: Path) -> dict[str, Any]:
+    """Normalize a compact evaluator row before duplicate/completeness checks."""
     required_fields = [field for field in ROW_FIELDS if field not in OPTIONAL_FLOAT_FIELDS]
     missing_fields = [field for field in required_fields if field not in row]
     if missing_fields:
@@ -104,6 +114,7 @@ def normalize_base_row(row: dict[str, Any], source: Path) -> dict[str, Any]:
 
 
 def row_key(row: dict[str, Any]) -> tuple[str, str, str, str, int]:
+    """Return the canonical identity tuple for one evaluator attempt row."""
     return (
         str(row["model"]),
         str(row["server"]),
@@ -118,6 +129,7 @@ def format_key(key: tuple[str, str, str, str, int]) -> str:
 
 
 def expected_key_for_work_item(work_item: Any) -> tuple[str, str, str, str, int]:
+    """Return the row key expected for a generated evaluator work item."""
     return (
         work_item.model,
         work_item.test_case["server"],
@@ -130,12 +142,14 @@ def expected_key_for_work_item(work_item: Any) -> tuple[str, str, str, str, int]
 def canonical_order(
     fixture: dict[str, Any], models: list[str], num_samples: int
 ) -> tuple[list[tuple[str, str, str, str, int]], dict[tuple[str, str, str, str, int], int]]:
+    """Build expected row keys in the evaluator's deterministic work order."""
     work_items = build_work_items(fixture, models, num_samples, 1, 0)
     ordered_keys = [expected_key_for_work_item(work_item) for work_item in work_items]
     return ordered_keys, {key: index for index, key in enumerate(ordered_keys)}
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse the sharded-result merge CLI."""
     parser = argparse.ArgumentParser(description="Merge sharded MCP tool-call eval rows and regenerate summaries.")
     parser.add_argument("--cases", required=True, type=Path, help="JSON fixture with mcp_servers and tests")
     model_group = parser.add_mutually_exclusive_group(required=True)
@@ -181,6 +195,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def validate_args(args: argparse.Namespace) -> None:
+    """Validate merge output options and input/output compatibility."""
     if not any(
         (
             args.merged_results_csv,
@@ -202,6 +217,12 @@ def collect_rows(
     input_mode: str,
     key_to_ordinal: dict[tuple[str, str, str, str, int], int],
 ) -> tuple[dict[tuple[str, str, str, str, int], dict[str, Any]], dict[tuple[str, str, str, str, int], dict[str, Any]]]:
+    """Load shard rows, normalize base fields, and detect bad row keys.
+
+    JSON detailed rows retain their extra debug fields for merged JSON output.
+    CSV inputs only contain compact fields, so merged detailed JSON is rejected
+    for CSV mode during argument validation.
+    """
     base_rows_by_key: dict[tuple[str, str, str, str, int], dict[str, Any]] = {}
     detailed_rows_by_key: dict[tuple[str, str, str, str, int], dict[str, Any]] = {}
     key_sources: dict[tuple[str, str, str, str, int], Path] = {}
@@ -244,6 +265,7 @@ def ensure_complete(
     ordered_keys: list[tuple[str, str, str, str, int]],
     base_rows_by_key: dict[tuple[str, str, str, str, int], dict[str, Any]],
 ) -> None:
+    """Raise if any expected canonical row is missing from merged shard inputs."""
     missing = [key for key in ordered_keys if key not in base_rows_by_key]
     if not missing:
         return
@@ -256,6 +278,7 @@ def ensure_complete(
 
 
 def run(args: argparse.Namespace) -> int:
+    """Merge shard rows, regenerate summaries, and write requested outputs."""
     validate_args(args)
     fixture = load_json(args.cases)
     fixture = filter_fixture_prompts(
@@ -308,6 +331,7 @@ def run(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    """CLI entrypoint for sharded-result merging."""
     try:
         return run(parse_args())
     except KeyboardInterrupt:

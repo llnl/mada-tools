@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Generate a readable Markdown report from an MCP tool-call benchmark fixture."""
+"""Generate readable Markdown reports for MCP tool-call benchmarks.
+
+This script has two modes. Fixture-report mode renders the configured servers,
+test cases, expected calls, and prompts from a benchmark fixture. Run-report
+mode combines that fixture view with completed evaluator outputs, plot links,
+run settings, and grouped failure details.
+"""
 
 from __future__ import annotations
 
@@ -25,6 +31,7 @@ from run_tool_call_eval import (  # noqa: E402
 
 
 def default_output_path(cases_path: Path) -> Path:
+    """Return the default Markdown path for a fixture report."""
     return cases_path.with_suffix(".md")
 
 
@@ -33,6 +40,7 @@ def fixture_title(cases_path: Path) -> str:
 
 
 def escape_inline_markdown(value: str) -> str:
+    """Escape Markdown punctuation in inline text."""
     replacements = {
         "\\": "\\\\",
         "`": "\\`",
@@ -97,6 +105,7 @@ def compact_text(value: str, max_length: int = 500) -> str:
 
 
 def group_prompts_by_flavor(prompts: list[dict[str, str]]) -> list[tuple[str, list[dict[str, str]]]]:
+    """Group normalized prompts by root prompt style in first-seen order."""
     grouped: dict[str, list[dict[str, str]]] = {}
     order = []
     for prompt in prompts:
@@ -109,6 +118,7 @@ def group_prompts_by_flavor(prompts: list[dict[str, str]]) -> list[tuple[str, li
 
 
 def used_servers_in_order(fixture: dict[str, Any]) -> list[str]:
+    """Return server names used by tests in first-use order."""
     servers = []
     for test_case in fixture["tests"]:
         server = test_case["server"]
@@ -126,6 +136,7 @@ def format_prompt_text(text: str) -> str:
 
 
 def render_test_case(test_case: dict[str, Any], heading_level: int = 3) -> list[str]:
+    """Render one fixture test case, including expected call and prompts."""
     expected_call = expected_call_from_test_case(test_case)
     lines = [
         heading(heading_level, f"Test: {test_case['id']}"),
@@ -171,6 +182,7 @@ def render_fixture_lines(
     title_level: int = 1,
     title_prefix: str = "",
 ) -> list[str]:
+    """Render a benchmark fixture as Markdown lines."""
     used_servers = used_servers_in_order(fixture)
     lines = [
         heading(title_level, f"{title_prefix}{fixture_title(cases_path)}"),
@@ -204,6 +216,7 @@ def render_fixture_lines(
 
 
 def render_report(fixture: dict[str, Any], cases_path: Path) -> str:
+    """Render a complete fixture Markdown report."""
     lines = render_fixture_lines(fixture, cases_path)
     return "\n".join(lines).rstrip() + "\n"
 
@@ -223,6 +236,7 @@ def ordered_unique(values: list[Any]) -> list[str]:
 
 
 def load_detailed_rows(path: Path) -> list[dict[str, Any]]:
+    """Load detailed evaluator rows from JSON for run-report mode."""
     loaded = load_json_file(path)
     if not isinstance(loaded, list):
         raise ValueError(f"{path}: expected a JSON list of detailed result rows")
@@ -239,6 +253,7 @@ def bool_label(value: Any) -> str:
 
 
 def relative_link(path: Path, report_path: Path) -> str:
+    """Return a report-relative link when possible."""
     try:
         return path.resolve().relative_to(report_path.parent.resolve()).as_posix()
     except ValueError:
@@ -253,6 +268,7 @@ def render_run_description_lines(
     output_dir: Path,
     eval_status: int,
 ) -> list[str]:
+    """Render run configuration and evaluator settings for a run report."""
     models = ", ".join(str(model) for model in eval_args.models)
     shard = f"{eval_args.shard_index + 1}/{eval_args.shard_count}"
     lines = [
@@ -293,6 +309,7 @@ def render_run_description_lines(
 
 
 def render_plot_lines(plot_paths: list[Path], report_path: Path) -> list[str]:
+    """Render Markdown image links for generated plot files."""
     lines = [heading(2, "Output Plots"), ""]
     if not plot_paths:
         lines.extend(["No plots were generated.", ""])
@@ -306,6 +323,7 @@ def render_plot_lines(plot_paths: list[Path], report_path: Path) -> list[str]:
 
 
 def failure_signature(row: dict[str, Any]) -> tuple[str, str, str, str]:
+    """Return the fields used to group repeated failure patterns."""
     actual_arguments = row.get("actual_arguments")
     if actual_arguments is None:
         actual_arguments = row.get("actual_arguments_raw")
@@ -318,6 +336,12 @@ def failure_signature(row: dict[str, Any]) -> tuple[str, str, str, str]:
 
 
 def render_failure_lines(detailed_rows: list[dict[str, Any]]) -> list[str]:
+    """Render grouped failure details from detailed evaluator rows.
+
+    Failures are grouped by model/server/case/prompt, then counted by common
+    error signature so repeated samples are summarized without losing the
+    prompt, expected arguments, returned tool, or evaluator reason.
+    """
     lines = [heading(2, "Failures"), ""]
     if not detailed_rows:
         lines.extend(["No detailed result rows were available.", ""])
@@ -401,6 +425,7 @@ def render_run_report(
     plot_paths: list[Path],
     detailed_rows: list[dict[str, Any]] | None,
 ) -> str:
+    """Render a complete Markdown report for one completed benchmark run."""
     title = output_dir.name or fixture_title(cases_path)
     lines = [
         heading(1, f"Benchmark Run Report: {title}"),
@@ -431,6 +456,7 @@ def write_run_report(
     plot_paths: list[Path],
     detailed_rows_path: Path | None,
 ) -> Path:
+    """Load run artifacts, render a run report, and write it to disk."""
     fixture = load_json(cases_path)
     detailed_rows = None
     if detailed_rows_path is not None and detailed_rows_path.exists():
@@ -457,6 +483,7 @@ def write_run_report(
 
 
 def infer_single_file(directory: Path, pattern: str, description: str) -> Path:
+    """Infer exactly one matching artifact path from a run output directory."""
     matches = sorted(directory.glob(pattern))
     if not matches:
         raise ValueError(f"Could not infer {description}; no {pattern!r} file found in {directory}")
@@ -467,16 +494,19 @@ def infer_single_file(directory: Path, pattern: str, description: str) -> Path:
 
 
 def infer_rows_json(run_output: Path, rows_json: Path | None) -> Path:
+    """Resolve the detailed rows JSON path for run-report mode."""
     return rows_json or infer_single_file(run_output, "*_rows.json", "detailed rows JSON")
 
 
 def infer_plot_paths(run_output: Path, plot_paths: list[Path] | None) -> list[Path]:
+    """Resolve plot paths for run-report mode."""
     if plot_paths is not None:
         return plot_paths
     return sorted(run_output.glob("*.png"), key=lambda path: path.name)
 
 
 def default_run_report_path(run_output: Path, rows_json: Path) -> Path:
+    """Return the default Markdown report path for a completed run."""
     suffix = "_rows.json"
     if rows_json.name.endswith(suffix):
         return run_output / f"{rows_json.name[: -len(suffix)]}_report.md"
@@ -510,6 +540,12 @@ def eval_args_from_rows(
     cases_path: Path,
     run_config: dict[str, Any],
 ) -> argparse.Namespace:
+    """Reconstruct report-facing evaluator settings from detailed rows.
+
+    This is used when generating a run report after the original runner has
+    finished. Values that are not present in rows are filled from the optional
+    run config or with display-oriented defaults.
+    """
     return argparse.Namespace(
         models=ordered_unique([row.get("model", "") for row in rows if row.get("model") not in (None, "")]),
         cases=cases_path,
@@ -532,6 +568,7 @@ def eval_args_from_rows(
 
 
 def filter_fixture_to_run_rows(fixture: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Limit fixture prompts to those present in detailed run rows."""
     prompt_ids_by_case: dict[tuple[str, str], set[str]] = {}
     for row in rows:
         server = row.get("server")
@@ -553,12 +590,14 @@ def filter_fixture_to_run_rows(fixture: dict[str, Any], rows: list[dict[str, Any
 
 
 def run_status_from_rows(rows: list[dict[str, Any]], explicit_status: int | None) -> int:
+    """Infer evaluator status from detailed rows unless an explicit status is given."""
     if explicit_status is not None:
         return explicit_status
     return 0 if rows and all(bool(row.get("passed")) for row in rows) else 1
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse the report-generation CLI."""
     parser = argparse.ArgumentParser(description="Generate Markdown reports for MCP tool-call benchmark fixtures/runs.")
     parser.add_argument("--cases", required=True, type=Path, help="JSON fixture with mcp_servers and tests")
     parser.add_argument(
@@ -596,6 +635,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def run(args: argparse.Namespace) -> int:
+    """Generate either a fixture report or a completed-run report."""
     fixture = load_json(args.cases)
     run_output = getattr(args, "run_output", None)
     if run_output is not None:
@@ -634,6 +674,7 @@ def run(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    """CLI entrypoint for report generation."""
     try:
         return run(parse_args())
     except KeyboardInterrupt:
