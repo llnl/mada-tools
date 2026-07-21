@@ -214,8 +214,8 @@ def test_validate_mcp_server_registration_rejects_module_without_main(
     assert any("does not expose callable main()" in record.message for record in caplog.records)
 
 
-def test_discover_legacy_server_extensions_groups_by_provider_and_skips_manifest_provider(monkeypatch: MonkeyPatch):
-    """Verify that legacy servers are grouped by provider and skipped when a manifest exists."""
+def test_discover_legacy_server_extensions_groups_by_provider_and_skips_manifest_server_names(monkeypatch: MonkeyPatch):
+    """Verify that legacy servers are grouped by provider and skipped only on manifest name collisions."""
     registry = ExtensionRegistry()
     entry_points = [
         FakeEntryPoint("legacy_a", "pkg_a.alpha.server", dist_name="pkg_a"),
@@ -231,7 +231,7 @@ def test_discover_legacy_server_extensions_groups_by_provider_and_skips_manifest
         lambda module_path: types.SimpleNamespace(main=lambda: None),
     )
 
-    discovered = registry._discover_legacy_server_extensions(existing_provider_packages={"pkg_a"})
+    discovered = registry._discover_legacy_server_extensions(existing_server_names={"legacy_a"})
 
     assert len(discovered) == 1
     assert discovered[0].provider_package == "pkg_b"
@@ -252,11 +252,37 @@ def test_discover_legacy_server_extensions_uses_unknown_when_dist_name_missing(m
         lambda module_path: types.SimpleNamespace(main=lambda: None),
     )
 
-    discovered = registry._discover_legacy_server_extensions(existing_provider_packages=set())
+    discovered = registry._discover_legacy_server_extensions(existing_server_names=set())
 
     assert len(discovered) == 1
     assert discovered[0].provider_package == "unknown"
     assert discovered[0].mcp_servers[0].package == "unknown"
+
+
+def test_discover_legacy_server_extensions_keeps_non_colliding_legacy_servers_from_manifest_provider(
+    monkeypatch: MonkeyPatch,
+):
+    """Verify that legacy servers remain discoverable when only some names move to the manifest."""
+    registry = ExtensionRegistry()
+    entry_points = [
+        FakeEntryPoint("alpha", "pkg.alpha.server", dist_name="pkg"),
+        FakeEntryPoint("beta", "pkg.beta.server", dist_name="pkg"),
+    ]
+    monkeypatch.setattr(
+        registry,
+        "_load_entry_points",
+        lambda group: entry_points if group == "mada_tools.servers" else [],
+    )
+    monkeypatch.setattr(
+        "mada_tools.extensions.registry.importlib.import_module",
+        lambda module_path: types.SimpleNamespace(main=lambda: None),
+    )
+
+    discovered = registry._discover_legacy_server_extensions(existing_server_names={"alpha"})
+
+    assert len(discovered) == 1
+    assert discovered[0].provider_package == "pkg"
+    assert [server.name for server in discovered[0].mcp_servers] == ["beta"]
 
 
 def test_load_entry_points_supports_legacy_get_api(monkeypatch: MonkeyPatch):

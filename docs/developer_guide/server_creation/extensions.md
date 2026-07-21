@@ -177,3 +177,12 @@ to confirm that your extension's servers are being discovered.
 MADA still supports legacy registration through
 `[project.entry-points."mada_tools.servers"]`, but new plugin packages should
 register through `mada_tools.extensions`.
+
+If a package uses both registration styles during a migration, MADA resolves
+them per server name:
+
+- manifest-registered server names win over legacy registrations with the same name
+- legacy server names that do not collide remain discoverable
+
+This allows packages to migrate incrementally from `mada_tools.servers` to
+`mada_tools.extensions` instead of moving every server in one change.

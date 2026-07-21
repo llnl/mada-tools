@@ -133,7 +133,7 @@ def test_registry_adapts_legacy_server_entry_points(monkeypatch: MonkeyPatch):
 
 
 def test_registry_prefers_manifest_extensions_over_legacy_from_same_provider(monkeypatch: MonkeyPatch):
-    """Verify that manifest registrations win when a provider exposes both extension APIs."""
+    """Verify that manifest registrations win per server while non-colliding legacy servers still remain."""
 
     def get_extension_manifest() -> ExtensionManifest:
         return ExtensionManifest(
@@ -154,7 +154,8 @@ def test_registry_prefers_manifest_extensions_over_legacy_from_same_provider(mon
                 )
             ],
             "mada_tools.servers": [
-                FakeEntryPoint("legacy_alpha", "dual_pkg.legacy_alpha.server", dist_name="dual_pkg"),
+                FakeEntryPoint("alpha", "dual_pkg.legacy_alpha.server", dist_name="dual_pkg"),
+                FakeEntryPoint("beta", "dual_pkg.beta.server", dist_name="dual_pkg"),
             ],
         }
     )
@@ -170,7 +171,8 @@ def test_registry_prefers_manifest_extensions_over_legacy_from_same_provider(mon
     discovered = registry.discover_extensions()
     indexed = registry.get_mcp_server_index()
 
-    assert len(discovered) == 1
-    assert discovered[0].provider_package == "dual_pkg"
-    assert set(indexed.keys()) == {"alpha"}
+    assert len(discovered) == 2
+    assert [manifest.provider_package for manifest in discovered] == ["dual_pkg", "dual_pkg"]
+    assert set(indexed.keys()) == {"alpha", "beta"}
     assert indexed["alpha"].module_path == "dual_pkg.alpha.server"
+    assert indexed["beta"].module_path == "dual_pkg.beta.server"

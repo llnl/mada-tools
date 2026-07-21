@@ -41,7 +41,7 @@ class ExtensionRegistry:
         manifests = self._discover_manifest_extensions()
         manifests.extend(
             self._discover_legacy_server_extensions(
-                existing_provider_packages={manifest.provider_package for manifest in manifests}
+                existing_server_names={server.name for manifest in manifests for server in manifest.mcp_servers}
             )
         )
         return manifests
@@ -118,14 +118,14 @@ class ExtensionRegistry:
 
         return manifests
 
-    def _discover_legacy_server_extensions(self, existing_provider_packages: set[str]) -> List[ExtensionManifest]:
+    def _discover_legacy_server_extensions(self, existing_server_names: set[str]) -> List[ExtensionManifest]:
         """Discover legacy server entry points and adapt them into manifests.
 
         Args:
-            existing_provider_packages (set[str]):
-                Provider packages already represented by manifest-based
-                extensions. Legacy registrations from these packages are
-                skipped.
+            existing_server_names (set[str]):
+                Server names already registered by manifest-based extensions.
+                Legacy registrations using these names are skipped so manifest
+                registrations win per server.
 
         Returns:
             List[ExtensionManifest]:
@@ -139,8 +139,9 @@ class ExtensionRegistry:
             provider = getattr(entry_point, "dist", None)
             provider_name = getattr(provider, "name", None) or "unknown"
 
-            # Prefer manifest-based registrations when a package exposes both APIs.
-            if provider_name in existing_provider_packages:
+            # Prefer manifest-based registrations on a per-server basis so
+            # providers can migrate incrementally.
+            if entry_point.name in existing_server_names:
                 continue
 
             server = MCPServerRegistration(
