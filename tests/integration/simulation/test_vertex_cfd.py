@@ -19,8 +19,14 @@ async def test_vertex_cfd_server_connection(validated_server_group):
         validated_server_group: Fixture that validates a server group and returns results.
     """
     servers = {
-        "vertex_cfd": {"generate_parameter_runs", "post_process_runs", "in_situ_viz"},
-        "flux": {"submit_command", "continuously_check_job_status", "check_job_status", "submit_jobs"},
+        "vertex_cfd": {"generate_parameter_runs", "post_process_runs", "in_situ_viz", "get_background_task_result"},
+        "flux": {
+            "submit_command",
+            "continuously_check_job_status",
+            "check_job_status",
+            "submit_jobs",
+            "get_background_task_result",
+        },
     }
 
     results = await validated_server_group("vertex_cfd", servers)

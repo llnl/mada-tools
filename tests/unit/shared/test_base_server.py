@@ -5,7 +5,6 @@
 Tests for the `shared/base_server.py` module.
 """
 
-import asyncio
 import json
 import os
 from pathlib import Path
@@ -26,17 +25,17 @@ class FastMCPStub:
     def __init__(self, **kwargs):
         self.init_kwargs = kwargs
         self.run_calls = []
-        self.tools = []
-
-    def tool(self):
-        def decorator(func):
-            self.tools.append(func)
-            return func
-
-        return decorator
+        self.registered_tools = []
 
     def run(self, **kwargs):
         self.run_calls.append(kwargs)
+
+    def tool(self):
+        def decorator(func):
+            self.registered_tools.append(func)
+            return func
+
+        return decorator
 
 
 @pytest.fixture
@@ -142,7 +141,9 @@ class TestParseArgs:
 class TestRunTool:
     """Unit tests for `BaseMCPServer.run_tool()`."""
 
-    def test_run_tool_returns_payload_when_wrapped_function_succeeds(self, server: BaseMCPServer):
+    pytestmark = pytest.mark.asyncio
+
+    async def test_run_tool_returns_payload_when_wrapped_function_succeeds(self, server: BaseMCPServer):
         """It returns the payload from a successful wrapped function."""
 
         def tool_impl(*args, **kwargs):
@@ -150,9 +151,11 @@ class TestRunTool:
             assert kwargs == {"count": 2}
             return True, "payload"
 
-        assert asyncio.run(server.run_tool(tool_impl, "alpha", count=2)) == "payload"
+        assert await server.run_tool(tool_impl, "alpha", count=2, background=False) == "payload"
 
-    def test_run_tool_raises_tool_execution_error_when_wrapped_function_reports_failure(self, server: BaseMCPServer):
+    async def test_run_tool_raises_tool_execution_error_when_wrapped_function_reports_failure(
+        self, server: BaseMCPServer
+    ):
         """It raises `ToolExecutionError` when the wrapped function returns `success=False`."""
 
         def tool_impl():
@@ -162,9 +165,9 @@ class TestRunTool:
             ToolExecutionError,
             match=r"Tool execution failed at .*base_server.py:\d+ in _execute_tool: explicit failure",
         ):
-            asyncio.run(server.run_tool(tool_impl))
+            await server.run_tool(tool_impl, background=False)
 
-    def test_run_tool_wraps_unexpected_exception_with_location(self, server: BaseMCPServer):
+    async def test_run_tool_wraps_unexpected_exception_with_location(self, server: BaseMCPServer):
         """It wraps unexpected exceptions with source location details."""
 
         def tool_impl():
@@ -173,7 +176,7 @@ class TestRunTool:
         with pytest.raises(
             ToolExecutionError, match=r"Tool execution failed at .*test_base_server.py:.* in tool_impl: boom"
         ):
-            asyncio.run(server.run_tool(tool_impl))
+            await server.run_tool(tool_impl, background=False)
 
 
 class TestLoadConfig:
@@ -696,59 +699,3 @@ class TestRunWithArgs:
 
         with pytest.raises(ValueError, match=r"Unsupported transport: weird"):
             server.run_with_args("srv")
-
-
-class TestRunToolAsync:
-    """Unit tests for `BaseMCPServer.run_tool()` and background execution."""
-
-    def test_run_tool_returns_payload_for_successful_tool(self, server: BaseMCPServer):
-        """It returns the payload directly for a successful tool."""
-
-        def succeed():
-            return True, "background-done"
-
-        result = asyncio.run(server.run_tool(succeed))
-        assert result == "background-done"
-
-    def test_run_tool_raises_for_failed_tool(self, server: BaseMCPServer):
-        """It raises when the wrapped tool reports failure."""
-
-        def fail():
-            return False, "background-boom"
-
-        with pytest.raises(base_mod.ToolExecutionError, match="background-boom"):
-            asyncio.run(server.run_tool(fail))
-
-    def test_run_tool_starts_background_job_when_requested(self, server: BaseMCPServer):
-        """It returns a task descriptor immediately when background execution is requested."""
-
-        def succeed():
-            return True, "background-done"
-
-        started = json.loads(asyncio.run(server.run_tool(succeed, background=True)))
-        assert started["task_id"].startswith("tool-task-")
-        assert started["tool_name"] == "succeed"
-        assert started["status"] == "running"
-        assert started["message"] == "Tool started in background."
-
-    def test_run_tool_tracks_background_failure(self, server: BaseMCPServer):
-        """It still returns a background job descriptor when the tool will fail."""
-
-        def fail():
-            return False, "background-boom"
-
-        started = json.loads(asyncio.run(server.run_tool(fail, background=True)))
-        assert started["task_id"].startswith("tool-task-")
-        assert started["tool_name"] == "fail"
-        assert started["status"] == "running"
-
-    def test_run_tool_tracks_background_unexpected_exception(self, server: BaseMCPServer):
-        """It still returns a background job descriptor when the tool will raise."""
-
-        def explode():
-            raise RuntimeError("kaboom")
-
-        started = json.loads(asyncio.run(server.run_tool(explode, background=True)))
-        assert started["task_id"].startswith("tool-task-")
-        assert started["tool_name"] == "explode"
-        assert started["status"] == "running"

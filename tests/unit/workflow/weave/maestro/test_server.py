@@ -5,7 +5,6 @@
 Unit tests for MaestroCommandExecutionServer.
 """
 
-import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -126,7 +125,9 @@ class TestMaestroCommandExecutionServerInit:
 class TestRegisterTools:
     """Unit tests for `MaestroCommandExecutionServer._register_tools`."""
 
-    def test_registers_expected_workflow_tools(self, server: DummyCommandExecutionServer):
+    pytestmark = pytest.mark.asyncio
+
+    async def test_registers_expected_workflow_tools(self, server: DummyCommandExecutionServer):
         """
         It should register the workflow management MCP tools.
 
@@ -142,7 +143,9 @@ class TestRegisterTools:
         assert "cancel_workflows" in tool_names
         assert "update_workflows" in tool_names
 
-    def test_run_workflow_delegates_to_run_tool(self, server: DummyCommandExecutionServer, monkeypatch: MonkeyPatch):
+    async def test_run_workflow_delegates_to_run_tool(
+        self, server: DummyCommandExecutionServer, monkeypatch: MonkeyPatch
+    ):
         """
         `run_workflow` should delegate to `run_tool`..
 
@@ -158,12 +161,14 @@ class TestRegisterTools:
         run_tool_mock = AsyncMock(return_value="workflow started")
         monkeypatch.setattr(server, "run_tool", run_tool_mock)
 
-        result = asyncio.run(tool("workflow.yaml", attempts=2, dry=True))
+        result = await tool("workflow.yaml", attempts=2, dry=True)
 
         assert result == "workflow started"
         run_tool_mock.assert_called_once()
 
-    def test_get_statuses_delegates_to_run_tool(self, server: DummyCommandExecutionServer, monkeypatch: MonkeyPatch):
+    async def test_get_statuses_delegates_to_run_tool(
+        self, server: DummyCommandExecutionServer, monkeypatch: MonkeyPatch
+    ):
         """
         `get_statuses` should delegate to `run_tool`.
 
@@ -179,12 +184,12 @@ class TestRegisterTools:
         run_tool_mock = AsyncMock(return_value="status output")
         monkeypatch.setattr(server, "run_tool", run_tool_mock)
 
-        result = asyncio.run(tool(["/tmp/study1"], layout="narrow", disable_theme=True))
+        result = await tool(["/tmp/study1"], layout="narrow", disable_theme=True)
 
         assert result == "status output"
         run_tool_mock.assert_called_once()
 
-    def test_cancel_workflows_delegates_to_run_tool(
+    async def test_cancel_workflows_delegates_to_run_tool(
         self,
         server: DummyCommandExecutionServer,
         monkeypatch: MonkeyPatch,
@@ -204,12 +209,12 @@ class TestRegisterTools:
         run_tool_mock = AsyncMock(return_value="cancelled")
         monkeypatch.setattr(server, "run_tool", run_tool_mock)
 
-        result = asyncio.run(tool(["/tmp/study1"]))
+        result = await tool(["/tmp/study1"])
 
         assert result == "cancelled"
         run_tool_mock.assert_called_once()
 
-    def test_update_workflows_delegates_to_run_tool(
+    async def test_update_workflows_delegates_to_run_tool(
         self,
         server: DummyCommandExecutionServer,
         monkeypatch: MonkeyPatch,
@@ -229,7 +234,7 @@ class TestRegisterTools:
         run_tool_mock = AsyncMock(return_value="updated")
         monkeypatch.setattr(server, "run_tool", run_tool_mock)
 
-        result = asyncio.run(tool(["/tmp/study1"], throttle=5))
+        result = await tool(["/tmp/study1"], throttle=5)
 
         assert result == "updated"
         run_tool_mock.assert_called_once()

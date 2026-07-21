@@ -31,6 +31,13 @@ def registered_tools_map(dummy_command_execution_server) -> dict:
         dict:
             Mapping of tool names to registered callables.
     """
+    run_tool = dummy_command_execution_server.run_tool
+
+    async def run_tool_foreground(func, *args, **kwargs):
+        kwargs.setdefault("background", False)
+        return await run_tool(func, *args, **kwargs)
+
+    dummy_command_execution_server.run_tool = run_tool_foreground
     dummy_command_execution_server._register_tools()
     return dummy_command_execution_server.mcp.tools
 
@@ -40,7 +47,9 @@ class TestWorkflowManagementFlows:
     Integration tests for workflow management tools registered by `BaseMaestroServer`.
     """
 
-    def test_run_workflow_tool_executes_full_command_flow(
+    pytestmark = pytest.mark.asyncio
+
+    async def test_run_workflow_tool_executes_full_command_flow(
         self,
         registered_tools_map: dict,
         tmp_path: Path,
@@ -73,7 +82,7 @@ class TestWorkflowManagementFlows:
         monkeypatch.setattr("subprocess.run", fake_run)
 
         tool = registered_tools_map["run_workflow"]
-        result = tool(
+        result = await tool(
             workflow_yaml=str(workflow_yaml),
             attempts=2,
             rlimit=3,
@@ -111,7 +120,7 @@ class TestWorkflowManagementFlows:
             "--usetmp",
         ]
 
-    def test_run_workflow_tool_rejects_missing_yaml_file(
+    async def test_run_workflow_tool_rejects_missing_yaml_file(
         self,
         registered_tools_map: dict,
         tmp_path: Path,
@@ -132,9 +141,9 @@ class TestWorkflowManagementFlows:
             ToolExecutionError,
             match="The provided workflow YAML specification does not exist in the file system.",
         ):
-            tool(workflow_yaml=str(missing_yaml))
+            await tool(workflow_yaml=str(missing_yaml))
 
-    def test_run_workflow_tool_rejects_pargs_without_pgen(
+    async def test_run_workflow_tool_rejects_pargs_without_pgen(
         self,
         registered_tools_map: dict,
         tmp_path: Path,
@@ -154,12 +163,12 @@ class TestWorkflowManagementFlows:
         tool = registered_tools_map["run_workflow"]
 
         with pytest.raises(ToolExecutionError, match="`pargs` requires `pgen`"):
-            tool(
+            await tool(
                 workflow_yaml=str(workflow_yaml),
                 pargs=["a", "b"],
             )
 
-    def test_get_statuses_tool_executes_full_command_flow(
+    async def test_get_statuses_tool_executes_full_command_flow(
         self,
         registered_tools_map: dict,
         monkeypatch: MonkeyPatch,
@@ -186,7 +195,7 @@ class TestWorkflowManagementFlows:
         monkeypatch.setattr("subprocess.run", fake_run)
 
         tool = registered_tools_map["get_statuses"]
-        result = tool(
+        result = await tool(
             workflow_dirs=["/tmp/study1", "/tmp/study2"],
             layout="narrow",
             disable_theme=True,
@@ -207,7 +216,7 @@ class TestWorkflowManagementFlows:
             "--disable-theme",
         ]
 
-    def test_get_statuses_tool_propagates_empty_workflow_validation_error(
+    async def test_get_statuses_tool_propagates_empty_workflow_validation_error(
         self,
         registered_tools_map: dict,
     ):
@@ -221,9 +230,9 @@ class TestWorkflowManagementFlows:
         tool = registered_tools_map["get_statuses"]
 
         with pytest.raises(ToolExecutionError, match="No workflows provided to `get_statuses`"):
-            tool(workflow_dirs=[])
+            await tool(workflow_dirs=[])
 
-    def test_cancel_workflows_tool_executes_full_command_flow(
+    async def test_cancel_workflows_tool_executes_full_command_flow(
         self,
         registered_tools_map: dict,
         monkeypatch: MonkeyPatch,
@@ -250,7 +259,7 @@ class TestWorkflowManagementFlows:
         monkeypatch.setattr("subprocess.run", fake_run)
 
         tool = registered_tools_map["cancel_workflows"]
-        result = tool(workflow_dirs=["/tmp/study1", "/tmp/study2"])
+        result = await tool(workflow_dirs=["/tmp/study1", "/tmp/study2"])
 
         assert result == "cancelled\n"
         assert captured["capture_output"] is True
@@ -263,7 +272,7 @@ class TestWorkflowManagementFlows:
             "/tmp/study2",
         ]
 
-    def test_cancel_workflows_tool_propagates_empty_workflow_validation_error(
+    async def test_cancel_workflows_tool_propagates_empty_workflow_validation_error(
         self,
         registered_tools_map: dict,
     ):
@@ -278,9 +287,9 @@ class TestWorkflowManagementFlows:
         tool = registered_tools_map["cancel_workflows"]
 
         with pytest.raises(ToolExecutionError, match="No workflows provided to `cancel_workflows`"):
-            tool(workflow_dirs=[])
+            await tool(workflow_dirs=[])
 
-    def test_update_workflows_tool_executes_full_command_flow(
+    async def test_update_workflows_tool_executes_full_command_flow(
         self,
         registered_tools_map: dict,
         monkeypatch,
@@ -307,7 +316,7 @@ class TestWorkflowManagementFlows:
         monkeypatch.setattr("subprocess.run", fake_run)
 
         tool = registered_tools_map["update_workflows"]
-        result = tool(
+        result = await tool(
             workflow_dirs=["/tmp/study1", "/tmp/study2"],
             rlimit=5,
             throttle=6,
@@ -331,7 +340,7 @@ class TestWorkflowManagementFlows:
             "120",
         ]
 
-    def test_update_workflows_tool_propagates_no_settings_error(
+    async def test_update_workflows_tool_propagates_no_settings_error(
         self,
         registered_tools_map: dict,
     ):
@@ -345,9 +354,9 @@ class TestWorkflowManagementFlows:
         tool = registered_tools_map["update_workflows"]
 
         with pytest.raises(ToolExecutionError, match="No settings to update"):
-            tool(workflow_dirs=["/tmp/study1"])
+            await tool(workflow_dirs=["/tmp/study1"])
 
-    def test_update_workflows_tool_propagates_empty_workflow_validation_error(
+    async def test_update_workflows_tool_propagates_empty_workflow_validation_error(
         self,
         registered_tools_map: dict,
     ):
@@ -362,9 +371,9 @@ class TestWorkflowManagementFlows:
         tool = registered_tools_map["update_workflows"]
 
         with pytest.raises(ToolExecutionError, match="No workflows provided to `update_workflows`"):
-            tool(workflow_dirs=[], throttle=1)
+            await tool(workflow_dirs=[], throttle=1)
 
-    def test_workflow_tool_propagates_subprocess_failure_as_tool_execution_error(
+    async def test_workflow_tool_propagates_subprocess_failure_as_tool_execution_error(
         self,
         registered_tools_map: dict,
         tmp_path: Path,
@@ -392,4 +401,4 @@ class TestWorkflowManagementFlows:
         tool = registered_tools_map["run_workflow"]
 
         with pytest.raises(ToolExecutionError, match="maestro failed"):
-            tool(workflow_yaml=str(workflow_yaml))
+            await tool(workflow_yaml=str(workflow_yaml))
