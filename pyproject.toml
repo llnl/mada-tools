@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "mada_tools"
 description = "Tooling for the MADA multi-agent ecosystem"
 version = "0.1.1"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 readme = "README.md"
 dependencies = [
     "fastmcp>=3.0.0",
