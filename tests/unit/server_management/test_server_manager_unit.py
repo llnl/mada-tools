@@ -893,7 +893,7 @@ def test_start_server_health_check_updates_status_running(
 
     popen_mock = MagicMock(return_value=DummyProcess(pid=1111))
 
-    manager.state_manager._is_port_in_use.side_effect = [False, True]
+    manager.state_manager._is_port_in_use.side_effect = [111, 0]
 
     with (
         patch(
@@ -946,7 +946,7 @@ def test_start_server_health_check_updates_status_unhealthy(
 
     popen_mock = MagicMock(return_value=DummyProcess(pid=2222))
 
-    manager.state_manager._is_port_in_use.side_effect = [False, False]
+    manager.state_manager._is_port_in_use.side_effect = [111, 111]
 
     with (
         patch(
@@ -1027,7 +1027,7 @@ def test_start_server_raises_port_in_use_error(server_management_testing_dir: Pa
     manager = ServerManager(state_file=None)
     manager.state_manager = MagicMock()
     manager.state_manager.get_server.return_value = None
-    manager.state_manager._is_port_in_use.return_value = True
+    manager.state_manager._is_port_in_use.return_value = 0
 
     tmp_dir = server_management_testing_dir / "test_start_server_raises_port_in_use_error"
     tmp_dir.mkdir(parents=True)

@@ -36,9 +36,19 @@ def get_run_instances(run_instances_json_path: str) -> List[RunInstance]:
     # Read the JSON file and convert it into RunInstance objects
     with open(run_instances_json_path, "r") as json_file:
         try:
-            run_instances_data = json.load(json_file)  # Load the JSON data as a list of dictionaries
+            run_info = json.load(json_file)
+            if isinstance(run_info, dict):
+                run_instances_data = run_info.get("runs", [])
+            else:
+                run_instances_data = run_info
+            if not isinstance(run_instances_data, list):
+                print("ERROR: Run instances JSON must be a list or an object with a 'runs' list.")
+                return []
             run_instances = []
             for data in run_instances_data:
+                if not isinstance(data, dict):
+                    print("ERROR: Run instance entries must be JSON objects.")
+                    return []
                 run_instance = RunInstance(run_location=data["run_location"], id=data["id"])
                 # Set command and args if present
                 if "command" in data:

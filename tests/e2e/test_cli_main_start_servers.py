@@ -94,8 +94,8 @@ def test_main_start_servers_starts_configured_server_and_exits_successfully(
     def fake_is_port_in_use(self, host, port):
         port_check_calls["count"] += 1
         if port_check_calls["count"] == 1:
-            return False
-        return True
+            return 111
+        return 0
 
     monkeypatch.setattr(
         "mada_tools.server_management.state_manager.ServerStateManager._is_port_in_use",
@@ -169,8 +169,8 @@ def test_main_start_servers_with_specific_server_name_only_starts_requested_serv
     def fake_is_port_in_use(self, host, port):
         port_check_calls["count"] += 1
         if port_check_calls["count"] == 1:
-            return False
-        return True
+            return 111
+        return 0
 
     monkeypatch.setattr(
         "mada_tools.server_management.state_manager.ServerStateManager._is_port_in_use",
@@ -278,7 +278,7 @@ def test_main_start_servers_exits_with_error_when_port_is_already_in_use(
 
     monkeypatch.setattr(
         "mada_tools.server_management.state_manager.ServerStateManager._is_port_in_use",
-        lambda self, host, port: True,
+        lambda self, host, port: 0,
     )
 
     monkeypatch.setattr(

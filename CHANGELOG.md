@@ -5,9 +5,12 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 
 ### Added
+- Added common parameter_samples_generator and associated documentation.
 - Support for Windows OS
 - Support for Python 3.14
 - Support for Hubcast
+- GitLab CI for Hubcast
+- Simulation tests and generic tools for LLM MCP Tool tests
 
 ### Changed
 - Refactored the `JobMonitorServer` and `ProfessorServer` to utilize `BaseMCPServer.run_tool()`

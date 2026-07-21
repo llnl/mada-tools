@@ -6,7 +6,7 @@ Latin Hypercube Sample (LHS) generator component.
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Set, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 import numpy as np
 from scipy.stats import qmc
@@ -25,12 +25,14 @@ class LHSampleSettings(BaseSettings):
         n_samples (int): The number of samples to generate.
         lower_bounds (List[float]): The lower bounds for each dimension.
         upper_bounds (List[float]): The upper bounds for each dimension.
+        rng (np.random.Generator): The random number generator that will seed LHS sampling (if provided)
     """
 
     dims: int
     n_samples: int
     lower_bounds: List[Union[float, int]]
     upper_bounds: List[Union[float, int]]
+    rng: Optional[np.random.Generator] = None
 
     def validate(self):
         """
@@ -55,6 +57,9 @@ class LHSampleSettings(BaseSettings):
                 f"Length of lower bounds ({len_lower_bounds}) and upper bounds "
                 f"({len_upper_bounds}) must both match number of dimensions ({self.dims})"
             )
+
+        if self.rng is not None and not isinstance(self.rng, np.random.Generator):
+            raise ValueError("Invalid 'rng' value.")
 
 
 class LHSampleGenerator(BaseSampleGenerator):
@@ -88,7 +93,7 @@ class LHSampleGenerator(BaseSampleGenerator):
         Returns:
             A set of supported keyword argument names.
         """
-        return {"dims", "n_samples", "lower_bounds", "upper_bounds"}
+        return {"dims", "n_samples", "lower_bounds", "upper_bounds", "rng"}
 
     def _get_required_kwargs(self) -> Set[str]:
         """
@@ -99,7 +104,7 @@ class LHSampleGenerator(BaseSampleGenerator):
         """
         return {"dims", "n_samples", "lower_bounds", "upper_bounds"}
 
-    def generate(self, **kwargs: Dict[str, int | List[float]]) -> np.ndarray:
+    def generate(self, **kwargs: Dict[str, Any]) -> np.ndarray:
         """
         Generate a list of samples from the provided data.
 
@@ -113,6 +118,7 @@ class LHSampleGenerator(BaseSampleGenerator):
                 - n_samples: int, number of samples to generate
                 - lower_bounds: List[float], lower bounds for each dimension
                 - upper_bounds: List[float], upper bounds for each dimension
+                - rng: Optional[np.random.Generator], random number generator
 
         Returns:
             A numpy array of generated samples.
@@ -123,14 +129,25 @@ class LHSampleGenerator(BaseSampleGenerator):
 
         lower = np.asarray(sample_settings.lower_bounds, dtype=float)
         upper = np.asarray(sample_settings.upper_bounds, dtype=float)
-
+        # Create an LHS sampler. Older SciPy versions accept a Generator but
+        # do not reliably preserve reproducibility across fresh equivalent
+        # generators, so derive SciPy's integer seed from the supplied stream.
+        lhs_seed = None
+        if sample_settings.rng is not None:
+            lhs_seed = int(
+                sample_settings.rng.integers(
+                    0,
+                    np.iinfo(np.uint32).max,
+                    dtype=np.uint32,
+                )
+            )
         varying_mask = lower < upper
         fixed_mask = lower == upper
 
         result = np.empty((sample_settings.n_samples, sample_settings.dims), dtype=float)
 
         if np.any(varying_mask):
-            lhs = qmc.LatinHypercube(d=int(np.sum(varying_mask)))
+            lhs = qmc.LatinHypercube(d=int(np.sum(varying_mask)), seed=lhs_seed)
             samples = lhs.random(n=sample_settings.n_samples)
 
             scaled = qmc.scale(

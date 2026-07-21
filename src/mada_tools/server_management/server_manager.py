@@ -230,7 +230,7 @@ class ServerManager:
                 env[key] = str(value)
 
         # Verify that the port we're trying to use isn't already in use
-        if server_info.port and self.state_manager._is_port_in_use(server_info.host, server_info.port):
+        if server_info.port and self.state_manager._is_port_in_use(server_info.host, server_info.port) == 0:
             raise PortInUseError(
                 f"Cannot start server '{name}', port {server_info.host}:{server_info.port} is already in use"
             )
@@ -270,12 +270,13 @@ class ServerManager:
             LOG.info(f"Server '{name}' started with PID {process.pid}, logs: {server_info.log_file}")
 
             if server_info.port:
-                if self.state_manager._is_port_in_use(server_info.host, server_info.port):
+                return_code = self.state_manager._is_port_in_use(server_info.host, server_info.port)
+                if return_code == 0:
                     self.state_manager.update_server_status(name, ServerStatus.RUNNING)
                     LOG.info(f"Server '{name}' is healthy and running")
                 else:
                     self.state_manager.update_server_status(name, ServerStatus.UNHEALTHY)
-                    LOG.warning(f"Server '{name}' started but health check failed")
+                    LOG.warning(f"Server '{name}' started but health check failed with error code: {return_code}")
 
         except Exception as e:
             LOG.error(f"Failed to start server '{name}': {e}")

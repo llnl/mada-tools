@@ -1,0 +1,29 @@
+spec:
+  inputs:
+    zone_extends:
+      type: array
+      description: Zone-specific parents
+---
+
+e2e_tests:
+  stage: test
+  extends:
+    - .install_mada_tools
+    - .python_matrix
+    - .retry_settings
+    - $[[ inputs.zone_extends ]]
+  script:
+    - pytest tests/ -m "e2e and not (allocation_required or requires_gitlab_runner)"
+
+e2e_tests_requires_gitlab_runner:
+  stage: test
+  extends:
+    - .install_mada_tools_runner
+    - .retry_settings
+    - $[[ inputs.zone_extends ]]
+  script:
+    - test -f "${HOME}/.mada_env"  || exit 1
+    - set -a
+    - . "${HOME}/.mada_env"
+    - set +a
+    - pytest tests/ -m "e2e and requires_gitlab_runner and not (allocation_required)" -vv
