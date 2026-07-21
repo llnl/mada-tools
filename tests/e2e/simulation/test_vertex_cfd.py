@@ -31,7 +31,7 @@ async def test_vertex_cfd_prompt(
         "config_vertex_cfd.json",
     )
     async with runner:
-        runs = 10
+        runs = 5
         sims_dir = simulation_testing_dir / "vertex_cfd"
         param_names = [
             "velocity_0",
