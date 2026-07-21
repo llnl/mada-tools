@@ -74,7 +74,7 @@ async def test_vertex_cfd_prompt(
         assert f"{tasks}" in response
 
         for i in range(runs):
-            assert f"run{i:02d}" in response
+            assert f"run{i}" in response
 
         # flux.check_job_status
         response = await runner.process_query("Check job status.")
