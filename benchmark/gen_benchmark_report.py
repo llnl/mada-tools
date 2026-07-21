@@ -591,7 +591,7 @@ def render_expected_call_grouped_failure_lines(
                     [
                         heading(5, f"Prompt: {prompt_id}"),
                         "",
-                        "- Prompt text:",
+                        "- Prompt:",
                         "",
                         text_block(prompt_text),
                         "",

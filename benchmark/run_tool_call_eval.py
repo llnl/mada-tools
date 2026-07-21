@@ -2247,13 +2247,16 @@ async def run(args: argparse.Namespace) -> int:
     plot_paths = []
     if plots_enabled(config, args):
         if eval_args.summary_csv is not None and eval_args.summary_csv.exists():
-            plot_paths = generate_plots(
-                config,
-                output_dir,
-                eval_args.summary_csv,
-                eval_args.quiet,
-                min_pass_rate=eval_args.min_pass_rate,
-            )
+            if eval_args.min_pass_rate is None:
+                plot_paths = generate_plots(config, output_dir, eval_args.summary_csv, eval_args.quiet)
+            else:
+                plot_paths = generate_plots(
+                    config,
+                    output_dir,
+                    eval_args.summary_csv,
+                    eval_args.quiet,
+                    min_pass_rate=eval_args.min_pass_rate,
+                )
         elif not eval_args.quiet:
             print(f"Skipping plot generation because {eval_args.summary_csv} was not created.", file=sys.stderr)
 

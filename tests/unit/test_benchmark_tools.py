@@ -2843,7 +2843,7 @@ class TestGenBenchmarkReport:
         assert "##### Prompt: direct" in report
         assert "###### Model: gpt-test" in report
         assert "- Passed: 0/2" in report
-        assert "- Prompt text:" in report
+        assert "- Prompt:" in report
         assert "Prompt." in report
         assert "2x sample=1,2 `wrong_tool`: got `submit_command`" in report
         assert "Expected tool check_job_status, got submit_command" in report
