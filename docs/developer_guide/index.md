@@ -8,6 +8,7 @@ Welcome to the Developer Guide for the MADA Tools project! This comprehensive gu
 - The [Release Workflow](./releases.md)
 - Instructions for [Creating MCP Servers](./server_creation/index.md), including:
     - [Adding Servers Directly to the MADA Tools Repository](./server_creation/adding_new_servers.md)
+    - [Registering MADA Extensions](./server_creation/extensions.md)
     - [Creating Plugin MCP Servers](./server_creation/plugin_servers.md)
 
 

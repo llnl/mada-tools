@@ -11,7 +11,7 @@ files, extract tails, and classify failures using regex-based patterns.
 
 from typing import Optional
 
-from mada_tools.monitor.job_monitor_helper import JobMonitorHelper
+from mada_tools.monitor.job_monitor.job_monitor_helper import JobMonitorHelper
 from mada_tools.shared.base_server import BaseMCPServer
 from mada_tools.shared.env import get_env_var
 
