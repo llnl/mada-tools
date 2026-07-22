@@ -17,6 +17,7 @@ from typing import Any, Callable, List, Tuple
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
 
+from mada_tools.extensions.manifest import MCPServerRegistration
 from mada_tools.main import main
 from mada_tools.server_management import ServerStatus
 from mada_tools.server_management.state_manager import ServerStateManager
@@ -216,16 +217,10 @@ def test_main_servers_status_with_config_includes_stopped_servers_from_config(
     )
 
     monkeypatch.setattr(
-        "mada_tools.server_management.server_manager.ServerManager._discover_servers",
+        "mada_tools.server_management.server_manager.ExtensionRegistry.get_mcp_server_index",
         lambda self: {
-            "alpha": {
-                "module_path": "fake_pkg.alpha.server",
-                "package": "fake_pkg",
-            },
-            "beta": {
-                "module_path": "fake_pkg.beta.server",
-                "package": "fake_pkg",
-            },
+            "alpha": MCPServerRegistration("alpha", "fake_pkg.alpha.server", "fake_pkg"),
+            "beta": MCPServerRegistration("beta", "fake_pkg.beta.server", "fake_pkg"),
         },
     )
 
@@ -312,20 +307,11 @@ def test_main_servers_status_with_config_and_server_filter_only_targets_matching
     )
 
     monkeypatch.setattr(
-        "mada_tools.server_management.server_manager.ServerManager._discover_servers",
+        "mada_tools.server_management.server_manager.ExtensionRegistry.get_mcp_server_index",
         lambda self: {
-            "alpha": {
-                "module_path": "fake_pkg.alpha.server",
-                "package": "fake_pkg",
-            },
-            "beta": {
-                "module_path": "fake_pkg.beta.server",
-                "package": "fake_pkg",
-            },
-            "gamma": {
-                "module_path": "fake_pkg.gamma.server",
-                "package": "fake_pkg",
-            },
+            "alpha": MCPServerRegistration("alpha", "fake_pkg.alpha.server", "fake_pkg"),
+            "beta": MCPServerRegistration("beta", "fake_pkg.beta.server", "fake_pkg"),
+            "gamma": MCPServerRegistration("gamma", "fake_pkg.gamma.server", "fake_pkg"),
         },
     )
 

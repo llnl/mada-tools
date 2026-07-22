@@ -1,6 +1,13 @@
 # Creating Plugin MCP Servers
 
-Plugin MCP servers are useful for several reasons, including:
+!!! note
+
+    The preferred registration mechanism for new external packages is now the
+    [extension manifest workflow](./extensions.md). The legacy
+    `[project.entry-points."mada_tools.servers"]` registration described on
+    this page is still supported for compatibility.
+
+Legacy plugin MCP servers are useful for several reasons, including:
 
 - **Version control**, you can pin server behavior to a specific release
 - **Security**, you can restrict execution to audited code paths and controlled dependencies

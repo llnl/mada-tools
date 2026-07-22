@@ -11,8 +11,12 @@ The output will include both built-in servers and plugin servers.
 
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser, Namespace
 
+from rich import box
+from rich.console import Console
+from rich.table import Table
+
 from mada_tools.cli.commands.base_cmd import BaseCmd
-from mada_tools.server_management import ServerManager
+from mada_tools.extensions import ExtensionRegistry
 
 
 class AvailableServersCmd(BaseCmd):
@@ -53,8 +57,38 @@ class AvailableServersCmd(BaseCmd):
         Args:
             args (Namespace): Parsed CLI arguments from the user.
         """
-        # Create ServerManager (only needs state for stopping)
-        manager = ServerManager()
+        available = ExtensionRegistry().get_available_mcp_servers()
 
-        # Retrieve the available servers and print them out
-        manager.print_available_servers()
+        if not available:
+            print("\nNo available servers found.")
+            return
+
+        console = Console()
+
+        rows = []
+        for registration in available:
+            rows.append((registration.package, registration.name, registration.module_path))
+
+        table = Table(
+            title="Available MCP Servers",
+            show_header=True,
+            header_style="bold magenta",
+            box=box.SIMPLE_HEAVY,
+        )
+        table.add_column("Provider Package", no_wrap=True)
+        table.add_column("Server", style="cyan", no_wrap=True)
+        table.add_column("Module Path")
+
+        style_cycle = ["", "dim"]
+        current_pkg = None
+        pkg_index = -1
+
+        for pkg, name, module_path in rows:
+            if pkg != current_pkg:
+                current_pkg = pkg
+                pkg_index += 1
+
+            row_style = style_cycle[pkg_index % len(style_cycle)]
+            table.add_row(pkg, name, module_path, style=row_style)
+
+        console.print(table)

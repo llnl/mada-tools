@@ -102,11 +102,16 @@ After creating your server class, you need to register it so it can be launched 
     mada-mcp-<server key> = "mada_tools.path.to.server:main"
     ```
 
-2. Similarly, add a Python entry point to the `pyproject.toml` in the `[project.entry-points."mada_tools.servers"]` section. This should follow this format:
+2. Register the server in the built-in extension manifest at `src/mada_tools/extensions/builtins.py` by adding an `MCPServerRegistration` entry to `get_extension_manifest()`. This keeps built-in server discovery in one place.
 
-    ```toml
-    [project.entry-points."mada_tools.servers"]
-    <server_name> = "mada_tools.path.to.server"
+    Example:
+
+    ```python
+    MCPServerRegistration(
+        name="my_new_server",
+        module_path="mada_tools.path.to.server",
+        package="mada_tools",
+    )
     ```
 
 3. Add the server to the `configs/development.json` file. Below is a template entry; you may not need the `env_vars` entry:

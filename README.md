@@ -325,3 +325,5 @@ See [LICENSE](./LICENSE), [COPYRIGHT](./COPYRIGHT), and [NOTICE](./NOTICE) for d
 SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 LLNL-CODE-2019936
+
+https://doi.org/10.11578/dc.20260717.1

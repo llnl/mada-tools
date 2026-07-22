@@ -18,6 +18,7 @@ import psutil
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
 
+from mada_tools.extensions.manifest import MCPServerRegistration
 from mada_tools.main import main
 from mada_tools.server_management import ServerStatus
 
@@ -305,16 +306,10 @@ def test_main_stop_servers_with_config_only_stops_servers_defined_in_config(
     )
 
     monkeypatch.setattr(
-        "mada_tools.server_management.server_manager.ServerManager._discover_servers",
+        "mada_tools.server_management.server_manager.ExtensionRegistry.get_mcp_server_index",
         lambda self: {
-            "alpha": {
-                "module_path": "fake_pkg.alpha.server",
-                "package": "fake_pkg",
-            },
-            "charlie": {
-                "module_path": "fake_pkg.charlie.server",
-                "package": "fake_pkg",
-            },
+            "alpha": MCPServerRegistration("alpha", "fake_pkg.alpha.server", "fake_pkg"),
+            "charlie": MCPServerRegistration("charlie", "fake_pkg.charlie.server", "fake_pkg"),
         },
     )
 
