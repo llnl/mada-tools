@@ -221,9 +221,8 @@ class BaseMCPServer(ABC):
 
         with self._tool_task_lock:
             task_id = f"tool-task-{next(self._tool_task_counter)}"
-        tool_name = getattr(func, "__name__", repr(func))
-        submitted_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
-        with self._tool_task_lock:
+            tool_name = getattr(func, "__name__", repr(func))
+            submitted_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
             self._tool_tasks[task_id] = {
                 "task_id": task_id,
                 "tool_name": tool_name,
@@ -242,7 +241,7 @@ class BaseMCPServer(ABC):
                     self._tool_tasks[task_id]["status"] = "cancelled"
                     self._tool_tasks[task_id]["completed_at"] = completed_at
                     self._tool_tasks[task_id]["error"] = "Background tool was cancelled."
-                LOG.error("Background tool %s (%s) was cancelled", tool_name, task_id)
+                LOG.error(f"Background tool {tool_name} ({task_id}) was cancelled")
             else:
                 error = done_task.exception()
                 if error is not None:
@@ -250,12 +249,13 @@ class BaseMCPServer(ABC):
                         self._tool_tasks[task_id]["status"] = "failed"
                         self._tool_tasks[task_id]["completed_at"] = completed_at
                         self._tool_tasks[task_id]["error"] = str(error)
-                    LOG.error("Background tool %s (%s) failed: %s", tool_name, task_id, error)
+                    LOG.error(f"Background tool {tool_name} ({task_id}) failed: {error}")
                 else:
                     with self._tool_task_lock:
                         self._tool_tasks[task_id]["status"] = "completed"
                         self._tool_tasks[task_id]["completed_at"] = completed_at
                         self._tool_tasks[task_id]["result"] = done_task.result()
+                    LOG.info(f"Background tool {tool_name} ({task_id}) completed")
 
         task.add_done_callback(_save_background_result)
         return json.dumps(
@@ -270,7 +270,19 @@ class BaseMCPServer(ABC):
         )
 
     def _execute_tool(self, func: Callable, *args, **kwargs) -> Any:
-        """Execute one tool function and normalize `(success, payload)` results."""
+        """
+        Helper function to run a tool and handle errors.
+
+        Args:
+        func: The function/method to execute.
+        background: Whether to run the tool in the background. Defaults to True.
+
+        Returns:
+        The successful payload returned by the tool.
+
+        Raises:
+        ToolExecutionError: If the tool execution fails.
+        """
         try:
             success, payload = func(*args, **kwargs)
             if success:

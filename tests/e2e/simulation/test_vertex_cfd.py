@@ -31,7 +31,7 @@ async def test_vertex_cfd_prompt(
         "config_vertex_cfd.json",
     )
     async with runner:
-        runs = 5
+        runs = 10
         sims_dir = simulation_testing_dir / "vertex_cfd"
         param_names = [
             "velocity_0",
@@ -74,7 +74,7 @@ async def test_vertex_cfd_prompt(
         assert f"{tasks}" in response
 
         for i in range(runs):
-            assert f"run{i}" in response
+            assert f"run{i:02d}" in response
 
         # flux.check_job_status
         response = await runner.process_query("Check job status.")

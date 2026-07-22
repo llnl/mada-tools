@@ -67,6 +67,7 @@ if __name__ == "__main__":
 - Inherit from `BaseMCPServer`.
 - Implement the `_register_tools` method to register all tools (APIs) your server provides.
 - Prefer helper classes for business logic, and have your MCP tools call that logic with `self.run_tool(...)`.
+  - By default, `self.run_tool(..., background=True)` runs the MCP tool asynchronously so it does not block the chat in the MADA interfaces. If the tool is quick, or you want the chat to wait for the result, set `background=False`.
 - Return structured success and payload information from helper methods so the same logic can be used by MCP and PTC callers.
 - In the `__main__` block, call `run_with_args(server_key=...)` with your server’s key name (used in config files).
 
