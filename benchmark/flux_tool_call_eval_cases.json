@@ -1,0 +1,180 @@
+{
+  "mcp_servers": {
+    "flux": {
+      "url": "http://localhost:8101/mcp"
+    }
+  },
+  "tests": [
+    {
+      "id": "submit_command_simple_ad_hoc",
+      "server": "flux",
+      "prompts": [
+        {
+          "id": "direct",
+          "text": "Use the Flux server submit_command tool for one single ad hoc command. Set command to \"python -V\", nodes=1, tasks=1, time_limit=15m, job_name=python_version, and working_directory=/tmp/mada_flux_eval/single_command. Do not use submit_jobs or any generated run manifest."
+        },
+        {
+          "id": "natural",
+          "text": "Please submit one ad hoc Flux command, not a generated run manifest. Run python -V from /tmp/mada_flux_eval/single_command with one node, one total task, a 15 minute time limit, and job name python_version."
+        },
+        {
+          "id": "terse",
+          "text": "Flux submit_command single command: command=\"python -V\", nodes=1, tasks=1, time_limit=15m, job_name=python_version, working_directory=/tmp/mada_flux_eval/single_command."
+        }
+      ],
+      "expected_call": {
+        "tool": "submit_command",
+        "arguments": {
+          "command": "python -V",
+          "nodes": 1,
+          "tasks": 1,
+          "time_limit": "15m",
+          "job_name": "python_version",
+          "working_directory": "/tmp/mada_flux_eval/single_command"
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "submit_command_full_options",
+      "server": "flux",
+      "prompts": [
+        {
+          "id": "direct",
+          "text": "Use Flux submit_command for one single ad hoc command. Run command \"python simulate.py --case fluid_test --steps 10\" with nodes=2, tasks=8, time_limit=30m, job_name=fluid_test_eval, and working_directory=/tmp/mada_flux_eval/fluid_test_job. This is not a generated-runs manifest."
+        },
+        {
+          "id": "natural",
+          "text": "I need one ad hoc Flux command submission, not submit_jobs. Launch python simulate.py --case fluid_test --steps 10 from /tmp/mada_flux_eval/fluid_test_job, request two nodes and eight total tasks, cap it at 30 minutes, and name the job fluid_test_eval."
+        },
+        {
+          "id": "terse",
+          "text": "Flux submit_command: command=\"python simulate.py --case fluid_test --steps 10\", nodes=2, tasks=8, time_limit=30m, job_name=fluid_test_eval, working_directory=/tmp/mada_flux_eval/fluid_test_job."
+        }
+      ],
+      "expected_call": {
+        "tool": "submit_command",
+        "arguments": {
+          "command": "python simulate.py --case fluid_test --steps 10",
+          "nodes": 2,
+          "tasks": 8,
+          "time_limit": "30m",
+          "job_name": "fluid_test_eval",
+          "working_directory": "/tmp/mada_flux_eval/fluid_test_job"
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "check_job_status_specific",
+      "server": "flux",
+      "prompts": [
+        {
+          "id": "direct",
+          "text": "Use Flux check_job_status with the local MADA tracking field job_id set to job_000123. Do not use flux_job_id."
+        },
+        {
+          "id": "natural",
+          "text": "Please look up the current Flux status for the local MADA tracking ID job_000123. Use check_job_status with job_id, not flux_job_id."
+        },
+        {
+          "id": "terse",
+          "text": "Flux check_job_status job_id=job_000123."
+        }
+      ],
+      "expected_call": {
+        "tool": "check_job_status",
+        "arguments": {
+          "job_id": "job_000123"
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "check_job_status_all_jobs",
+      "server": "flux",
+      "prompts": [
+        {
+          "id": "direct",
+          "text": "Check Flux job status for all tracked jobs. Do not pass job_id or flux_job_id."
+        },
+        {
+          "id": "natural",
+          "text": "Show me the status of every Flux job the server is tracking right now. This is the all-jobs status query, so do not include job_id or flux_job_id."
+        },
+        {
+          "id": "terse",
+          "text": "Flux check_job_status for all tracked jobs, no job_id, no flux_job_id."
+        }
+      ],
+      "expected_call": {
+        "tool": "check_job_status",
+        "arguments": {},
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "submit_jobs_generated_runs_default_async",
+      "server": "flux",
+      "prompts": [
+        {
+          "id": "direct",
+          "text": "Use Flux submit_jobs for generated runs. Pass this exact literal JSON string as run_info_json: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}. Leave blocking at its default async behavior; do not ask Flux to wait for completion."
+        },
+        {
+          "id": "natural",
+          "text": "Please submit these generated runs through Flux using submit_jobs, not submit_command. The run manifest has run_001 in /tmp/mada_flux_eval/run_001 with simulate_case --input case1.deck and run_002 in /tmp/mada_flux_eval/run_002 with simulate_case --input case2.deck. Use the default non-blocking async submission behavior."
+        },
+        {
+          "id": "terse",
+          "text": "Flux submit_jobs run_info_json={\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}, blocking default false."
+        }
+      ],
+      "expected_call": {
+        "tool": "submit_jobs",
+        "arguments": {
+          "run_info_json": "{\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "submit_jobs_generated_runs_blocking",
+      "server": "flux",
+      "prompts": [
+        {
+          "id": "direct",
+          "text": "Use Flux submit_jobs for generated runs and set blocking=true so the tool waits until all runs finish. Pass this exact literal JSON string as run_info_json: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}."
+        },
+        {
+          "id": "natural",
+          "text": "Submit these generated runs through Flux with submit_jobs and wait until all runs finish before returning. The run manifest includes run_sync_001 at /tmp/mada_flux_eval/run_sync_001 with simulate_case --input sync1.deck and run_sync_002 at /tmp/mada_flux_eval/run_sync_002 with simulate_case --input sync2.deck. This should be the blocking=true case."
+        },
+        {
+          "id": "terse",
+          "text": "Flux submit_jobs blocking=true run_info_json={\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}."
+        }
+      ],
+      "expected_call": {
+        "tool": "submit_jobs",
+        "arguments": {
+          "run_info_json": "{\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}",
+          "blocking": true
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,1207 @@
+#!/usr/bin/env python3
+"""Generate prompt variants for MCP tool-call benchmark fixtures.
+
+The fixture generator starts from test cases that already define an
+`expected_call` and produces realistic user prompts that should lead a model to
+make that call. It can preserve existing prompts, generate new prompts with an
+OpenAI-compatible model, or combine both sources.
+
+Tool schemas are discovered either from live MCP servers or by statically
+parsing known `server.py` files. Static parsing depends on server tool
+signatures and Google-style `Args:` docstrings, so clear server tool docstrings
+directly improve generated benchmark prompts.
+"""
+
+from __future__ import annotations
+
+import argparse
+import ast
+import asyncio
+import copy
+import json
+import os
+import sys
+from contextlib import AsyncExitStack
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_SRC = REPO_ROOT / "src"
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+if str(REPO_SRC) not in sys.path:
+    sys.path.insert(0, str(REPO_SRC))
+
+from run_tool_call_eval import connect_server, exception_messages, expected_call_from_test_case  # noqa: E402
+
+from mada_tools.shared.config import get_config_value, load_json_object_config  # noqa: E402
+
+DEFAULT_BASE_URL = "https://livai-api.llnl.gov/v1"
+DEFAULT_GENERATION_ATTEMPTS = 3
+PROMPT_SOURCES = {"generated", "existing", "both"}
+AUGMENT_SOURCES = {"generated", "existing", "both"}
+DEFAULT_STYLES = [
+    {
+        "id": "natural",
+        "description": "Plain conversational request from a capable user.",
+    },
+    {
+        "id": "terse",
+        "description": "Short command-like request with minimal extra words.",
+    },
+    {
+        "id": "direct",
+        "description": "Explicit instruction that names the intended server, tool, and important arguments.",
+    },
+]
+KNOWN_SERVER_PATHS = {
+    "flux": REPO_SRC / "mada_tools" / "scheduler" / "flux" / "server.py",
+    "slurm": REPO_SRC / "mada_tools" / "scheduler" / "slurm" / "server.py",
+    "vertex_cfd": REPO_SRC / "mada_tools" / "simulation" / "vertex_cfd" / "server.py",
+    "professor": REPO_SRC / "mada_tools" / "surrogate" / "professor" / "server.py",
+    "job_monitor": REPO_SRC / "mada_tools" / "monitor" / "job_monitor" / "server.py",
+    "maestro_command_executor": REPO_SRC / "mada_tools" / "workflow" / "weave" / "maestro" / "server.py",
+}
+PROMPT_TEXT_REPLACEMENTS = {
+    "\\u2018": "'",
+    "\\u2019": "'",
+    "\\u201c": '"',
+    "\\u201d": '"',
+    "\\u2013": "-",
+    "\\u2014": "-",
+    "\\u00a0": " ",
+    "\u2018": "'",
+    "\u2019": "'",
+    "\u201c": '"',
+    "\u201d": '"',
+    "\u2013": "-",
+    "\u2014": "-",
+    "\u00a0": " ",
+}
+
+
+@dataclass(frozen=True)
+class GenerationStyle:
+    """One prompt style requested from the generation model."""
+
+    id: str
+    description: str
+
+
+@dataclass(frozen=True)
+class PromptSlot:
+    """Concrete prompt ID paired with its style instructions."""
+
+    id: str
+    style: GenerationStyle
+
+
+@dataclass(frozen=True)
+class PromptArgumentRule:
+    """Generation rule for one expected-call argument."""
+
+    mode: str
+    guidance: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class PromptArgumentPolicy:
+    """Server/tool-specific prompt-generation constraints from a fixture."""
+
+    server: str
+    tool: str
+    test_id: str | None
+    arguments: dict[str, PromptArgumentRule]
+    guidance: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class MatchedPromptArgumentPolicy:
+    """Merged prompt-generation policy that applies to one test case."""
+
+    verbatim_arguments: tuple[str, ...] = ()
+    argument_guidance: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    guidance: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class GenerationSettings:
+    """Resolved settings controlling prompt generation and prompt merging."""
+
+    model: str | None
+    num_prompts: int
+    styles: list[GenerationStyle]
+    temperature: float | None
+    request_timeout: float
+    prompt_source: str
+    augment_prompts: bool
+    augment_source: str
+    argument_policies: list[PromptArgumentPolicy] = field(default_factory=list)
+
+
+def positive_int(option_name: str):
+    """Return an argparse parser for positive integer options."""
+
+    def parse(value: str) -> int:
+        try:
+            parsed = int(value)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(f"{option_name} must be an integer") from exc
+        if parsed < 1:
+            raise argparse.ArgumentTypeError(f"{option_name} must be at least 1")
+        return parsed
+
+    return parse
+
+
+parse_num_prompts = positive_int("--num-prompts")
+
+
+def load_json_object(path: Path) -> dict[str, Any]:
+    """Load a JSON file that must contain an object."""
+    with path.open("r", encoding="utf-8") as f:
+        loaded = json.load(f)
+    if not isinstance(loaded, dict):
+        raise ValueError(f"{path}: expected a JSON object")
+    return loaded
+
+
+def validate_input_fixture(fixture: dict[str, Any]) -> None:
+    """Validate the fixture fields needed before prompt generation."""
+    mcp_servers = fixture.get("mcp_servers")
+    tests = fixture.get("tests")
+    if not isinstance(mcp_servers, dict) or not mcp_servers:
+        raise ValueError("Fixture 'mcp_servers' must be a non-empty object")
+    if not isinstance(tests, list) or not tests:
+        raise ValueError("Fixture 'tests' must be a non-empty list")
+
+    for index, test_case in enumerate(tests, start=1):
+        if not isinstance(test_case, dict):
+            raise ValueError(f"Test case #{index} must be an object")
+        case_id = test_case.get("id", f"case_{index}")
+        server = test_case.get("server")
+        if not isinstance(server, str) or not server:
+            raise ValueError(f"Test case {case_id} must contain a non-empty server string")
+        if server not in mcp_servers:
+            raise ValueError(f"Test case {case_id} references unknown MCP server '{server}'")
+        expected_call_from_test_case(test_case)
+
+
+def load_input_fixture(path: Path) -> dict[str, Any]:
+    """Load and validate the prompt-generation input fixture."""
+    fixture = load_json_object(path)
+    validate_input_fixture(fixture)
+    return fixture
+
+
+def parse_styles(raw_styles: Any) -> list[GenerationStyle]:
+    """Parse configured prompt styles or return the default style set."""
+    if raw_styles is None:
+        raw_styles = DEFAULT_STYLES
+    if not isinstance(raw_styles, list) or not raw_styles:
+        raise ValueError("prompt_generation.styles must be a non-empty list")
+
+    styles: list[GenerationStyle] = []
+    seen_ids: set[str] = set()
+    for index, style in enumerate(raw_styles, start=1):
+        if not isinstance(style, dict):
+            raise ValueError(f"prompt_generation.styles[{index}] must be an object")
+        style_id = style.get("id")
+        description = style.get("description")
+        if not isinstance(style_id, str) or not style_id:
+            raise ValueError(f"prompt_generation.styles[{index}].id must be a non-empty string")
+        if style_id in seen_ids:
+            raise ValueError(f"Duplicate prompt style id: {style_id}")
+        if not isinstance(description, str) or not description:
+            raise ValueError(f"prompt_generation.styles[{index}].description must be a non-empty string")
+        seen_ids.add(style_id)
+        styles.append(GenerationStyle(id=style_id, description=description))
+    return styles
+
+
+def select_styles(styles: list[GenerationStyle], style_ids: list[str] | None) -> list[GenerationStyle]:
+    """Select configured styles by ID while preserving requested order."""
+    if not style_ids:
+        return styles
+    by_id = {style.id: style for style in styles}
+    selected = []
+    for style_id in style_ids:
+        if style_id not in by_id:
+            raise ValueError(f"Unknown prompt style id: {style_id}")
+        selected.append(by_id[style_id])
+    return selected
+
+
+def bool_config(value: Any, field_name: str, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    raise ValueError(f"{field_name} must be a boolean")
+
+
+def parse_string_list(value: Any, field_name: str) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        if not value:
+            raise ValueError(f"{field_name} must not contain empty strings")
+        return (value,)
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be a string or list of strings")
+    parsed = []
+    for index, item in enumerate(value, start=1):
+        if not isinstance(item, str) or not item:
+            raise ValueError(f"{field_name}[{index}] must be a non-empty string")
+        parsed.append(item)
+    return tuple(parsed)
+
+
+def parse_optional_string(value: Any, field_name: str) -> str | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, str):
+        return value
+    raise ValueError(f"{field_name} must be a string")
+
+
+def parse_required_string(value: Any, field_name: str) -> str:
+    if isinstance(value, str) and value:
+        return value
+    raise ValueError(f"{field_name} must be a non-empty string")
+
+
+def parse_argument_rule(raw_rule: Any, field_name: str) -> PromptArgumentRule:
+    """Parse a prompt argument rule from shorthand or object form."""
+    if isinstance(raw_rule, str):
+        if raw_rule not in {"semantic", "verbatim"}:
+            raise ValueError(f"{field_name} must be 'semantic', 'verbatim', or an object")
+        return PromptArgumentRule(mode=raw_rule, guidance=())
+    if not isinstance(raw_rule, dict):
+        raise ValueError(f"{field_name} must be 'semantic', 'verbatim', or an object")
+
+    mode = raw_rule.get("mode", "semantic")
+    if mode not in {"semantic", "verbatim"}:
+        raise ValueError(f"{field_name}.mode must be one of: semantic, verbatim")
+    guidance = parse_string_list(raw_rule.get("guidance"), f"{field_name}.guidance")
+    return PromptArgumentRule(mode=mode, guidance=guidance)
+
+
+def parse_argument_rules(raw_arguments: Any, field_name: str) -> dict[str, PromptArgumentRule]:
+    """Parse the argument-rule mapping inside one prompt policy."""
+    if raw_arguments is None:
+        return {}
+    if not isinstance(raw_arguments, dict):
+        raise ValueError(f"{field_name} must be an object")
+    rules = {}
+    for argument_name, raw_rule in raw_arguments.items():
+        if not isinstance(argument_name, str) or not argument_name:
+            raise ValueError(f"{field_name} keys must be non-empty argument names")
+        rules[argument_name] = parse_argument_rule(raw_rule, f"{field_name}.{argument_name}")
+    return rules
+
+
+def parse_argument_policies(raw_policies: Any) -> list[PromptArgumentPolicy]:
+    """Parse fixture-level prompt-generation policies.
+
+    Policies are data-driven extension points for server/tool-specific prompt
+    constraints. They keep hard-coded scheduler or simulation semantics out of
+    the generator while still letting a fixture require exact strings or provide
+    extra guidance for particular arguments.
+    """
+    if raw_policies is None:
+        return []
+    if not isinstance(raw_policies, list):
+        raise ValueError("prompt_generation.argument_policies must be a list")
+
+    policies: list[PromptArgumentPolicy] = []
+    for index, raw_policy in enumerate(raw_policies, start=1):
+        field_prefix = f"prompt_generation.argument_policies[{index}]"
+        if not isinstance(raw_policy, dict):
+            raise ValueError(f"{field_prefix} must be an object")
+
+        policies.append(
+            PromptArgumentPolicy(
+                server=parse_required_string(raw_policy.get("server"), f"{field_prefix}.server"),
+                tool=parse_required_string(raw_policy.get("tool"), f"{field_prefix}.tool"),
+                test_id=parse_optional_string(raw_policy.get("test_id"), f"{field_prefix}.test_id"),
+                arguments=parse_argument_rules(raw_policy.get("arguments"), f"{field_prefix}.arguments"),
+                guidance=parse_string_list(raw_policy.get("guidance"), f"{field_prefix}.guidance"),
+            )
+        )
+    return policies
+
+
+def string_choice(value: Any, field_name: str, choices: set[str], default: str) -> str:
+    if value in (None, ""):
+        return default
+    if isinstance(value, str) and value in choices:
+        return value
+    raise ValueError(f"{field_name} must be one of: {', '.join(sorted(choices))}")
+
+
+def build_generation_settings(
+    fixture: dict[str, Any],
+    api_config: dict[str, Any],
+    args: argparse.Namespace,
+) -> GenerationSettings:
+    """Resolve prompt-generation settings from fixture config, API config, and CLI.
+
+    CLI values override fixture values. A generation model is required only when
+    generated prompts are requested; `prompt_source=existing` can run without an
+    LLM client.
+    """
+    prompt_generation = fixture.get("prompt_generation", {})
+    if prompt_generation is None:
+        prompt_generation = {}
+    if not isinstance(prompt_generation, dict):
+        raise ValueError("Fixture prompt_generation must be an object when provided")
+
+    styles = select_styles(parse_styles(prompt_generation.get("styles")), args.styles)
+    prompt_source = string_choice(
+        getattr(args, "prompt_source", None) or prompt_generation.get("prompt_source"),
+        "prompt_generation.prompt_source",
+        PROMPT_SOURCES,
+        "generated",
+    )
+    augment_source = string_choice(
+        getattr(args, "augment_source", None) or prompt_generation.get("augment_source"),
+        "prompt_generation.augment_source",
+        AUGMENT_SOURCES,
+        "both",
+    )
+    augment_arg = getattr(args, "augment_prompts", None)
+    if augment_arg is None:
+        augment_prompts = bool_config(
+            prompt_generation.get("augment_prompts"),
+            "prompt_generation.augment_prompts",
+            False,
+        )
+    else:
+        augment_prompts = augment_arg
+
+    model = args.model or prompt_generation.get("model") or get_config_value(api_config, "model", expand_env=False)
+    if prompt_source in {"generated", "both"} and (not isinstance(model, str) or not model):
+        raise ValueError("Generation model is required. Provide --model or prompt_generation.model.")
+    if not isinstance(model, str) or not model:
+        model = None
+
+    num_prompts = args.num_prompts or prompt_generation.get("num_prompts") or 1
+    if not isinstance(num_prompts, int) or num_prompts < 1:
+        raise ValueError("num_prompts must be an integer greater than or equal to 1")
+
+    temperature = args.temperature
+    if temperature is None and "temperature" in prompt_generation:
+        temperature = float(prompt_generation["temperature"])
+
+    request_timeout = args.request_timeout
+    if request_timeout is None:
+        request_timeout = float(prompt_generation.get("request_timeout", 120.0))
+    argument_policies = parse_argument_policies(prompt_generation.get("argument_policies"))
+
+    return GenerationSettings(
+        model=model,
+        num_prompts=num_prompts,
+        styles=styles,
+        temperature=temperature,
+        request_timeout=request_timeout,
+        prompt_source=prompt_source,
+        augment_prompts=augment_prompts,
+        augment_source=augment_source,
+        argument_policies=argument_policies,
+    )
+
+
+def should_generate_prompts(settings: GenerationSettings) -> bool:
+    """Return whether generated prompts should be requested from a model."""
+    return settings.prompt_source in {"generated", "both"}
+
+
+def should_use_existing_prompts(settings: GenerationSettings) -> bool:
+    """Return whether existing fixture prompts should be preserved."""
+    return settings.prompt_source in {"existing", "both"}
+
+
+def normalize_prompt_text(text: str) -> str:
+    """Normalize prompt text characters that often vary across model outputs."""
+    for old, new in PROMPT_TEXT_REPLACEMENTS.items():
+        text = text.replace(old, new)
+    return text
+
+
+def prompt_slots(styles: list[GenerationStyle], num_prompts_per_style: int) -> list[PromptSlot]:
+    """Build prompt IDs interleaved by repetition then style."""
+    slots = []
+    for prompt_index in range(1, num_prompts_per_style + 1):
+        for style in styles:
+            prompt_id = style.id if prompt_index == 1 else f"{style.id}_{prompt_index}"
+            slots.append(PromptSlot(id=prompt_id, style=style))
+    return slots
+
+
+def prompt_slots_for_style(style: GenerationStyle, num_prompts: int) -> list[PromptSlot]:
+    """Build all prompt slots for one style."""
+    return [
+        PromptSlot(id=style.id if prompt_index == 1 else f"{style.id}_{prompt_index}", style=style)
+        for prompt_index in range(1, num_prompts + 1)
+    ]
+
+
+def resolve_api_settings(args: argparse.Namespace, api_config: dict[str, Any] | None = None) -> tuple[str, str]:
+    """Resolve API key and base URL for the prompt-generation model."""
+    if api_config is None:
+        api_config = load_json_object_config(args.config)
+    base_url = args.base_url or get_config_value(api_config, "base_url") or os.getenv("API_BASE_URL", DEFAULT_BASE_URL)
+    api_key = args.api_key or get_config_value(api_config, "api_key") or os.getenv("API_KEY")
+    if not api_key:
+        api_key = "dummy" if base_url.startswith(("http://localhost", "http://127.0.0.1")) else None
+    if not api_key:
+        raise ValueError("API key is required. Provide --api-key, --config, or set API_KEY.")
+    return api_key, base_url
+
+
+def annotation_to_schema_type(annotation: ast.expr | None) -> str:
+    """Best-effort conversion from Python type annotation AST to JSON schema type."""
+    if annotation is None:
+        return "string"
+    text = ast.unparse(annotation)
+    if text in {"str", "Optional[str]", "typing.Optional[str]"} or text.endswith(" | None"):
+        if text.startswith("str") or "str" in text:
+            return "string"
+    if "int" in text:
+        return "integer"
+    if "float" in text:
+        return "number"
+    if "bool" in text:
+        return "boolean"
+    if "dict" in text or "Dict" in text:
+        return "object"
+    if "list" in text or "List" in text:
+        return "array"
+    return "string"
+
+
+def literal_default(node: ast.expr | None) -> Any:
+    """Return an AST default value as a JSON-friendly Python value when possible."""
+    if node is None:
+        return None
+    try:
+        return ast.literal_eval(node)
+    except Exception:
+        return ast.unparse(node)
+
+
+def parse_arg_descriptions(docstring: str) -> dict[str, str]:
+    """Extract per-argument descriptions from a Google-style `Args:` section."""
+    lines = docstring.splitlines()
+    in_args = False
+    descriptions: dict[str, str] = {}
+    current_name: str | None = None
+    for raw_line in lines:
+        line = raw_line.strip()
+        if line == "Args:":
+            in_args = True
+            current_name = None
+            continue
+        if in_args and line in {"Returns:", "Raises:", "Examples:"}:
+            break
+        if not in_args or not line:
+            continue
+        if ":" in line and not line.startswith(("`", "-")):
+            name, description = line.split(":", 1)
+            name = name.strip()
+            if name:
+                descriptions[name] = description.strip()
+                current_name = name
+                continue
+        if current_name:
+            descriptions[current_name] = f"{descriptions[current_name]} {line}".strip()
+    return descriptions
+
+
+def function_to_openai_tool(function: ast.FunctionDef, server_name: str) -> dict[str, Any]:
+    """Convert a statically parsed MCP tool function into OpenAI tool schema.
+
+    Static discovery uses the function name, annotations, defaults, and
+    Google-style `Args:` descriptions. It is intentionally approximate but gives
+    the generation model enough context when live MCP discovery is unavailable.
+    """
+    docstring = ast.get_docstring(function) or ""
+    arg_descriptions = parse_arg_descriptions(docstring)
+    args = function.args.args
+    defaults = [None] * (len(args) - len(function.args.defaults)) + list(function.args.defaults)
+
+    properties: dict[str, Any] = {}
+    required = []
+    for arg, default_node in zip(args, defaults):
+        if arg.arg == "self":
+            continue
+        schema: dict[str, Any] = {"type": annotation_to_schema_type(arg.annotation)}
+        if arg.arg in arg_descriptions:
+            schema["description"] = arg_descriptions[arg.arg]
+        if default_node is None:
+            required.append(arg.arg)
+        else:
+            schema["default"] = literal_default(default_node)
+        properties[arg.arg] = schema
+
+    parameters: dict[str, Any] = {
+        "type": "object",
+        "properties": properties,
+    }
+    if required:
+        parameters["required"] = required
+
+    return {
+        "type": "function",
+        "function": {
+            "name": function.name,
+            "description": f"[{server_name}] {docstring}",
+            "parameters": parameters,
+        },
+    }
+
+
+def is_mcp_tool_decorator(decorator: ast.expr) -> bool:
+    """Return whether an AST decorator looks like a FastMCP tool decorator."""
+    target = decorator
+    if isinstance(target, ast.Call):
+        target = target.func
+    return isinstance(target, ast.Attribute) and target.attr == "tool"
+
+
+def parse_server_py_tools(path: Path, server_name: str) -> list[dict[str, Any]]:
+    """Extract tool schemas from nested `@self.mcp.tool` functions in `server.py`."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    tools = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef) or node.name != "_register_tools":
+            continue
+        for child in node.body:
+            if isinstance(child, ast.FunctionDef) and any(is_mcp_tool_decorator(d) for d in child.decorator_list):
+                tools.append(function_to_openai_tool(child, server_name))
+    if not tools:
+        raise ValueError(f"No @self.mcp.tool functions found in {path}")
+    return tools
+
+
+def module_to_server_path(module_name: str) -> Path:
+    return REPO_SRC / Path(*module_name.split(".")).with_suffix(".py")
+
+
+def resolve_server_path(server_name: str, server_config: dict[str, Any]) -> Path:
+    """Resolve the `server.py` path used for static tool-schema discovery."""
+    raw_path = server_config.get("server_py")
+    if isinstance(raw_path, str) and raw_path:
+        path = Path(raw_path)
+        if not path.is_absolute():
+            path = (REPO_ROOT / path).resolve()
+        return path
+
+    module_name = server_config.get("module")
+    if isinstance(module_name, str) and module_name:
+        return module_to_server_path(module_name)
+
+    if server_name in KNOWN_SERVER_PATHS:
+        return KNOWN_SERVER_PATHS[server_name]
+    raise ValueError(
+        f"No static server.py fallback known for MCP server '{server_name}'. "
+        "Add mcp_servers.<server>.server_py or mcp_servers.<server>.module."
+    )
+
+
+async def live_tools_for_server(server_name: str, server_config: dict[str, Any], quiet: bool) -> list[dict[str, Any]]:
+    """Discover tool schemas by connecting to a live MCP server."""
+    async with AsyncExitStack() as stack:
+        _session, tools = await connect_server(server_name, server_config, stack, quiet)
+        return tools
+
+
+async def tools_for_server(
+    server_name: str,
+    server_config: dict[str, Any],
+    source: str,
+    quiet: bool = False,
+) -> list[dict[str, Any]]:
+    """Discover tools from a live server or static fallback.
+
+    `source=auto` prefers live discovery because it reflects the actual running
+    schema, then falls back to static `server.py` parsing to keep fixture
+    generation useful when servers are not running.
+    """
+    if source in {"auto", "live"}:
+        try:
+            return await live_tools_for_server(server_name, server_config, quiet)
+        except Exception as exc:
+            if source == "live":
+                raise
+            if not quiet:
+                print(
+                    f"Warning: live MCP discovery failed for '{server_name}'; using static server.py fallback.",
+                    file=sys.stderr,
+                )
+                for message in exception_messages(exc):
+                    print(f"  - {message}", file=sys.stderr)
+
+    server_path = resolve_server_path(server_name, server_config)
+    return parse_server_py_tools(server_path, server_name)
+
+
+async def discover_tools(
+    fixture: dict[str, Any],
+    source: str,
+    quiet: bool = False,
+) -> dict[str, list[dict[str, Any]]]:
+    """Discover tool schemas for every server referenced by the fixture tests."""
+    required_servers = sorted({test_case["server"] for test_case in fixture["tests"]})
+    server_configs = fixture["mcp_servers"]
+    discovered = {}
+    for server_name in required_servers:
+        discovered[server_name] = await tools_for_server(server_name, server_configs[server_name], source, quiet)
+    return discovered
+
+
+def generation_system_prompt() -> str:
+    """Return the system prompt used for benchmark prompt generation."""
+    return (
+        "You generate realistic user prompts for MCP tool-call benchmark fixtures. "
+        "Each prompt should be something a user could say that should lead an LLM to call the expected tool with "
+        "the expected structured arguments. Return only JSON."
+    )
+
+
+def policy_matches_test_case(policy: PromptArgumentPolicy, test_case: dict[str, Any]) -> bool:
+    """Return whether a prompt policy applies to a fixture test case."""
+    expected_call = test_case.get("expected_call")
+    tool = expected_call.get("tool") if isinstance(expected_call, dict) else None
+    return (
+        policy.server == test_case.get("server")
+        and policy.tool == tool
+        and (policy.test_id is None or policy.test_id == test_case.get("id"))
+    )
+
+
+def prompt_argument_policy_for_case(
+    settings: GenerationSettings,
+    test_case: dict[str, Any],
+) -> MatchedPromptArgumentPolicy:
+    """Merge all prompt-generation policies that apply to one test case.
+
+    Matching policies are processed in fixture order. Verbatim argument
+    requirements and guidance are deduplicated so broad server/tool policies can
+    be combined with narrower test-specific policies.
+    """
+    expected_call = test_case.get("expected_call")
+    expected_arguments = expected_call.get("arguments") if isinstance(expected_call, dict) else {}
+    if not isinstance(expected_arguments, dict):
+        expected_arguments = {}
+
+    verbatim_arguments = []
+    argument_guidance: dict[str, list[str]] = {}
+    guidance = []
+    seen_arguments = set()
+    seen_guidance = set()
+    for policy in settings.argument_policies:
+        if not policy_matches_test_case(policy, test_case):
+            continue
+        for argument_name, argument_rule in policy.arguments.items():
+            if argument_name not in expected_arguments:
+                continue
+            if argument_rule.mode == "verbatim" and argument_name not in seen_arguments:
+                seen_arguments.add(argument_name)
+                verbatim_arguments.append(argument_name)
+            if argument_rule.guidance:
+                existing = argument_guidance.setdefault(argument_name, [])
+                for guidance_item in argument_rule.guidance:
+                    if guidance_item not in existing:
+                        existing.append(guidance_item)
+        for guidance_item in policy.guidance:
+            if guidance_item not in seen_guidance:
+                seen_guidance.add(guidance_item)
+                guidance.append(guidance_item)
+    return MatchedPromptArgumentPolicy(
+        verbatim_arguments=tuple(verbatim_arguments),
+        argument_guidance={name: tuple(items) for name, items in argument_guidance.items()},
+        guidance=tuple(guidance),
+    )
+
+
+def verbatim_string_arguments(
+    expected_call: dict[str, Any],
+    argument_names: tuple[str, ...] | list[str] = (),
+) -> list[dict[str, str]]:
+    """Return expected string arguments that generated prompts must quote exactly."""
+    arguments = expected_call.get("arguments")
+    if not isinstance(arguments, dict) or not argument_names:
+        return []
+
+    if "*" in argument_names:
+        names = list(arguments)
+    else:
+        names = list(argument_names)
+
+    required = []
+    seen_names = set()
+    for name in names:
+        if name in seen_names:
+            continue
+        seen_names.add(name)
+        value = arguments.get(name)
+        if isinstance(value, str) and value:
+            required.append({"name": str(name), "value": value})
+    return required
+
+
+def generation_user_prompt(
+    test_case: dict[str, Any],
+    tools: list[dict[str, Any]],
+    slots: list[PromptSlot],
+    argument_policy: MatchedPromptArgumentPolicy | None = None,
+) -> str:
+    """Build the model-facing instruction for generating prompt variants."""
+    if argument_policy is None:
+        argument_policy = MatchedPromptArgumentPolicy()
+    expected_call = test_case["expected_call"]
+    style_specs = [{"id": slot.id, "style": slot.style.id, "description": slot.style.description} for slot in slots]
+    required_arguments = verbatim_string_arguments(expected_call, argument_policy.verbatim_arguments)
+    payload = {
+        "case_id": test_case["id"],
+        "server": test_case["server"],
+        "available_tools": tools,
+        "expected_call": expected_call,
+        "verbatim_string_arguments": required_arguments,
+        "argument_guidance": {
+            name: list(guidance_items) for name, guidance_items in sorted(argument_policy.argument_guidance.items())
+        },
+        "generation_guidance": list(argument_policy.guidance),
+        "requested_prompts": style_specs,
+        "output_schema": {
+            "prompts": [
+                {
+                    "id": "must exactly match a requested prompt id",
+                    "text": "the user prompt text only",
+                }
+            ]
+        },
+    }
+    verbatim_rule = ""
+    if required_arguments:
+        verbatim_rule = (
+            "- Every prompt must preserve the exact value of each item in verbatim_string_arguments. Include those "
+            "values literally in the prompt text.\n"
+        )
+    guidance_rule = ""
+    if argument_policy.guidance or argument_policy.argument_guidance:
+        guidance_rule = "- Follow every item in generation_guidance and argument_guidance for this case.\n"
+    return (
+        "Generate benchmark prompt variants for this MCP tool-call case.\n"
+        "Rules:\n"
+        "- Produce exactly one prompt for each requested prompt id.\n"
+        "- The prompt must not mention that it is a benchmark or fixture.\n"
+        "- The prompt should naturally imply the expected MCP server, tool, and arguments.\n"
+        "- Treat expected_call.arguments as the source of truth, not as background context to reinterpret.\n"
+        f"{verbatim_rule}"
+        f"{guidance_rule}"
+        "- Natural, lazy, beginner, or terse styles may change wording around the exact values, but must still "
+        "include enough exact information to recover the expected arguments unambiguously.\n"
+        "- Do not include tool-call JSON as the user's prompt unless the expected argument itself is a literal "
+        "JSON string; when it is a literal JSON string, preserve that string exactly.\n"
+        "- Return a JSON object with only a 'prompts' list.\n\n"
+        f"{json.dumps(payload, indent=2, sort_keys=True)}"
+    )
+
+
+def parse_model_json(content: str) -> dict[str, Any]:
+    """Parse the generation model response as a JSON object."""
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Generation model did not return valid JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError("Generation model JSON response must be an object")
+    return parsed
+
+
+def validate_generated_prompts(payload: dict[str, Any], expected_ids: list[str]) -> list[dict[str, str]]:
+    """Validate generated prompts and order them by requested prompt ID."""
+    prompts = payload.get("prompts")
+    if not isinstance(prompts, list):
+        raise ValueError("Generation response must contain a 'prompts' list")
+
+    normalized: list[dict[str, str]] = []
+    seen_ids = set()
+    for index, prompt in enumerate(prompts, start=1):
+        if not isinstance(prompt, dict):
+            raise ValueError(f"Generated prompt #{index} must be an object")
+        prompt_id = prompt.get("id")
+        text = prompt.get("text")
+        if not isinstance(prompt_id, str) or not prompt_id:
+            raise ValueError(f"Generated prompt #{index}.id must be a non-empty string")
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError(f"Generated prompt {prompt_id}.text must be a non-empty string")
+        if prompt_id in seen_ids:
+            raise ValueError(f"Duplicate generated prompt id: {prompt_id}")
+        seen_ids.add(prompt_id)
+        normalized.append({"id": prompt_id, "text": normalize_prompt_text(text.strip())})
+
+    if set(seen_ids) != set(expected_ids):
+        raise ValueError(f"Generated prompt ids {sorted(seen_ids)} do not match expected ids {sorted(expected_ids)}")
+    return sorted(normalized, key=lambda prompt: expected_ids.index(prompt["id"]))
+
+
+def validate_generated_prompt_argument_coverage(
+    prompts: list[dict[str, str]],
+    expected_call: dict[str, Any],
+    argument_names: tuple[str, ...] | list[str] = (),
+) -> None:
+    """Ensure every generated prompt preserves required verbatim string values."""
+    required_arguments = verbatim_string_arguments(expected_call, argument_names)
+    if not required_arguments:
+        return
+
+    failures = []
+    for prompt in prompts:
+        missing = [argument["name"] for argument in required_arguments if argument["value"] not in prompt["text"]]
+        if missing:
+            failures.append(f"{prompt['id']} missing exact string argument(s): {', '.join(missing)}")
+    if failures:
+        raise ValueError("; ".join(failures))
+
+
+def normalize_existing_prompts(test_case: dict[str, Any]) -> list[dict[str, str]]:
+    """Normalize prompts already present in the fixture for reuse or merging."""
+    prompts = test_case.get("prompts")
+    if not isinstance(prompts, list) or not prompts:
+        raise ValueError(
+            f"Test case {test_case.get('id', '<missing id>')} must contain prompts for prompt_source=existing"
+        )
+
+    normalized = []
+    for index, prompt in enumerate(prompts, start=1):
+        if isinstance(prompt, str):
+            normalized.append({"id": f"prompt_{index}", "text": normalize_prompt_text(prompt)})
+            continue
+        if isinstance(prompt, dict) and isinstance(prompt.get("text"), str):
+            normalized.append(
+                {
+                    "id": str(prompt.get("id", f"prompt_{index}")),
+                    "text": normalize_prompt_text(prompt["text"]),
+                }
+            )
+            continue
+        raise ValueError(f"Invalid existing prompt in test case {test_case.get('id', '<missing id>')}: {prompt!r}")
+    return normalized
+
+
+def augment_prompt_text(
+    prompt_text: str,
+    *,
+    prompt_id: str,
+    test_case: dict[str, Any],
+    source: str,
+    settings: GenerationSettings,
+) -> str:
+    """Future NLPA hook; currently returns prompt text unchanged."""
+    return prompt_text
+
+
+def augment_prompts(
+    prompts: list[dict[str, str]],
+    *,
+    test_case: dict[str, Any],
+    source: str,
+    settings: GenerationSettings,
+) -> list[dict[str, str]]:
+    """Run prompts through the augmentation hook and normalize the result."""
+    return [
+        {
+            "id": prompt["id"],
+            "text": normalize_prompt_text(
+                augment_prompt_text(
+                    prompt["text"],
+                    prompt_id=prompt["id"],
+                    test_case=test_case,
+                    source=source,
+                    settings=settings,
+                )
+            ),
+        }
+        for prompt in prompts
+    ]
+
+
+def maybe_augment_prompts(
+    prompts: list[dict[str, str]],
+    *,
+    test_case: dict[str, Any],
+    source: str,
+    settings: GenerationSettings,
+) -> list[dict[str, str]]:
+    """Apply prompt augmentation only when enabled for the prompt source."""
+    if not settings.augment_prompts or settings.augment_source not in {source, "both"}:
+        return prompts
+    return augment_prompts(prompts, test_case=test_case, source=source, settings=settings)
+
+
+def unique_prompt_id(prompt_id: str, used_ids: set[str]) -> str:
+    """Return a non-conflicting prompt ID for a generated prompt."""
+    if prompt_id not in used_ids:
+        return prompt_id
+
+    candidate = f"generated_{prompt_id}"
+    if candidate not in used_ids:
+        return candidate
+
+    suffix = 2
+    while f"{candidate}_{suffix}" in used_ids:
+        suffix += 1
+    return f"{candidate}_{suffix}"
+
+
+def merge_prompt_sources(
+    existing_prompts: list[dict[str, str]],
+    generated_prompts: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """Append generated prompts after existing prompts while preserving unique IDs."""
+    merged = copy.deepcopy(existing_prompts)
+    used_ids = {prompt["id"] for prompt in merged}
+    for prompt in generated_prompts:
+        prompt_id = unique_prompt_id(prompt["id"], used_ids)
+        used_ids.add(prompt_id)
+        merged.append({"id": prompt_id, "text": prompt["text"]})
+    return [{"id": prompt["id"], "text": normalize_prompt_text(prompt["text"])} for prompt in merged]
+
+
+async def generate_case_prompts(
+    client: Any,
+    settings: GenerationSettings,
+    test_case: dict[str, Any],
+    tools: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    """Generate all configured prompt slots for one fixture test case."""
+    if settings.model is None:
+        raise ValueError("Generation model is required when generating prompts")
+    expected_slots = prompt_slots(settings.styles, settings.num_prompts)
+    prompts = []
+    for style in settings.styles:
+        prompts.extend(
+            await generate_slot_prompts(
+                client,
+                settings,
+                test_case,
+                tools,
+                prompt_slots_for_style(style, settings.num_prompts),
+            )
+        )
+    expected_ids = [slot.id for slot in expected_slots]
+    return sorted(prompts, key=lambda prompt: expected_ids.index(prompt["id"]))
+
+
+async def generate_slot_prompts(
+    client: Any,
+    settings: GenerationSettings,
+    test_case: dict[str, Any],
+    tools: list[dict[str, Any]],
+    slots: list[PromptSlot],
+) -> list[dict[str, str]]:
+    """Generate and validate a batch of prompt slots for one test case.
+
+    The function retries invalid model responses with a targeted correction
+    message. Validation requires exact prompt IDs, non-empty text, valid JSON,
+    and any verbatim argument coverage required by matching policies.
+    """
+    expected_ids = [slot.id for slot in slots]
+    argument_policy = prompt_argument_policy_for_case(settings, test_case)
+    messages = [
+        {"role": "system", "content": generation_system_prompt()},
+        {"role": "user", "content": generation_user_prompt(test_case, tools, slots, argument_policy)},
+    ]
+    kwargs: dict[str, Any] = {
+        "model": settings.model,
+        "messages": messages,
+    }
+    if settings.temperature is not None:
+        kwargs["temperature"] = settings.temperature
+
+    last_error: ValueError | None = None
+    for attempt in range(1, DEFAULT_GENERATION_ATTEMPTS + 1):
+        response = await client.chat.completions.create(**kwargs)
+        content = response.choices[0].message.content
+        if not isinstance(content, str):
+            last_error = ValueError("Generation model returned an empty response")
+        else:
+            try:
+                prompts = validate_generated_prompts(parse_model_json(content), expected_ids)
+                validate_generated_prompt_argument_coverage(
+                    prompts,
+                    test_case["expected_call"],
+                    argument_policy.verbatim_arguments,
+                )
+                return prompts
+            except ValueError as exc:
+                last_error = exc
+
+        if attempt < DEFAULT_GENERATION_ATTEMPTS:
+            kwargs["messages"] = [
+                *messages,
+                {
+                    "role": "user",
+                    "content": (
+                        f"Your previous response was invalid: {last_error}. "
+                        f"Return exactly these prompt ids and no others: {', '.join(expected_ids)}."
+                    ),
+                },
+            ]
+
+    assert last_error is not None
+    raise last_error
+
+
+async def generate_fixture(
+    fixture: dict[str, Any],
+    tools_by_server: dict[str, list[dict[str, Any]]] | None,
+    client: Any | None,
+    settings: GenerationSettings,
+    quiet: bool = False,
+) -> dict[str, Any]:
+    """Return a fixture copy with prompts generated, preserved, or merged.
+
+    The input fixture is not mutated. Existing prompts are normalized and can be
+    passed through the augmentation hook; generated prompts require both an LLM
+    client and discovered MCP tool schemas.
+    """
+    output = copy.deepcopy(fixture)
+    for index, test_case in enumerate(output["tests"], start=1):
+        if not quiet:
+            print(f"Generating prompts for {test_case['server']}/{test_case['id']} ({index}/{len(output['tests'])})")
+        existing_prompts = []
+        if should_use_existing_prompts(settings):
+            existing_prompts = maybe_augment_prompts(
+                normalize_existing_prompts(test_case),
+                test_case=test_case,
+                source="existing",
+                settings=settings,
+            )
+
+        generated_prompts = []
+        if should_generate_prompts(settings):
+            if client is None or tools_by_server is None:
+                raise ValueError("Client and MCP tool schemas are required when generating prompts")
+            generated_prompts = await generate_case_prompts(
+                client,
+                settings,
+                test_case,
+                tools_by_server[test_case["server"]],
+            )
+            generated_prompts = maybe_augment_prompts(
+                generated_prompts,
+                test_case=test_case,
+                source="generated",
+                settings=settings,
+            )
+
+        test_case["prompts"] = merge_prompt_sources(existing_prompts, generated_prompts)
+    return output
+
+
+def parse_style_ids(value: str) -> list[str]:
+    """Parse a comma-separated CLI list of prompt style IDs."""
+    style_ids = [item.strip() for item in value.split(",") if item.strip()]
+    if not style_ids:
+        raise argparse.ArgumentTypeError("--styles must include at least one style id")
+    return style_ids
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse the fixture-generation CLI."""
+    parser = argparse.ArgumentParser(description="Generate prompt variants for MCP tool-call benchmark fixtures.")
+    parser.add_argument("--cases", required=True, type=Path, help="Input fixture with mcp_servers and tests")
+    parser.add_argument("--output", required=True, type=Path, help="Write generated fixture JSON here")
+    parser.add_argument("--config", type=Path, help="Optional JSON config with model.api_key and model.base_url")
+    parser.add_argument("--model", help="Generation model name")
+    parser.add_argument("--base-url", help="OpenAI-compatible API base URL")
+    parser.add_argument("--api-key", help="OpenAI-compatible API key")
+    parser.add_argument(
+        "--num-prompts",
+        "-n",
+        type=parse_num_prompts,
+        help="Generated prompts per selected style for each test case",
+    )
+    parser.add_argument(
+        "--styles",
+        type=parse_style_ids,
+        help="Comma-separated style ids from prompt_generation.styles",
+    )
+    parser.add_argument(
+        "--prompt-source",
+        choices=sorted(PROMPT_SOURCES),
+        help="Use generated prompts, existing fixture prompts, or both",
+    )
+    parser.add_argument(
+        "--augment-prompts",
+        action="store_true",
+        default=None,
+        help="Pass selected prompts through the no-op NLPA augmentation hook",
+    )
+    parser.add_argument(
+        "--augment-source",
+        choices=sorted(AUGMENT_SOURCES),
+        help="Prompt source to augment when --augment-prompts is set",
+    )
+    parser.add_argument("--temperature", type=float, help="Optional generation temperature")
+    parser.add_argument("--request-timeout", type=float, help="LLM request timeout in seconds")
+    parser.add_argument(
+        "--server-source",
+        choices=["auto", "live", "static"],
+        default="auto",
+        help="Where to get MCP tool schemas from (default: auto)",
+    )
+    parser.add_argument("--quiet", action="store_true", help="Suppress progress output")
+    return parser.parse_args()
+
+
+async def run(args: argparse.Namespace) -> int:
+    """Run fixture generation from parsed CLI arguments."""
+    fixture = load_input_fixture(args.cases)
+    api_config = load_json_object_config(args.config)
+    settings = build_generation_settings(fixture, api_config, args)
+
+    tools_by_server = None
+    client = None
+    if should_generate_prompts(settings):
+        from openai import AsyncOpenAI
+
+        api_key, base_url = resolve_api_settings(args, api_config)
+        tools_by_server = await discover_tools(fixture, args.server_source, args.quiet)
+        client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=settings.request_timeout)
+
+    output = await generate_fixture(fixture, tools_by_server, client, settings, args.quiet)
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    with args.output.open("w", encoding="utf-8") as f:
+        json.dump(output, f, indent=2)
+        f.write("\n")
+    if not args.quiet:
+        print(f"Wrote generated fixture to {args.output}")
+    return 0
+
+
+def main() -> int:
+    """CLI entrypoint for fixture generation."""
+    try:
+        return asyncio.run(run(parse_args()))
+    except KeyboardInterrupt:
+        print("Interrupted", file=sys.stderr)
+        return 130
+    except Exception as exc:
+        print("Error:", file=sys.stderr)
+        for message in exception_messages(exc):
+            for line in str(message).splitlines():
+                print(f"  - {line}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

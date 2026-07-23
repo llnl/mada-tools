@@ -15,8 +15,7 @@ from datetime import datetime
 from itertools import count
 from typing import Any, Callable, Dict, Optional
 
-from fastmcp import FastMCP
-
+from .env import expand_env_vars
 from .exceptions import ToolExecutionError
 
 LOG = logging.getLogger(__name__)
@@ -90,19 +89,7 @@ class BaseMCPServer(ABC):
         Returns:
             String with environment variables expanded
         """
-        import re
-
-        def replace_env_var(match):
-            var_expr = match.group(1)
-            if ":-" in var_expr:
-                var_name, default_value = var_expr.split(":-", 1)
-                return os.getenv(var_name, default_value)
-            else:
-                return os.getenv(var_expr, match.group(0))  # Return original if not found
-
-        # Pattern matches ${VAR_NAME} or ${VAR_NAME:-default}
-        pattern = r"\$\{([^}]+)\}"
-        return re.sub(pattern, replace_env_var, value)
+        return expand_env_vars(value, missing="preserve", strip_names=False)
 
     def run_with_args(self, server_key: str):
         """
@@ -111,6 +98,8 @@ class BaseMCPServer(ABC):
         Args:
             server_key: Key for this server in config files
         """
+        from fastmcp import FastMCP
+
         args = self.parse_args()
 
         # Load config if provided

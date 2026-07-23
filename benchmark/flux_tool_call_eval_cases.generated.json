@@ -1,0 +1,792 @@
+{
+  "mcp_servers": {
+    "flux": {
+      "url": "http://localhost:8101/mcp"
+    }
+  },
+  "prompt_generation": {
+    "model": "gpt-5.4-mini",
+    "num_prompts": 5,
+    "argument_policies": [
+      {
+        "server": "flux",
+        "tool": "submit_command",
+        "arguments": {
+          "command": {
+            "mode": "verbatim",
+            "guidance": [
+              "The command argument is the exact program invocation to execute. Repeat it exactly as written.",
+              "Do not substitute a workload description, add cd/setup wrappers, change python/python3, or infer a different command from surrounding context."
+            ]
+          },
+          "nodes": {
+            "mode": "semantic",
+            "guidance": "Express the node count clearly enough to recover the expected numeric value."
+          },
+          "tasks": {
+            "mode": "semantic",
+            "guidance": "Express the task count clearly enough to recover the expected numeric value."
+          },
+          "time_limit": {
+            "mode": "semantic",
+            "guidance": "Express the time limit clearly enough to recover the expected value; exact spelling is helpful but not required."
+          },
+          "job_name": {
+            "mode": "verbatim",
+            "guidance": "Job names are identifiers; preserve the expected job_name exactly."
+          },
+          "working_directory": {
+            "mode": "verbatim",
+            "guidance": "Working directories are paths; preserve the expected working_directory exactly."
+          }
+        },
+        "guidance": [
+          "Flux scheduler/resource arguments such as nodes, tasks, time_limit, job_name, and working_directory are separate tool arguments. They are not part of command unless already present in the expected command string."
+        ]
+      },
+      {
+        "server": "flux",
+        "tool": "submit_jobs",
+        "arguments": {
+          "run_info_json": {
+            "mode": "verbatim",
+            "guidance": "run_info_json is a literal JSON string argument. Preserve that string exactly when it is included in a generated prompt."
+          }
+        }
+      },
+      {
+        "server": "flux",
+        "tool": "check_job_status",
+        "arguments": {
+          "job_id": {
+            "mode": "verbatim",
+            "guidance": "job_id is the local MADA tracking identifier. Do not replace it with flux_job_id."
+          }
+        }
+      }
+    ],
+    "styles": [
+      {
+        "id": "natural",
+        "description": "A normal conversational request from a capable user."
+      },
+      {
+        "id": "terse",
+        "description": "A short command-like request with minimal extra wording."
+      },
+      {
+        "id": "noobie",
+        "description": "A beginner-style request that uses informal wording and may over-explain."
+      },
+      {
+        "id": "lazy",
+        "description": "An underspecified casual request, but still containing enough information to imply the expected tool call."
+      },
+      {
+        "id": "direct",
+        "description": "An explicit instruction naming the intended server, tool, and key arguments."
+      }
+    ]
+  },
+  "tests": [
+    {
+      "id": "submit_command_simple_ad_hoc",
+      "server": "flux",
+      "prompts": [
+        {
+          "id": "natural",
+          "text": "Please run `python -V` on Flux as a single job. Use job name `python_version`, request 1 node and 1 task, set the time limit to 15m, and run it in `/tmp/mada_flux_eval/single_command`."
+        },
+        {
+          "id": "terse",
+          "text": "Run `python -V` as a Flux job named python_version in /tmp/mada_flux_eval/single_command, 1 node, 1 task, 15m."
+        },
+        {
+          "id": "noobie",
+          "text": "Can you run `python -V` for me on Flux? Please name the job `python_version`, use 1 node and 1 task, give it a 15m time limit, and run it in `/tmp/mada_flux_eval/single_command`."
+        },
+        {
+          "id": "lazy",
+          "text": "Can you submit a Flux job to run python -V in /tmp/mada_flux_eval/single_command? Call it python_version and just make it a small 1-node, 1-task, 15m run."
+        },
+        {
+          "id": "direct",
+          "text": "Please use the Flux submit_command tool to run python -V as a one-off job. Set job_name to python_version, nodes to 1, tasks to 1, time_limit to 15m, and working_directory to /tmp/mada_flux_eval/single_command."
+        },
+        {
+          "id": "natural_2",
+          "text": "Can you submit this command to Flux for me: `python -V`? I want it named `python_version`, with 1 node, 1 task, a 15m limit, and the working directory `/tmp/mada_flux_eval/single_command`."
+        },
+        {
+          "id": "terse_2",
+          "text": "Please submit `python -V` on Flux with job name python_version, working directory /tmp/mada_flux_eval/single_command, 1 node, 1 task, and a 15m time limit."
+        },
+        {
+          "id": "noobie_2",
+          "text": "I just need a simple Flux job to check Python. Please submit `python -V` as the command, set the job name to `python_version`, with 1 node, 1 task, a 15m time limit, and working directory `/tmp/mada_flux_eval/single_command`."
+        },
+        {
+          "id": "lazy_2",
+          "text": "Please queue up python -V on Flux from /tmp/mada_flux_eval/single_command. Job name should be python_version, with 1 node, 1 task, and a 15m time limit."
+        },
+        {
+          "id": "direct_2",
+          "text": "On the Flux server, submit_command should run python -V with job_name python_version, 1 node, 1 task, a 15m time limit, and working directory /tmp/mada_flux_eval/single_command."
+        },
+        {
+          "id": "natural_3",
+          "text": "I just need one ad hoc Flux job to execute `python -V`. Please use job name `python_version`, 1 node, 1 task, time limit 15m, and `/tmp/mada_flux_eval/single_command` as the working directory."
+        },
+        {
+          "id": "terse_3",
+          "text": "Launch this command on Flux: python -V. Use job name python_version, /tmp/mada_flux_eval/single_command, 1 node, 1 task, 15m."
+        },
+        {
+          "id": "noobie_3",
+          "text": "Could you schedule this on Flux for me: `python -V`. Make the job name `python_version`, and use 1 node, 1 task, a 15m limit, in `/tmp/mada_flux_eval/single_command`."
+        },
+        {
+          "id": "lazy_3",
+          "text": "I need a Flux submission for python -V in /tmp/mada_flux_eval/single_command. Use the job name python_version, 1 node, 1 task, and 15m."
+        },
+        {
+          "id": "direct_3",
+          "text": "Can you submit a Flux command job for python -V? I want job_name python_version, nodes 1, tasks 1, time_limit 15m, and working_directory /tmp/mada_flux_eval/single_command."
+        },
+        {
+          "id": "natural_4",
+          "text": "Submit `python -V` to Flux for a quick check. Set the job name to `python_version`, use 1 node and 1 task, cap it at 15m, and run from `/tmp/mada_flux_eval/single_command`."
+        },
+        {
+          "id": "terse_4",
+          "text": "Can you submit python -V to Flux? Job name should be python_version, working directory /tmp/mada_flux_eval/single_command, with 1 node, 1 task, for 15m."
+        },
+        {
+          "id": "noobie_4",
+          "text": "Please submit a Flux command job for `python -V`. I want it called `python_version`, with 1 node, 1 task, 15m time limit, and the working directory `/tmp/mada_flux_eval/single_command`."
+        },
+        {
+          "id": "lazy_4",
+          "text": "Run python -V through Flux for me in /tmp/mada_flux_eval/single_command. Name the job python_version, and set it to 1 node, 1 task, 15m."
+        },
+        {
+          "id": "direct_4",
+          "text": "Use Flux submit_command to execute python -V. Please name the job python_version, request 1 node and 1 task, set the time limit to 15m, and run it in /tmp/mada_flux_eval/single_command."
+        },
+        {
+          "id": "natural_5",
+          "text": "Could you launch `python -V` through Flux with job name `python_version`? Keep it to 1 node and 1 task, with a 15m time limit, in `/tmp/mada_flux_eval/single_command`."
+        },
+        {
+          "id": "terse_5",
+          "text": "I need python -V run on Flux in /tmp/mada_flux_eval/single_command, job name python_version, 1 node, 1 task, time limit 15m."
+        },
+        {
+          "id": "noobie_5",
+          "text": "Hi, can you launch `python -V` on Flux? Use job name `python_version`, 1 node, 1 task, a 15m time limit, and run it from `/tmp/mada_flux_eval/single_command`."
+        },
+        {
+          "id": "lazy_5",
+          "text": "Could you submit a Flux job for python -V? Use /tmp/mada_flux_eval/single_command as the working directory, job name python_version, 1 node, 1 task, 15m."
+        },
+        {
+          "id": "direct_5",
+          "text": "I need an ad hoc Flux job: command python -V, job_name python_version, nodes 1, tasks 1, time_limit 15m, working_directory /tmp/mada_flux_eval/single_command."
+        }
+      ],
+      "expected_call": {
+        "tool": "submit_command",
+        "arguments": {
+          "command": "python -V",
+          "nodes": 1,
+          "tasks": 1,
+          "time_limit": "15m",
+          "job_name": "python_version",
+          "working_directory": "/tmp/mada_flux_eval/single_command"
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "submit_command_full_options",
+      "server": "flux",
+      "prompts": [
+        {
+          "id": "natural",
+          "text": "Can you submit this Flux job for me: python simulate.py --case fluid_test --steps 10. Please name it fluid_test_eval, use 2 nodes and 8 tasks, set the time limit to 30m, and run it in /tmp/mada_flux_eval/fluid_test_job."
+        },
+        {
+          "id": "terse",
+          "text": "Run `python simulate.py --case fluid_test --steps 10` on 2 nodes with 8 tasks, 30m time limit, job name `fluid_test_eval`, working directory `/tmp/mada_flux_eval/fluid_test_job`."
+        },
+        {
+          "id": "noobie",
+          "text": "Could you submit this Flux job for me? I want to run python simulate.py --case fluid_test --steps 10 with 2 nodes and 8 tasks, set the job name to fluid_test_eval, use a 30m time limit, and run it in /tmp/mada_flux_eval/fluid_test_job."
+        },
+        {
+          "id": "lazy",
+          "text": "Can you submit this on Flux for me: python simulate.py --case fluid_test --steps 10. Use job name fluid_test_eval, run it in /tmp/mada_flux_eval/fluid_test_job, with 2 nodes, 8 tasks, and a 30m time limit."
+        },
+        {
+          "id": "direct",
+          "text": "On the flux server, submit_command with command python simulate.py --case fluid_test --steps 10, job_name fluid_test_eval, nodes 2, tasks 8, time_limit 30m, and working_directory /tmp/mada_flux_eval/fluid_test_job."
+        },
+        {
+          "id": "natural_2",
+          "text": "Please run python simulate.py --case fluid_test --steps 10 on Flux with job name fluid_test_eval. I need 2 nodes, 8 tasks, a 30m time limit, and the working directory should be /tmp/mada_flux_eval/fluid_test_job."
+        },
+        {
+          "id": "terse_2",
+          "text": "Please submit `python simulate.py --case fluid_test --steps 10` for 2 nodes and 8 tasks, 30m, job name `fluid_test_eval`, in `/tmp/mada_flux_eval/fluid_test_job`."
+        },
+        {
+          "id": "noobie_2",
+          "text": "Please launch a Flux job using python simulate.py --case fluid_test --steps 10. It should use 2 nodes, 8 tasks, job name fluid_test_eval, time limit 30m, and the working directory /tmp/mada_flux_eval/fluid_test_job."
+        },
+        {
+          "id": "lazy_2",
+          "text": "Please schedule a Flux job for python simulate.py --case fluid_test --steps 10. I want it called fluid_test_eval, under /tmp/mada_flux_eval/fluid_test_job, and it should use 2 nodes, 8 tasks, for 30m."
+        },
+        {
+          "id": "direct_2",
+          "text": "Please use flux submit_command to run python simulate.py --case fluid_test --steps 10 as fluid_test_eval with 2 nodes, 8 tasks, a 30m time limit, and working directory /tmp/mada_flux_eval/fluid_test_job."
+        },
+        {
+          "id": "natural_3",
+          "text": "Submit an ad hoc Flux job for python simulate.py --case fluid_test --steps 10. Use job_name fluid_test_eval, 2 nodes, 8 tasks, time limit 30m, and working_directory /tmp/mada_flux_eval/fluid_test_job."
+        },
+        {
+          "id": "terse_3",
+          "text": "Launch `python simulate.py --case fluid_test --steps 10` with nodes=2, tasks=8, time limit 30m, job name fluid_test_eval, working dir /tmp/mada_flux_eval/fluid_test_job."
+        },
+        {
+          "id": "noobie_3",
+          "text": "I need to run python simulate.py --case fluid_test --steps 10 on Flux. Make it 2 nodes, 8 tasks, name the job fluid_test_eval, give it 30m, and set the working directory to /tmp/mada_flux_eval/fluid_test_job."
+        },
+        {
+          "id": "lazy_3",
+          "text": "Could you run python simulate.py --case fluid_test --steps 10 on Flux? Set the job name to fluid_test_eval, use /tmp/mada_flux_eval/fluid_test_job as the working directory, and request 2 nodes, 8 tasks, 30m."
+        },
+        {
+          "id": "direct_3",
+          "text": "Can you submit this on Flux with submit_command: python simulate.py --case fluid_test --steps 10, job name fluid_test_eval, 2 nodes, 8 tasks, 30 minutes, working dir /tmp/mada_flux_eval/fluid_test_job?"
+        },
+        {
+          "id": "natural_4",
+          "text": "I want to launch python simulate.py --case fluid_test --steps 10 on the cluster. Set the job name to fluid_test_eval, request 2 nodes and 8 tasks, give it 30 minutes, and make the working directory /tmp/mada_flux_eval/fluid_test_job."
+        },
+        {
+          "id": "terse_4",
+          "text": "Can you run `python simulate.py --case fluid_test --steps 10` on Flux with 2 nodes, 8 tasks, 30m, job name `fluid_test_eval`, and `/tmp/mada_flux_eval/fluid_test_job` as the working directory?"
+        },
+        {
+          "id": "noobie_4",
+          "text": "Can you submit this command on Flux: python simulate.py --case fluid_test --steps 10? Use 2 nodes, 8 tasks, job name fluid_test_eval, time limit 30m, and working directory /tmp/mada_flux_eval/fluid_test_job."
+        },
+        {
+          "id": "lazy_4",
+          "text": "I need a Flux submission for python simulate.py --case fluid_test --steps 10. Please make the job name fluid_test_eval, use working directory /tmp/mada_flux_eval/fluid_test_job, and allocate 2 nodes with 8 tasks for 30m."
+        },
+        {
+          "id": "direct_4",
+          "text": "Run the command python simulate.py --case fluid_test --steps 10 on flux using submit_command. Set the job name to fluid_test_eval, request 2 nodes and 8 tasks, use a 30m time limit, and set the working directory to /tmp/mada_flux_eval/fluid_test_job."
+        },
+        {
+          "id": "natural_5",
+          "text": "Could you submit this command through Flux: python simulate.py --case fluid_test --steps 10? Please use fluid_test_eval as the job name, 2 nodes, 8 tasks, a 30m time limit, and /tmp/mada_flux_eval/fluid_test_job as the working directory."
+        },
+        {
+          "id": "terse_5",
+          "text": "Submit this command: `python simulate.py --case fluid_test --steps 10`. Use 2 nodes, 8 tasks, 30m, job name `fluid_test_eval`, working directory `/tmp/mada_flux_eval/fluid_test_job`."
+        },
+        {
+          "id": "noobie_5",
+          "text": "Please schedule a Flux run for python simulate.py --case fluid_test --steps 10 with job name fluid_test_eval, 2 nodes, 8 tasks, a 30m limit, and working directory /tmp/mada_flux_eval/fluid_test_job."
+        },
+        {
+          "id": "lazy_5",
+          "text": "Submit this command with Flux: python simulate.py --case fluid_test --steps 10. Name the job fluid_test_eval, run from /tmp/mada_flux_eval/fluid_test_job, and set it to 2 nodes, 8 tasks, 30m."
+        },
+        {
+          "id": "direct_5",
+          "text": "I need a Flux submit_command job for python simulate.py --case fluid_test --steps 10, named fluid_test_eval, with 2 nodes, 8 tasks, 30m runtime, and /tmp/mada_flux_eval/fluid_test_job as the working directory."
+        }
+      ],
+      "expected_call": {
+        "tool": "submit_command",
+        "arguments": {
+          "command": "python simulate.py --case fluid_test --steps 10",
+          "nodes": 2,
+          "tasks": 8,
+          "time_limit": "30m",
+          "job_name": "fluid_test_eval",
+          "working_directory": "/tmp/mada_flux_eval/fluid_test_job"
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "check_job_status_specific",
+      "server": "flux",
+      "prompts": [
+        {
+          "id": "natural",
+          "text": "Can you check the status of job_000123 for me?"
+        },
+        {
+          "id": "terse",
+          "text": "Check status for job_000123."
+        },
+        {
+          "id": "noobie",
+          "text": "Can you check the status of job_000123 for me? I think that's the local job ID."
+        },
+        {
+          "id": "lazy",
+          "text": "Can you check the status of job_000123 for me?"
+        },
+        {
+          "id": "direct",
+          "text": "Using the flux server, check the status for job_id job_000123."
+        },
+        {
+          "id": "natural_2",
+          "text": "What's the status of job_000123?"
+        },
+        {
+          "id": "terse_2",
+          "text": "What's the status of job_000123?"
+        },
+        {
+          "id": "noobie_2",
+          "text": "I'm trying to see what's going on with job_000123 - could you check its status?"
+        },
+        {
+          "id": "lazy_2",
+          "text": "What's going on with job_000123?"
+        },
+        {
+          "id": "direct_2",
+          "text": "Please use flux to check job status for job_000123."
+        },
+        {
+          "id": "natural_3",
+          "text": "Please look up job_000123 and tell me how it's doing."
+        },
+        {
+          "id": "terse_3",
+          "text": "Look up job_000123 status."
+        },
+        {
+          "id": "noobie_3",
+          "text": "Please look up the status for my job called job_000123. I only have that local ID."
+        },
+        {
+          "id": "lazy_3",
+          "text": "Please look up status for job_000123."
+        },
+        {
+          "id": "direct_3",
+          "text": "On flux, run check_job_status for job_id job_000123."
+        },
+        {
+          "id": "natural_4",
+          "text": "Could you check on job_000123 for me?"
+        },
+        {
+          "id": "terse_4",
+          "text": "Can you check job_000123 for me?"
+        },
+        {
+          "id": "noobie_4",
+          "text": "Can you check whether job_000123 is running or finished? That's the job ID I was given."
+        },
+        {
+          "id": "lazy_4",
+          "text": "I need the status of job_000123, thanks."
+        },
+        {
+          "id": "direct_4",
+          "text": "Can you check the flux job status of job_000123?"
+        },
+        {
+          "id": "natural_5",
+          "text": "I need the status for job_000123."
+        },
+        {
+          "id": "terse_5",
+          "text": "Status on job_000123, please."
+        },
+        {
+          "id": "noobie_5",
+          "text": "Hey, could you check status on job_000123? I need the update for that specific job ID."
+        },
+        {
+          "id": "lazy_5",
+          "text": "Can you check job_000123 and tell me its status?"
+        },
+        {
+          "id": "direct_5",
+          "text": "Please look up status for local job_id job_000123 in flux."
+        }
+      ],
+      "expected_call": {
+        "tool": "check_job_status",
+        "arguments": {
+          "job_id": "job_000123"
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "check_job_status_all_jobs",
+      "server": "flux",
+      "prompts": [
+        {
+          "id": "natural",
+          "text": "Can you check the status of my jobs?"
+        },
+        {
+          "id": "terse",
+          "text": "Check the status of all my jobs."
+        },
+        {
+          "id": "noobie",
+          "text": "Can you check on my Flux job status for me? I mean the local MADA tracking one, not the real Flux ID."
+        },
+        {
+          "id": "lazy",
+          "text": "Can you check the status of my jobs?"
+        },
+        {
+          "id": "direct",
+          "text": "In the flux server, check the job status with check_job_status."
+        },
+        {
+          "id": "natural_2",
+          "text": "What's the status of all my jobs right now?"
+        },
+        {
+          "id": "terse_2",
+          "text": "Show me job status for everything."
+        },
+        {
+          "id": "noobie_2",
+          "text": "Please tell me the status of my tracked job - the MADA job id one, not a flux_job_id."
+        },
+        {
+          "id": "lazy_2",
+          "text": "What's the status on my tracked jobs?"
+        },
+        {
+          "id": "direct_2",
+          "text": "Please use flux check_job_status to look up the current status of the job."
+        },
+        {
+          "id": "natural_3",
+          "text": "Please check all jobs for me."
+        },
+        {
+          "id": "terse_3",
+          "text": "Can you check all tracked jobs?"
+        },
+        {
+          "id": "noobie_3",
+          "text": "Hey, can you look up the status for a job I'm tracking locally in MADA? Use the job_id, not the Flux job number."
+        },
+        {
+          "id": "lazy_3",
+          "text": "Please check the job status for my MADA jobs."
+        },
+        {
+          "id": "direct_3",
+          "text": "On flux, run check_job_status for the tracked job status."
+        },
+        {
+          "id": "natural_4",
+          "text": "Can you look up the status of my tracked jobs?"
+        },
+        {
+          "id": "terse_4",
+          "text": "What's the status of all jobs right now?"
+        },
+        {
+          "id": "noobie_4",
+          "text": "I need to see where my job is at. Check the tracked MADA job status using the job id, not the Flux ID."
+        },
+        {
+          "id": "lazy_4",
+          "text": "Can you look up the status of the jobs I submitted?"
+        },
+        {
+          "id": "direct_4",
+          "text": "Can you call flux's check_job_status tool to check a job status?"
+        },
+        {
+          "id": "natural_5",
+          "text": "Check job status for everything I've submitted."
+        },
+        {
+          "id": "terse_5",
+          "text": "Look up the status for every job."
+        },
+        {
+          "id": "noobie_5",
+          "text": "Could you check status for the job I submitted and am tracking in MADA? Use job_id only, not flux_job_id."
+        },
+        {
+          "id": "lazy_5",
+          "text": "Just check whether my jobs are running or done."
+        },
+        {
+          "id": "direct_5",
+          "text": "Use check_job_status in the flux MCP server to check the job status."
+        }
+      ],
+      "expected_call": {
+        "tool": "check_job_status",
+        "arguments": {},
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "submit_jobs_generated_runs_default_async",
+      "server": "flux",
+      "prompts": [
+        {
+          "id": "natural",
+          "text": "Please submit these two simulation runs with Flux using this run manifest: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "terse",
+          "text": "Submit these runs: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}."
+        },
+        {
+          "id": "noobie",
+          "text": "Can you submit these generated runs for me? Use this exact run info JSON: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "lazy",
+          "text": "Please submit these two simulation runs from the manifest: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "direct",
+          "text": "Please submit these generated runs with Flux using submit_jobs, and use this exact run_info_json: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "natural_2",
+          "text": "Can you submit the batch jobs for this run_info_json? {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "terse_2",
+          "text": "Use this run manifest: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "noobie_2",
+          "text": "I have two runs ready and I want to launch them with Flux. Please use this run info JSON exactly: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "lazy_2",
+          "text": "Can you send this run list to Flux? {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "direct_2",
+          "text": "Use the Flux submit_jobs tool for the generated runs below. The run_info_json is {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}."
+        },
+        {
+          "id": "natural_3",
+          "text": "I have two generated runs to launch in Flux. Please use this manifest: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "terse_3",
+          "text": "Please submit the runs in {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}."
+        },
+        {
+          "id": "noobie_3",
+          "text": "Please submit my batch of generated simulation runs from this JSON: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "lazy_3",
+          "text": "I've got two runs ready in this JSON, please submit them: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "direct_3",
+          "text": "Can you submit these batch simulation runs to Flux with submit_jobs? Here is the run_info_json: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "natural_4",
+          "text": "Submit the following runs to Flux as batch jobs: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "terse_4",
+          "text": "Run this manifest: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}."
+        },
+        {
+          "id": "noobie_4",
+          "text": "I'm trying to kick off these runs in Flux. The run_info_json should be exactly this: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "lazy_4",
+          "text": "Submit the jobs for this run manifest: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "direct_4",
+          "text": "I need Flux to submit the generated runs from this run_info_json: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}. Please use submit_jobs."
+        },
+        {
+          "id": "natural_5",
+          "text": "Please launch the runs described here: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]} Use Flux's batch submission for them."
+        },
+        {
+          "id": "terse_5",
+          "text": "Can you submit the jobs from {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}?"
+        },
+        {
+          "id": "noobie_5",
+          "text": "Can you start these simulation runs for me using Flux? Here's the exact run info JSON: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "lazy_5",
+          "text": "Please launch these generated runs on Flux: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "direct_5",
+          "text": "Please call flux submit_jobs for the manifest JSON string {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]} and submit the generated runs."
+        }
+      ],
+      "expected_call": {
+        "tool": "submit_jobs",
+        "arguments": {
+          "run_info_json": "{\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_flux_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_flux_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "submit_jobs_generated_runs_blocking",
+      "server": "flux",
+      "prompts": [
+        {
+          "id": "natural",
+          "text": "Please submit these generated runs and wait for them to finish: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}."
+        },
+        {
+          "id": "terse",
+          "text": "Submit these generated runs synchronously: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]} Blocking true."
+        },
+        {
+          "id": "noobie",
+          "text": "Can you submit these generated simulation runs for me and wait until they finish? I think it needs to go through Flux as a batch job thing. Use this exact run info: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "lazy",
+          "text": "Can you submit these two generated runs in blocking mode? Use this run info exactly: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "direct",
+          "text": "Please use the flux submit_jobs tool to submit these generated runs and wait for completion: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]} Set blocking to true."
+        },
+        {
+          "id": "natural_2",
+          "text": "Can you run this set of simulation jobs synchronously and block until they complete? Use this run info: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}."
+        },
+        {
+          "id": "terse_2",
+          "text": "Please run this run manifest with blocking enabled: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "noobie_2",
+          "text": "I've got two generated runs I want to launch synchronously, not just queue and forget. Please submit them and block until everything is done. Here's the run info JSON: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "lazy_2",
+          "text": "Please run the two generated simulations and wait for them to finish. Here's the run info: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "direct_2",
+          "text": "Can you call flux submit_jobs with blocking=true for this run manifest: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]} I want it to wait until the jobs finish."
+        },
+        {
+          "id": "natural_3",
+          "text": "I have two generated runs I want submitted with blocking enabled: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}."
+        },
+        {
+          "id": "terse_3",
+          "text": "Use submit_jobs on this generated run list and wait for completion: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "noobie_3",
+          "text": "Could you run these generated jobs in Flux and make it wait for completion? I'm passing the run manifest directly: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "lazy_3",
+          "text": "I want to submit a small generated batch synchronously, not just fire-and-forget. Use this exact run_info_json: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "direct_3",
+          "text": "Submit the following generated runs through the flux submit_jobs tool in synchronous mode, with blocking true: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}."
+        },
+        {
+          "id": "natural_4",
+          "text": "Please take this manifest and submit the jobs in blocking mode so I get the result after they complete: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}."
+        },
+        {
+          "id": "terse_4",
+          "text": "Launch these two runs through Flux and block until they finish: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "noobie_4",
+          "text": "Please submit my two generated simulation runs using Flux, and I want the call to wait until they're finished. Use this exact JSON for the runs: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "lazy_4",
+          "text": "Could you submit these two runs and block until they're done? run_info_json is {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "direct_4",
+          "text": "I need the flux server's submit_jobs call for this exact run_info_json and I want it blocking: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "natural_5",
+          "text": "Submit these two generated runs and wait for completion, not just an immediate return: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}."
+        },
+        {
+          "id": "terse_5",
+          "text": "Submit the following generated jobs with blocking true: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "noobie_5",
+          "text": "I need a blocking submit for a couple of generated runs. Don't just return right away - wait for all the jobs to complete. The run_info_json should be this: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "lazy_5",
+          "text": "Do a blocking submit for the generated runs in this manifest: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "direct_5",
+          "text": "Use flux submit_jobs on this JSON string and set blocking to true so it waits: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        }
+      ],
+      "expected_call": {
+        "tool": "submit_jobs",
+        "arguments": {
+          "run_info_json": "{\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_flux_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}",
+          "blocking": true
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    }
+  ]
+}

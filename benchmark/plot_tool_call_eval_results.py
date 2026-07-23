@@ -1,0 +1,772 @@
+#!/usr/bin/env python3
+"""Create stacked horizontal bar charts from MCP tool-call eval summaries.
+
+The plotter consumes evaluator summary CSV/JSON rows and writes model-level
+score, token, and cost charts. Each model bar is stacked by test case; optional
+prompt-flavor outlines show how each case score is distributed across prompt
+variants.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/mada_tools_matplotlib")
+
+import matplotlib.pyplot as plt  # noqa: E402
+from eval_io import load_csv_or_json_rows  # noqa: E402
+from matplotlib.lines import Line2D  # noqa: E402
+from matplotlib.patches import Rectangle  # noqa: E402
+from matplotlib.transforms import blended_transform_factory  # noqa: E402
+
+DEFAULT_COLORS = [
+    "#4C78A8",
+    "#F58518",
+    "#54A24B",
+    "#E45756",
+    "#72B7B2",
+    "#B279A2",
+    "#FF9DA6",
+    "#9D755D",
+    "#BAB0AC",
+    "#5F9ED1",
+]
+
+FLAVOR_OUTLINE_COLORS = [
+    "#1f1f1f",
+    "#1b6ca8",
+    "#a23b1e",
+    "#2f7d32",
+    "#8a3fb0",
+    "#8c564b",
+]
+
+AGGREGATE_SUMMARY_FIELDS = {
+    "prompts_passed",
+    "prompts_total",
+    "pass_rate",
+    "score_passed",
+    "score_total",
+    "score_rate",
+}
+
+
+@dataclass(frozen=True)
+class ReferenceLine:
+    """Vertical guide line drawn on score plots."""
+
+    value: float
+    label: str
+    color: str = "#333333"
+    linestyle: str = "--"
+
+
+def load_rows(path: Path) -> list[dict[str, Any]]:
+    """Load summary rows from CSV or JSON."""
+    return load_csv_or_json_rows(path, description="Summary")
+
+
+def as_float(value: Any, default: float = 0.0) -> float:
+    if value in (None, ""):
+        return default
+    return float(value)
+
+
+def has_numeric_value(rows: list[dict[str, Any]], field: str) -> bool:
+    """Return whether any row has a parseable numeric value for a field."""
+    for row in rows:
+        value = row.get(field)
+        if value in (None, ""):
+            continue
+        try:
+            float(value)
+        except (TypeError, ValueError):
+            continue
+        return True
+    return False
+
+
+def sum_numeric_values(rows: list[dict[str, Any]], field: str) -> float:
+    """Sum all parseable numeric values for a field, ignoring blanks."""
+    total = 0.0
+    for row in rows:
+        value = row.get(field)
+        if value in (None, ""):
+            continue
+        try:
+            total += float(value)
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
+def is_missing_numeric_value(value: Any) -> bool:
+    if value in (None, ""):
+        return True
+    try:
+        float(value)
+    except (TypeError, ValueError):
+        return True
+    return False
+
+
+def missing_cost_annotations(rows: list[dict[str, Any]], cost_field: str) -> dict[str, str]:
+    """Build per-model annotations when all cost values are missing."""
+    rows_by_model: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        model = str(row["model"])
+        rows_by_model.setdefault(model, []).append(row)
+
+    annotations = {}
+    for model, model_rows in rows_by_model.items():
+        if model_rows and all(is_missing_numeric_value(row.get(cost_field)) for row in model_rows):
+            annotations[model] = "Missing Pricing"
+    return annotations
+
+
+def format_usd(value: float) -> str:
+    if value >= 1:
+        return f"${value:,.2f}"
+    return f"${value:,.6f}"
+
+
+def format_number(value: float) -> str:
+    return str(int(value)) if value.is_integer() else f"{value:g}"
+
+
+def case_label(case_id: str) -> str:
+    return case_id.replace("_", " ")
+
+
+def ordered_values(rows: list[dict[str, Any]], field: str) -> list[str]:
+    """Return field values in first-seen row order."""
+    values = []
+    for row in rows:
+        value = str(row[field])
+        if value not in values:
+            values.append(value)
+    return values
+
+
+def matrix_for(
+    rows: list[dict[str, Any]], value_field: str
+) -> tuple[list[str], list[str], dict[tuple[str, str], float], dict[tuple[str, str], dict[str, Any]]]:
+    """Build the model-by-case value matrix used for stacked bars."""
+    models = ordered_values(rows, "model")
+    cases = ordered_values(rows, "case_id")
+    values = {}
+    row_map = {}
+    for row in rows:
+        key = (str(row["model"]), str(row["case_id"]))
+        values[key] = as_float(row.get(value_field))
+        row_map[key] = row
+    return models, cases, values, row_map
+
+
+def flavor_ids_for_row(row: dict[str, Any]) -> list[str]:
+    """Return prompt flavor IDs represented in a summary row.
+
+    Newer summaries carry explicit `flavor_order`; older or hand-built rows are
+    supported by scanning prompt-specific `*_total` fields.
+    """
+    flavor_order = row.get("flavor_order")
+    if isinstance(flavor_order, str) and flavor_order:
+        try:
+            parsed = json.loads(flavor_order)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, list) and all(isinstance(item, str) for item in parsed):
+            return parsed
+
+    flavor_ids = []
+    for field_name, value in row.items():
+        if not field_name.endswith("_total") or field_name in AGGREGATE_SUMMARY_FIELDS or value in (None, ""):
+            continue
+        prompt_id = field_name[: -len("_total")]
+        if f"{prompt_id}_passed" in row:
+            flavor_ids.append(prompt_id)
+    return flavor_ids
+
+
+def prompt_style_id(prompt_id: str) -> str:
+    return re.sub(r"_\d+$", "", prompt_id)
+
+
+def displayed_flavor_id(prompt_id: str, group_prompt_styles: bool) -> str:
+    """Return the prompt flavor label to display on plots."""
+    if group_prompt_styles:
+        return prompt_style_id(prompt_id)
+    return prompt_id
+
+
+def aggregate_flavor_values(
+    flavor_values: list[tuple[str, float]],
+    group_prompt_styles: bool,
+) -> list[tuple[str, float]]:
+    """Optionally aggregate numbered prompt IDs by root style."""
+    if not group_prompt_styles:
+        return flavor_values
+
+    grouped: dict[str, float] = {}
+    order = []
+    for flavor_id, value in flavor_values:
+        style_id = prompt_style_id(flavor_id)
+        if style_id not in grouped:
+            grouped[style_id] = 0.0
+            order.append(style_id)
+        grouped[style_id] += value
+    return [(style_id, grouped[style_id]) for style_id in order]
+
+
+def ordered_flavor_ids(rows: list[dict[str, Any]], group_prompt_styles: bool = True) -> list[str]:
+    """Return display flavor IDs in first-seen row order."""
+    flavor_ids = []
+    for row in rows:
+        for flavor_id in flavor_ids_for_row(row):
+            displayed_id = displayed_flavor_id(flavor_id, group_prompt_styles)
+            if displayed_id not in flavor_ids:
+                flavor_ids.append(displayed_id)
+    return flavor_ids
+
+
+def flavor_color_map(rows: list[dict[str, Any]], group_prompt_styles: bool = True) -> dict[str, str]:
+    """Assign outline colors to prompt flavors."""
+    return {
+        flavor_id: FLAVOR_OUTLINE_COLORS[index % len(FLAVOR_OUTLINE_COLORS)]
+        for index, flavor_id in enumerate(ordered_flavor_ids(rows, group_prompt_styles))
+    }
+
+
+def flavor_legend_handles(color_by_flavor: dict[str, str]) -> tuple[str, list[Any]] | None:
+    """Build legend handles for prompt-flavor outlines."""
+    if not color_by_flavor:
+        return None
+
+    handles = []
+    for flavor_id, color in color_by_flavor.items():
+        handles.append(
+            Line2D(
+                [0],
+                [0],
+                color=color,
+                linewidth=2.2,
+                label=flavor_id,
+            )
+        )
+    return "Prompt flavors", handles
+
+
+def axis_label_with_case_count(rows: list[dict[str, Any]], xlabel: str) -> str:
+    """Insert the number of plotted test cases into an axis label."""
+    case_count = len(ordered_values(rows, "case_id"))
+    if case_count < 1 or "test cases" not in xlabel:
+        return xlabel
+    suffix = "case" if case_count == 1 else "cases"
+    return xlabel.replace("test cases", f"{case_count} test {suffix}")
+
+
+def score_axis_label(rows: list[dict[str, Any]], value_field: str, xlabel: str) -> str:
+    """Describe score scale details in the x-axis label when available."""
+    xlabel = axis_label_with_case_count(rows, xlabel)
+    if value_field.endswith("_rate") or value_field == "pass_rate":
+        return xlabel
+
+    total_field = None
+    if value_field.startswith("score_"):
+        total_field = "score_total"
+    elif value_field.startswith("prompts_"):
+        total_field = "prompts_total"
+    if total_field is None:
+        return xlabel
+
+    notes = []
+    sample_counts = sorted(
+        {int(as_float(row["num_samples"])) for row in rows if row.get("num_samples") not in (None, "")}
+    )
+    if len(sample_counts) == 1:
+        suffix = "repetition" if sample_counts[0] == 1 else "repetitions"
+        notes.append(f"{sample_counts[0]} {suffix}")
+    elif len(sample_counts) > 1:
+        notes.append(f"{sample_counts[0]}-{sample_counts[-1]} repetitions")
+
+    totals_by_model: dict[str, float] = {}
+    for row in rows:
+        model = str(row["model"])
+        totals_by_model[model] = totals_by_model.get(model, 0.0) + as_float(row.get(total_field))
+    possible_totals = sorted(set(totals_by_model.values()))
+    if len(possible_totals) == 1:
+        notes.append(f"total possible {format_number(possible_totals[0])}")
+    elif len(possible_totals) > 1:
+        notes.append(f"total possible {format_number(possible_totals[0])}-{format_number(possible_totals[-1])}")
+
+    if not notes:
+        return xlabel
+    return f"{xlabel} ({', '.join(notes)})"
+
+
+def rate_label(value: float) -> str:
+    percent = value * 100
+    return f"{percent:g}%"
+
+
+def aggregate_total_by_model(rows: list[dict[str, Any]], total_field: str) -> dict[str, float]:
+    totals_by_model: dict[str, float] = {}
+    for row in rows:
+        model = str(row["model"])
+        totals_by_model[model] = totals_by_model.get(model, 0.0) + as_float(row.get(total_field))
+    return totals_by_model
+
+
+def unique_aggregate_total(rows: list[dict[str, Any]], total_field: str) -> float | None:
+    totals_by_model = aggregate_total_by_model(rows, total_field)
+    possible_totals = sorted(set(totals_by_model.values()))
+    if len(possible_totals) != 1:
+        return None
+    return possible_totals[0]
+
+
+def total_field_for_score_value(value_field: str) -> str | None:
+    if value_field.startswith("score_"):
+        return "score_total"
+    if value_field.startswith("prompts_"):
+        return "prompts_total"
+    return None
+
+
+def score_reference_lines(
+    rows: list[dict[str, Any]],
+    value_field: str,
+    min_pass_rate: float | None = None,
+) -> list[ReferenceLine]:
+    """Build score plot guide lines for maximum and minimum-pass thresholds."""
+    lines = []
+    if value_field.endswith("_rate") or value_field == "pass_rate":
+        if min_pass_rate is not None:
+            lines.append(ReferenceLine(min_pass_rate, f"Min pass rate ({rate_label(min_pass_rate)})"))
+        return lines
+
+    total_field = total_field_for_score_value(value_field)
+    if total_field is None:
+        return lines
+
+    total = unique_aggregate_total(rows, total_field)
+    if total is None or total <= 0:
+        return lines
+
+    lines.append(ReferenceLine(total, "Max possible score"))
+    if min_pass_rate is not None:
+        lines.append(ReferenceLine(total * min_pass_rate, f"Min pass rate ({rate_label(min_pass_rate)})"))
+    return lines
+
+
+def order_legend_entries(
+    handles: list[Any],
+    labels: list[str],
+    reference_lines: list[ReferenceLine] | None = None,
+) -> tuple[list[Any], list[str]]:
+    """Move reference-line legend entries after case entries."""
+    if not reference_lines:
+        return handles, labels
+
+    reference_labels = [line.label for line in reference_lines]
+    reference_label_set = set(reference_labels)
+    non_reference_entries = [
+        (handle, label) for handle, label in zip(handles, labels) if label not in reference_label_set
+    ]
+    reference_entries_by_label = {
+        label: handle for handle, label in zip(handles, labels) if label in reference_label_set
+    }
+    reference_entries = [
+        (reference_entries_by_label[label], label) for label in reference_labels if label in reference_entries_by_label
+    ]
+    ordered_entries = non_reference_entries + reference_entries
+    return [handle for handle, _label in ordered_entries], [label for _handle, label in ordered_entries]
+
+
+def parse_min_pass_rate(value: str) -> float:
+    try:
+        rate = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("--min-pass-rate must be a number") from exc
+    if rate < 0 or rate > 1:
+        raise argparse.ArgumentTypeError("--min-pass-rate must be between 0 and 1")
+    return rate
+
+
+def flavor_boundary_values(
+    row: dict[str, Any],
+    value_field: str,
+    total_value: float,
+    group_prompt_styles: bool = True,
+) -> list[tuple[str, float]]:
+    """Return prompt-flavor widths within one case bar segment.
+
+    Score fields use prompt pass/total counts directly. Metric fields such as
+    average tokens divide the case segment proportionally by per-flavor metric
+    values, falling back to prompt totals or equal widths when metrics are
+    unavailable.
+    """
+    flavor_ids = flavor_ids_for_row(row)
+    if value_field in {"score_passed", "prompts_passed"}:
+        return aggregate_flavor_values(
+            [(flavor_id, as_float(row.get(f"{flavor_id}_passed"))) for flavor_id in flavor_ids],
+            group_prompt_styles,
+        )
+    if value_field in {"score_total", "prompts_total"}:
+        return aggregate_flavor_values(
+            [(flavor_id, as_float(row.get(f"{flavor_id}_total"))) for flavor_id in flavor_ids],
+            group_prompt_styles,
+        )
+
+    flavor_metric_suffix = value_field.removeprefix("avg_")
+    flavor_metric_values = aggregate_flavor_values(
+        [(flavor_id, as_float(row.get(f"{flavor_id}_avg_{flavor_metric_suffix}"))) for flavor_id in flavor_ids],
+        group_prompt_styles,
+    )
+    total_flavor_metric = sum(value for _flavor_id, value in flavor_metric_values)
+    if total_flavor_metric > 0:
+        return [
+            (flavor_id, total_value * (flavor_metric / total_flavor_metric))
+            for flavor_id, flavor_metric in flavor_metric_values
+        ]
+
+    flavor_totals = aggregate_flavor_values(
+        [(flavor_id, as_float(row.get(f"{flavor_id}_total"))) for flavor_id in flavor_ids],
+        group_prompt_styles,
+    )
+    total_flavor_count = sum(value for _flavor_id, value in flavor_totals)
+    if total_flavor_count <= 0:
+        equal_width = total_value / len(flavor_ids) if flavor_ids else 0.0
+        return [(flavor_id, equal_width) for flavor_id in flavor_ids]
+    return [(flavor_id, total_value * (flavor_total / total_flavor_count)) for flavor_id, flavor_total in flavor_totals]
+
+
+def draw_flavor_outlines(
+    ax: Any,
+    row: dict[str, Any],
+    segment_left: float,
+    y_center: float,
+    bar_height: float,
+    total_value: float,
+    axis_span: float,
+    color_by_flavor: dict[str, str],
+    value_field: str,
+    group_prompt_styles: bool = True,
+) -> None:
+    """Draw prompt-flavor outlines inside one stacked case segment."""
+    cumulative = 0.0
+    marker_width = max(axis_span * 0.004, 0.06)
+    y_bottom = y_center - (bar_height / 2)
+    for prompt_id, flavor_value in flavor_boundary_values(row, value_field, total_value, group_prompt_styles):
+        outline_color = color_by_flavor.get(prompt_id, FLAVOR_OUTLINE_COLORS[0])
+        flavor_left = segment_left + cumulative
+        if flavor_value > 0:
+            ax.add_patch(
+                Rectangle(
+                    (flavor_left, y_bottom),
+                    flavor_value,
+                    bar_height,
+                    fill=False,
+                    edgecolor=outline_color,
+                    linewidth=1.1,
+                    zorder=4,
+                )
+            )
+        else:
+            ax.add_patch(
+                Rectangle(
+                    (flavor_left - (marker_width / 2), y_bottom),
+                    marker_width,
+                    bar_height,
+                    fill=False,
+                    edgecolor=outline_color,
+                    linewidth=1.1,
+                    zorder=4,
+                )
+            )
+        cumulative += flavor_value
+        if cumulative > total_value:
+            break
+
+
+def plot_stacked(
+    rows: list[dict[str, Any]],
+    value_field: str,
+    output_path: Path,
+    title: str,
+    xlabel: str,
+    value_format: str,
+    legend_title: str,
+    draw_flavor_boundaries: bool = False,
+    show_flavor_order_box: bool = False,
+    show_legend_values: bool = True,
+    group_prompt_styles: bool = True,
+    row_annotations: dict[str, str] | None = None,
+    reference_lines: list[ReferenceLine] | None = None,
+) -> None:
+    """Render one stacked horizontal bar chart from evaluator summary rows.
+
+    Rows are grouped by model and test case. Each case contributes one colored
+    segment to each model bar; optional flavor outlines subdivide those segments
+    to show prompt-style coverage without changing the stacked value itself.
+    """
+    models, cases, values, row_map = matrix_for(rows, value_field)
+    if not models or not cases:
+        raise ValueError("No rows available to plot")
+
+    case_legend_columns = min(3, len(cases))
+    case_legend_rows = (len(cases) + case_legend_columns - 1) // case_legend_columns
+    color_by_flavor = flavor_color_map(rows, group_prompt_styles) if show_flavor_order_box else {}
+    flavor_legend = flavor_legend_handles(color_by_flavor) if show_flavor_order_box else None
+
+    fig_height = max(3.0, 0.55 * len(models) + 1.9 + (0.2 * case_legend_rows))
+    fig_width = max(10.0, 1.5 * len(cases) + 5.0)
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+
+    y_positions = list(range(len(models)))
+    max_case_value = max(values.values(), default=0.0)
+    axis_span = max(1.0, max_case_value * max(1, len(cases)))
+    left = [0.0 for _ in models]
+    bar_height = 0.8
+    for case_index, case_id in enumerate(cases):
+        case_values = [values.get((model, case_id), 0.0) for model in models]
+        color = DEFAULT_COLORS[case_index % len(DEFAULT_COLORS)]
+        total = sum(case_values)
+        nonzero = sum(1 for value in case_values if value > 0)
+        label = case_label(case_id)
+        if show_legend_values:
+            label = f"{label} ({value_format.format(total / nonzero) if nonzero else value_format.format(0)})"
+        ax.barh(
+            y_positions,
+            case_values,
+            left=left,
+            height=bar_height,
+            color=color,
+            edgecolor="white",
+            linewidth=0.7,
+            label=label,
+        )
+        if draw_flavor_boundaries:
+            for model_index, model in enumerate(models):
+                row = row_map.get((model, case_id))
+                if row is None:
+                    continue
+                draw_flavor_outlines(
+                    ax=ax,
+                    row=row,
+                    segment_left=left[model_index],
+                    y_center=y_positions[model_index],
+                    bar_height=bar_height,
+                    total_value=case_values[model_index],
+                    axis_span=axis_span,
+                    color_by_flavor=color_by_flavor,
+                    value_field=value_field,
+                    group_prompt_styles=group_prompt_styles,
+                )
+        left = [base + value for base, value in zip(left, case_values)]
+
+    if reference_lines:
+        max_reference_value = max((line.value for line in reference_lines), default=0.0)
+        max_bar_value = max(left, default=0.0)
+        max_x = max(max_reference_value, max_bar_value)
+        if max_x > 0:
+            ax.set_xlim(0, max_x * 1.04)
+        for line in reference_lines:
+            ax.axvline(
+                line.value,
+                color=line.color,
+                linestyle=line.linestyle,
+                linewidth=1.2,
+                label=line.label,
+                zorder=5,
+            )
+
+    ax.set_yticks(y_positions)
+    ax.set_yticklabels(models)
+    ax.invert_yaxis()
+    ax.set_xlabel(xlabel)
+    ax.grid(axis="x", color="#dddddd", linewidth=0.8)
+    ax.set_axisbelow(True)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    if row_annotations:
+        annotation_transform = blended_transform_factory(ax.transAxes, ax.transData)
+        for model_index, model in enumerate(models):
+            annotation = row_annotations.get(model)
+            if annotation:
+                ax.text(
+                    0.01,
+                    y_positions[model_index],
+                    annotation,
+                    transform=annotation_transform,
+                    va="center",
+                    ha="left",
+                    fontsize=10,
+                    color="#000000",
+                    bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.86, "pad": 1.5},
+                    clip_on=False,
+                )
+
+    title_y = 1.0 - (0.32 / fig_height)
+    legend_y = 1.0 - (0.78 / fig_height)
+    flavor_legend_y = 1.0 - (0.24 / fig_height)
+    fig.suptitle(title, x=0.08, y=title_y, ha="left", fontweight="bold")
+    handles, labels = ax.get_legend_handles_labels()
+    handles, labels = order_legend_entries(handles, labels, reference_lines)
+    case_legend = fig.legend(
+        handles=handles,
+        labels=labels,
+        loc="upper center",
+        bbox_to_anchor=(0.5, legend_y),
+        ncol=case_legend_columns,
+        frameon=False,
+        title=legend_title,
+    )
+    case_legend._legend_box.align = "left"
+
+    top_band_inches = 1.0 + (0.24 * case_legend_rows)
+    bottom_band_inches = 0.72
+    axes_top = max(0.35, 1.0 - (top_band_inches / fig_height))
+    axes_bottom = min(0.28, bottom_band_inches / fig_height)
+    if flavor_legend is not None:
+        flavor_title, flavor_handles = flavor_legend
+        legend_columns = min(3, len(flavor_handles))
+        flavor_order_legend = fig.legend(
+            handles=flavor_handles,
+            loc="upper right",
+            bbox_to_anchor=(0.985, flavor_legend_y),
+            ncol=legend_columns,
+            frameon=False,
+            title=flavor_title,
+            handlelength=1.8,
+            columnspacing=0.9,
+            fontsize=9,
+            title_fontsize=9,
+        )
+        flavor_order_legend._legend_box.align = "left"
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.subplots_adjust(top=axes_top, bottom=axes_bottom, left=0.08, right=0.985)
+    fig.savefig(output_path, dpi=200)
+    plt.close(fig)
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse the standalone plotting CLI."""
+    parser = argparse.ArgumentParser(description="Plot MCP tool-call eval summary results.")
+    parser.add_argument(
+        "--summary",
+        required=True,
+        type=Path,
+        help="Input summary CSV or JSON from run_tool_call_eval.py",
+    )
+    parser.add_argument(
+        "--score-output",
+        required=True,
+        type=Path,
+        help="Output image path for score/pass-rate stacked bar chart",
+    )
+    parser.add_argument(
+        "--tokens-output",
+        required=True,
+        type=Path,
+        help="Output image path for token stacked bar chart",
+    )
+    parser.add_argument(
+        "--cost-output",
+        type=Path,
+        help="Output image path for cost stacked bar chart",
+    )
+    parser.add_argument(
+        "--score-field",
+        default="score_passed",
+        help="Summary field to plot for score blocks (default: score_passed)",
+    )
+    parser.add_argument(
+        "--token-field",
+        default="avg_total_tokens",
+        help="Summary field to plot for token blocks (default: avg_total_tokens)",
+    )
+    parser.add_argument(
+        "--cost-field",
+        default="total_cost_usd",
+        help="Summary field to plot for cost blocks (default: total_cost_usd)",
+    )
+    parser.add_argument(
+        "--plot-prompt-details",
+        action="store_true",
+        help="Show each prompt id separately instead of grouping numeric variants by root style",
+    )
+    parser.add_argument(
+        "--min-pass-rate",
+        type=parse_min_pass_rate,
+        help="Optional minimum pass-rate threshold to show on score plots",
+    )
+    return parser.parse_args()
+
+
+def main() -> int:
+    """CLI entrypoint for plot generation."""
+    args = parse_args()
+    rows = load_rows(args.summary)
+    score_value_format = "{:.2f}" if args.score_field.endswith("_rate") or args.score_field == "pass_rate" else "{:.0f}"
+    score_xlabel = (
+        "Stacked score rate across test cases"
+        if args.score_field.endswith("_rate") or args.score_field == "pass_rate"
+        else "Stacked total score across test cases"
+    )
+
+    plot_stacked(
+        rows=rows,
+        value_field=args.score_field,
+        output_path=args.score_output,
+        title="MCP Tool-Call Evaluation Score By Model",
+        xlabel=score_axis_label(rows, args.score_field, score_xlabel),
+        value_format=score_value_format,
+        legend_title="Test case (mean block score)",
+        draw_flavor_boundaries=True,
+        show_flavor_order_box=True,
+        group_prompt_styles=not args.plot_prompt_details,
+        reference_lines=score_reference_lines(rows, args.score_field, args.min_pass_rate),
+    )
+    plot_stacked(
+        rows=rows,
+        value_field=args.token_field,
+        output_path=args.tokens_output,
+        title="MCP Tool-Call Evaluation Token Use By Model",
+        xlabel=axis_label_with_case_count(rows, "Stacked average total tokens across test cases"),
+        value_format="{:.0f}",
+        legend_title="Test case (mean block value)",
+        draw_flavor_boundaries=True,
+        show_flavor_order_box=True,
+        group_prompt_styles=not args.plot_prompt_details,
+    )
+    if args.cost_output and has_numeric_value(rows, args.cost_field):
+        total_cost = sum_numeric_values(rows, args.cost_field)
+        plot_stacked(
+            rows=rows,
+            value_field=args.cost_field,
+            output_path=args.cost_output,
+            title=f"MCP Tool-Call Evaluation Cost By Model (Total: {format_usd(total_cost)})",
+            xlabel=axis_label_with_case_count(rows, "Stacked actual cost across test cases (USD)"),
+            value_format="{:.6f}",
+            legend_title="Test case",
+            show_legend_values=False,
+            row_annotations=missing_cost_annotations(rows, args.cost_field),
+        )
+
+    print(f"Wrote {args.score_output}")
+    print(f"Wrote {args.tokens_output}")
+    if args.cost_output and has_numeric_value(rows, args.cost_field):
+        print(f"Wrote {args.cost_output}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

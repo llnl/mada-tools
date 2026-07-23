@@ -1,0 +1,501 @@
+{
+  "mcp_servers": {
+    "slurm": {
+      "url": "http://localhost:8102/mcp"
+    }
+  },
+  "prompt_generation": {
+    "model": "gpt-5.4-mini",
+    "num_prompts": 5,
+    "argument_policies": [
+      {
+        "server": "slurm",
+        "tool": "submit_command",
+        "arguments": {
+          "command": {
+            "mode": "verbatim",
+            "guidance": [
+              "The command argument is the exact program invocation to execute. Repeat it exactly as written.",
+              "Do not substitute a workload description, add cd/setup wrappers, change python/python3, or infer a different command from surrounding context."
+            ]
+          },
+          "nodes": {
+            "mode": "semantic",
+            "guidance": "Express the node count clearly enough to recover the expected numeric value."
+          },
+          "tasks": {
+            "mode": "semantic",
+            "guidance": "Express the task count clearly enough to recover the expected numeric value."
+          },
+          "working_directory": {
+            "mode": "verbatim",
+            "guidance": "Working directories are paths; preserve the expected working_directory exactly."
+          }
+        },
+        "guidance": [
+          "Slurm scheduler/resource arguments such as nodes, tasks, and working_directory are separate tool arguments. They are not part of command unless already present in the expected command string."
+        ]
+      },
+      {
+        "server": "slurm",
+        "tool": "submit_jobs",
+        "arguments": {
+          "run_info_json": {
+            "mode": "semantic",
+            "guidance": [
+              "run_info_json describes the generated runs manifest. The prompt may describe the manifest naturally instead of embedding the full JSON string.",
+              "Preserve every run id, run_location, command, and args value clearly enough for the expected run_info_json to be recovered.",
+              "If the prompt includes a literal run_info_json string, preserve that string exactly."
+            ]
+          },
+          "blocking": {
+            "mode": "semantic",
+            "guidance": "Express whether the Slurm job submission should block clearly enough to recover the expected boolean value."
+          },
+          "nodes": {
+            "mode": "semantic",
+            "guidance": "Express the node count clearly enough to recover the expected numeric value."
+          },
+          "tasks": {
+            "mode": "semantic",
+            "guidance": "Express the task count clearly enough to recover the expected numeric value."
+          },
+          "time_limit": {
+            "mode": "semantic",
+            "guidance": "Express the Slurm time limit clearly enough to recover the expected value; exact spelling is helpful but not required."
+          },
+          "account": {
+            "mode": "verbatim",
+            "guidance": "Slurm account names are identifiers; preserve the expected account exactly."
+          },
+          "partition": {
+            "mode": "verbatim",
+            "guidance": "Slurm partition names are identifiers; preserve the expected partition exactly."
+          },
+          "exclusive": {
+            "mode": "semantic",
+            "guidance": "Express whether exclusive nodes should be requested clearly enough to recover the expected boolean value."
+          },
+          "cpus_per_task": {
+            "mode": "semantic",
+            "guidance": "Express CPUs per task clearly enough to recover the expected numeric value."
+          },
+          "job_name_prefix": {
+            "mode": "verbatim",
+            "guidance": "Job name prefixes are identifiers; preserve the expected job_name_prefix exactly."
+          }
+        },
+        "guidance": [
+          "For Slurm submit_jobs, run_info_json describes generated runs while scheduler options such as blocking, nodes, tasks, time_limit, account, partition, exclusive, cpus_per_task, and job_name_prefix are separate submit_jobs arguments."
+        ]
+      },
+      {
+        "server": "slurm",
+        "tool": "check_job_status",
+        "arguments": {
+          "job_set_id": {
+            "mode": "verbatim",
+            "guidance": "job_set_id is the local MADA job-set identifier. Do not replace it with slurm_job_id."
+          },
+          "slurm_job_id": {
+            "mode": "verbatim",
+            "guidance": "slurm_job_id is the real Slurm scheduler job identifier. Do not replace it with job_set_id."
+          }
+        }
+      },
+      {
+        "server": "slurm",
+        "tool": "continuously_check_job_status",
+        "arguments": {
+          "job_set_id": {
+            "mode": "verbatim",
+            "guidance": "job_set_id is the local MADA job-set identifier. Do not replace it with slurm_job_id."
+          },
+          "slurm_job_id": {
+            "mode": "verbatim",
+            "guidance": "slurm_job_id is the real Slurm scheduler job identifier. Do not replace it with job_set_id."
+          },
+          "wait_until": {
+            "mode": "verbatim",
+            "guidance": "wait_until is an enum-like status target; preserve the expected value exactly."
+          },
+          "poll_interval_seconds": {
+            "mode": "semantic",
+            "guidance": "Express the polling interval clearly enough to recover the expected numeric seconds value."
+          },
+          "timeout_seconds": {
+            "mode": "semantic",
+            "guidance": "Express the timeout clearly enough to recover the expected numeric seconds value."
+          }
+        },
+        "guidance": [
+          "For Slurm continuous status checks, the prompt should imply repeated monitoring until the expected wait_until condition or timeout."
+        ]
+      }
+    ],
+    "styles": [
+      {
+        "id": "natural",
+        "description": "A normal conversational request from a capable user."
+      },
+      {
+        "id": "terse",
+        "description": "A short command-like request with minimal extra wording."
+      },
+      {
+        "id": "noobie",
+        "description": "A beginner-style request that uses informal wording and may over-explain."
+      },
+      {
+        "id": "lazy",
+        "description": "An underspecified casual request, but still containing enough information to imply the expected tool call."
+      },
+      {
+        "id": "direct",
+        "description": "An explicit instruction naming the intended server, tool, and key arguments."
+      }
+    ]
+  },
+  "tests": [
+    {
+      "id": "submit_command_simple_ad_hoc",
+      "server": "slurm",
+      "prompts": [
+        {
+          "id": "direct",
+          "text": "Use the Slurm server submit_command tool for one single ad hoc command. Set command to \"python -V\", nodes=1, tasks=1, and working_directory=/tmp/mada_slurm_eval/single_command. Do not use submit_jobs or any generated run manifest."
+        },
+        {
+          "id": "natural",
+          "text": "Please submit one ad hoc Slurm command, not a generated run manifest. Run python -V from /tmp/mada_slurm_eval/single_command with one node and one total task."
+        },
+        {
+          "id": "terse",
+          "text": "Slurm submit_command single command: command=\"python -V\", nodes=1, tasks=1, working_directory=/tmp/mada_slurm_eval/single_command."
+        }
+      ],
+      "expected_call": {
+        "tool": "submit_command",
+        "arguments": {
+          "command": "python -V",
+          "nodes": 1,
+          "tasks": 1,
+          "working_directory": "/tmp/mada_slurm_eval/single_command"
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "submit_command_multi_task",
+      "server": "slurm",
+      "prompts": [
+        {
+          "id": "direct",
+          "text": "Use Slurm submit_command for one single ad hoc command. Run command \"python simulate.py --case fluid_test --steps 10\" with nodes=2, tasks=8, and working_directory=/tmp/mada_slurm_eval/fluid_test_job. This is not a generated-runs manifest."
+        },
+        {
+          "id": "natural",
+          "text": "I need one ad hoc Slurm command submission, not submit_jobs. Launch python simulate.py --case fluid_test --steps 10 from /tmp/mada_slurm_eval/fluid_test_job, request two nodes and eight total tasks."
+        },
+        {
+          "id": "terse",
+          "text": "Slurm submit_command: command=\"python simulate.py --case fluid_test --steps 10\", nodes=2, tasks=8, working_directory=/tmp/mada_slurm_eval/fluid_test_job."
+        }
+      ],
+      "expected_call": {
+        "tool": "submit_command",
+        "arguments": {
+          "command": "python simulate.py --case fluid_test --steps 10",
+          "nodes": 2,
+          "tasks": 8,
+          "working_directory": "/tmp/mada_slurm_eval/fluid_test_job"
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "submit_jobs_generated_runs_default_sbatch",
+      "server": "slurm",
+      "prompts": [
+        {
+          "id": "direct",
+          "text": "Use Slurm submit_jobs for generated runs. Pass this exact literal JSON string as run_info_json: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}. Leave blocking at its default queued sbatch behavior; do not use submit_command."
+        },
+        {
+          "id": "natural",
+          "text": "Please submit these generated runs through Slurm using submit_jobs, not submit_command. The run manifest has run_001 in /tmp/mada_slurm_eval/run_001 with simulate_case --input case1.deck and run_002 in /tmp/mada_slurm_eval/run_002 with simulate_case --input case2.deck. Use the default non-blocking queued sbatch submission behavior."
+        },
+        {
+          "id": "terse",
+          "text": "Slurm submit_jobs run_info_json={\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}, blocking default false."
+        }
+      ],
+      "expected_call": {
+        "tool": "submit_jobs",
+        "arguments": {
+          "run_info_json": "{\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "submit_jobs_generated_runs_with_sbatch_options",
+      "server": "slurm",
+      "prompts": [
+        {
+          "id": "direct",
+          "text": "Use Slurm submit_jobs for generated runs with queued sbatch options. Pass this exact literal JSON string as run_info_json: {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]}. Set blocking=false, nodes=2, tasks=16, time_limit=\"02:30:00\", account=\"science\", partition=\"pdebug\", exclusive=true, cpus_per_task=4, and job_name_prefix=\"slurm_eval\"."
+        },
+        {
+          "id": "natural",
+          "text": "Submit one generated run through Slurm queued sbatch using submit_jobs. The run is run_sbatch_001 in /tmp/mada_slurm_eval/sbatch_001 with simulate_case --input sbatch1.deck. Queue it with blocking false, two nodes, sixteen total tasks, two hours thirty minutes, account science, partition pdebug, exclusive nodes, four CPUs per task, and job name prefix slurm_eval."
+        },
+        {
+          "id": "terse",
+          "text": "Slurm submit_jobs blocking=false nodes=2 tasks=16 time_limit=02:30:00 account=science partition=pdebug exclusive=true cpus_per_task=4 job_name_prefix=slurm_eval run_info_json={\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]}."
+        }
+      ],
+      "expected_call": {
+        "tool": "submit_jobs",
+        "arguments": {
+          "run_info_json": "{\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]}",
+          "blocking": false,
+          "nodes": 2,
+          "tasks": 16,
+          "time_limit": "02:30:00",
+          "account": "science",
+          "partition": "pdebug",
+          "exclusive": true,
+          "cpus_per_task": 4,
+          "job_name_prefix": "slurm_eval"
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "submit_jobs_generated_runs_blocking_direct",
+      "server": "slurm",
+      "prompts": [
+        {
+          "id": "direct",
+          "text": "Use Slurm submit_jobs for generated runs and set blocking=true for direct debug execution. Pass this exact literal JSON string as run_info_json: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}."
+        },
+        {
+          "id": "natural",
+          "text": "Submit these generated runs through Slurm with submit_jobs and wait for direct debug execution to finish before returning. The manifest includes run_sync_001 at /tmp/mada_slurm_eval/run_sync_001 with simulate_case --input sync1.deck and run_sync_002 at /tmp/mada_slurm_eval/run_sync_002 with simulate_case --input sync2.deck. This should be blocking=true."
+        },
+        {
+          "id": "terse",
+          "text": "Slurm submit_jobs blocking=true run_info_json={\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}."
+        }
+      ],
+      "expected_call": {
+        "tool": "submit_jobs",
+        "arguments": {
+          "run_info_json": "{\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}",
+          "blocking": true
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "check_job_status_by_job_set_id",
+      "server": "slurm",
+      "prompts": [
+        {
+          "id": "direct",
+          "text": "Use Slurm check_job_status with job_set_id set to job_set_000123. Do not pass slurm_job_id."
+        },
+        {
+          "id": "natural",
+          "text": "Please look up the current Slurm status for the local MADA job set ID job_set_000123. Use check_job_status with job_set_id, not slurm_job_id."
+        },
+        {
+          "id": "terse",
+          "text": "Slurm check_job_status job_set_id=job_set_000123."
+        }
+      ],
+      "expected_call": {
+        "tool": "check_job_status",
+        "arguments": {
+          "job_set_id": "job_set_000123"
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "check_job_status_by_slurm_job_id",
+      "server": "slurm",
+      "prompts": [
+        {
+          "id": "direct",
+          "text": "Use Slurm check_job_status with slurm_job_id set to 987654. Do not pass job_set_id."
+        },
+        {
+          "id": "natural",
+          "text": "Please check the real Slurm scheduler job ID 987654. Use check_job_status with slurm_job_id, not the local job set id."
+        },
+        {
+          "id": "terse",
+          "text": "Slurm check_job_status slurm_job_id=987654."
+        }
+      ],
+      "expected_call": {
+        "tool": "check_job_status",
+        "arguments": {
+          "slurm_job_id": "987654"
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "check_job_status_all_job_sets",
+      "server": "slurm",
+      "prompts": [
+        {
+          "id": "direct",
+          "text": "Check Slurm job status for all tracked job sets. Do not pass job_set_id or slurm_job_id."
+        },
+        {
+          "id": "natural",
+          "text": "Show me the status of every Slurm job set the server is tracking right now. This is the all-job-sets status query, so do not include job_set_id or slurm_job_id."
+        },
+        {
+          "id": "terse",
+          "text": "Slurm check_job_status for all tracked job sets, no job_set_id, no slurm_job_id."
+        }
+      ],
+      "expected_call": {
+        "tool": "check_job_status",
+        "arguments": {},
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "continuously_check_job_status_terminal_job_set",
+      "server": "slurm",
+      "prompts": [
+        {
+          "id": "direct",
+          "text": "Use Slurm continuously_check_job_status for job_set_id=job_set_000123. Set wait_until=\"terminal\", poll_interval_seconds=2.5, and timeout_seconds=120. Do not pass slurm_job_id."
+        },
+        {
+          "id": "natural",
+          "text": "Monitor Slurm job set job_set_000123 until it reaches a terminal state. Poll every 2.5 seconds and stop after 120 seconds. Use continuously_check_job_status with job_set_id."
+        },
+        {
+          "id": "terse",
+          "text": "Slurm continuously_check_job_status job_set_id=job_set_000123 wait_until=terminal poll_interval_seconds=2.5 timeout_seconds=120."
+        }
+      ],
+      "expected_call": {
+        "tool": "continuously_check_job_status",
+        "arguments": {
+          "job_set_id": "job_set_000123",
+          "wait_until": "terminal",
+          "poll_interval_seconds": 2.5,
+          "timeout_seconds": 120
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "continuously_check_job_status_any_running_slurm_job",
+      "server": "slurm",
+      "prompts": [
+        {
+          "id": "direct",
+          "text": "Use Slurm continuously_check_job_status for slurm_job_id=987654. Set wait_until=\"any_running\", poll_interval_seconds=5, and timeout_seconds=300. Do not pass job_set_id."
+        },
+        {
+          "id": "natural",
+          "text": "Monitor the real Slurm job 987654 until it is running or already terminal. Poll every five seconds and time out after 300 seconds. Use continuously_check_job_status with slurm_job_id."
+        },
+        {
+          "id": "terse",
+          "text": "Slurm continuously_check_job_status slurm_job_id=987654 wait_until=any_running poll_interval_seconds=5 timeout_seconds=300."
+        }
+      ],
+      "expected_call": {
+        "tool": "continuously_check_job_status",
+        "arguments": {
+          "slurm_job_id": "987654",
+          "wait_until": "any_running",
+          "poll_interval_seconds": 5,
+          "timeout_seconds": 300
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "list_queue",
+      "server": "slurm",
+      "prompts": [
+        {
+          "id": "direct",
+          "text": "Use the Slurm list_queue tool to list jobs in the Slurm queue. Do not pass any arguments."
+        },
+        {
+          "id": "natural",
+          "text": "Please show me the current Slurm queue using the tool that lists queued jobs. This should not include any arguments."
+        },
+        {
+          "id": "terse",
+          "text": "Slurm list_queue, no arguments."
+        }
+      ],
+      "expected_call": {
+        "tool": "list_queue",
+        "arguments": {},
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "get_cluster_info",
+      "server": "slurm",
+      "prompts": [
+        {
+          "id": "direct",
+          "text": "Use the Slurm get_cluster_info tool to get cluster node information. Do not pass any arguments."
+        },
+        {
+          "id": "natural",
+          "text": "Please show me Slurm cluster information, including node or partition information, using the cluster info tool. This should not include any arguments."
+        },
+        {
+          "id": "terse",
+          "text": "Slurm get_cluster_info, no arguments."
+        }
+      ],
+      "expected_call": {
+        "tool": "get_cluster_info",
+        "arguments": {},
+        "match": {
+          "mode": "subset"
+        }
+      }
+    }
+  ]
+}

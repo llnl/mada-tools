@@ -1,0 +1,27 @@
+# Shared eval model list that may be used in LLM testing.
+# One model per line with corresponding run level.
+# Set appropriate levels.
+# Comment out any model you may want to omit entirely from eval runs.
+# Level	Model
+3	anthropic.claude-3-5-sonnet-20240620-v1:0
+2	claude-haiku-3
+2	claude-sonnet-3.7
+2	claude-sonnet-4.5
+3	gpt-35-turbo
+1	gpt-4.1
+1	gpt-4.1-mini
+1	gpt-4.1-nano
+1	gpt-4o
+1	gpt-4o-mini
+1	gpt-5
+0	gpt-5-mini
+1	gpt-5-nano
+1	gpt-5.1
+1	gpt-5.2
+1	gpt-5.4
+1	gpt-5.4-mini
+0	gpt-5.5
+3	o1
+2	o3
+2	o3-mini
+2	o4-mini

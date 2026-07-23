@@ -1,0 +1,1553 @@
+{
+  "mcp_servers": {
+    "slurm": {
+      "url": "http://localhost:8102/mcp"
+    }
+  },
+  "prompt_generation": {
+    "model": "gpt-5.4-mini",
+    "num_prompts": 5,
+    "argument_policies": [
+      {
+        "server": "slurm",
+        "tool": "submit_command",
+        "arguments": {
+          "command": {
+            "mode": "verbatim",
+            "guidance": [
+              "The command argument is the exact program invocation to execute. Repeat it exactly as written.",
+              "Do not substitute a workload description, add cd/setup wrappers, change python/python3, or infer a different command from surrounding context."
+            ]
+          },
+          "nodes": {
+            "mode": "semantic",
+            "guidance": "Express the node count clearly enough to recover the expected numeric value."
+          },
+          "tasks": {
+            "mode": "semantic",
+            "guidance": "Express the task count clearly enough to recover the expected numeric value."
+          },
+          "working_directory": {
+            "mode": "verbatim",
+            "guidance": "Working directories are paths; preserve the expected working_directory exactly."
+          }
+        },
+        "guidance": [
+          "Slurm scheduler/resource arguments such as nodes, tasks, and working_directory are separate tool arguments. They are not part of command unless already present in the expected command string."
+        ]
+      },
+      {
+        "server": "slurm",
+        "tool": "submit_jobs",
+        "arguments": {
+          "run_info_json": {
+            "mode": "verbatim",
+            "guidance": "run_info_json is a literal JSON string argument. Preserve that string exactly when it is included in a generated prompt."
+          },
+          "blocking": {
+            "mode": "semantic",
+            "guidance": "Express whether the Slurm job submission should block clearly enough to recover the expected boolean value."
+          },
+          "nodes": {
+            "mode": "semantic",
+            "guidance": "Express the node count clearly enough to recover the expected numeric value."
+          },
+          "tasks": {
+            "mode": "semantic",
+            "guidance": "Express the task count clearly enough to recover the expected numeric value."
+          },
+          "time_limit": {
+            "mode": "semantic",
+            "guidance": "Express the Slurm time limit clearly enough to recover the expected value; exact spelling is helpful but not required."
+          },
+          "account": {
+            "mode": "verbatim",
+            "guidance": "Slurm account names are identifiers; preserve the expected account exactly."
+          },
+          "partition": {
+            "mode": "verbatim",
+            "guidance": "Slurm partition names are identifiers; preserve the expected partition exactly."
+          },
+          "exclusive": {
+            "mode": "semantic",
+            "guidance": "Express whether exclusive nodes should be requested clearly enough to recover the expected boolean value."
+          },
+          "cpus_per_task": {
+            "mode": "semantic",
+            "guidance": "Express CPUs per task clearly enough to recover the expected numeric value."
+          },
+          "job_name_prefix": {
+            "mode": "verbatim",
+            "guidance": "Job name prefixes are identifiers; preserve the expected job_name_prefix exactly."
+          }
+        },
+        "guidance": [
+          "For Slurm submit_jobs, run_info_json describes generated runs while scheduler options such as blocking, nodes, tasks, time_limit, account, partition, exclusive, cpus_per_task, and job_name_prefix are separate submit_jobs arguments."
+        ]
+      },
+      {
+        "server": "slurm",
+        "tool": "check_job_status",
+        "arguments": {
+          "job_set_id": {
+            "mode": "verbatim",
+            "guidance": "job_set_id is the local MADA job-set identifier. Do not replace it with slurm_job_id."
+          },
+          "slurm_job_id": {
+            "mode": "verbatim",
+            "guidance": "slurm_job_id is the real Slurm scheduler job identifier. Do not replace it with job_set_id."
+          }
+        }
+      },
+      {
+        "server": "slurm",
+        "tool": "continuously_check_job_status",
+        "arguments": {
+          "job_set_id": {
+            "mode": "verbatim",
+            "guidance": "job_set_id is the local MADA job-set identifier. Do not replace it with slurm_job_id."
+          },
+          "slurm_job_id": {
+            "mode": "verbatim",
+            "guidance": "slurm_job_id is the real Slurm scheduler job identifier. Do not replace it with job_set_id."
+          },
+          "wait_until": {
+            "mode": "verbatim",
+            "guidance": "wait_until is an enum-like status target; preserve the expected value exactly."
+          },
+          "poll_interval_seconds": {
+            "mode": "semantic",
+            "guidance": "Express the polling interval clearly enough to recover the expected numeric seconds value."
+          },
+          "timeout_seconds": {
+            "mode": "semantic",
+            "guidance": "Express the timeout clearly enough to recover the expected numeric seconds value."
+          }
+        },
+        "guidance": [
+          "For Slurm continuous status checks, the prompt should imply repeated monitoring until the expected wait_until condition or timeout."
+        ]
+      }
+    ],
+    "styles": [
+      {
+        "id": "natural",
+        "description": "A normal conversational request from a capable user."
+      },
+      {
+        "id": "terse",
+        "description": "A short command-like request with minimal extra wording."
+      },
+      {
+        "id": "noobie",
+        "description": "A beginner-style request that uses informal wording and may over-explain."
+      },
+      {
+        "id": "lazy",
+        "description": "An underspecified casual request, but still containing enough information to imply the expected tool call."
+      },
+      {
+        "id": "direct",
+        "description": "An explicit instruction naming the intended server, tool, and key arguments."
+      }
+    ]
+  },
+  "tests": [
+    {
+      "id": "submit_command_simple_ad_hoc",
+      "server": "slurm",
+      "prompts": [
+        {
+          "id": "natural",
+          "text": "Please run `python -V` in `/tmp/mada_slurm_eval/single_command`."
+        },
+        {
+          "id": "terse",
+          "text": "Run python -V in /tmp/mada_slurm_eval/single_command."
+        },
+        {
+          "id": "noobie",
+          "text": "Can you run `python -V` for me in `/tmp/mada_slurm_eval/single_command`? I just want to check the Python version."
+        },
+        {
+          "id": "lazy",
+          "text": "Can you run `python -V` for me in `/tmp/mada_slurm_eval/single_command`?"
+        },
+        {
+          "id": "direct",
+          "text": "Use the slurm submit_command tool to run python -V in /tmp/mada_slurm_eval/single_command with 1 node and 1 task."
+        },
+        {
+          "id": "natural_2",
+          "text": "Can you execute `python -V` from `/tmp/mada_slurm_eval/single_command`?"
+        },
+        {
+          "id": "terse_2",
+          "text": "Please execute python -V in /tmp/mada_slurm_eval/single_command."
+        },
+        {
+          "id": "noobie_2",
+          "text": "Please execute `python -V` in `/tmp/mada_slurm_eval/single_command`."
+        },
+        {
+          "id": "lazy_2",
+          "text": "Please execute `python -V` in `/tmp/mada_slurm_eval/single_command`."
+        },
+        {
+          "id": "direct_2",
+          "text": "On the slurm server, submit_command should execute python -V from /tmp/mada_slurm_eval/single_command, using 1 node and 1 task."
+        },
+        {
+          "id": "natural_3",
+          "text": "I need to check the Python version with `python -V` in `/tmp/mada_slurm_eval/single_command`."
+        },
+        {
+          "id": "terse_3",
+          "text": "Can you run python -V from /tmp/mada_slurm_eval/single_command?"
+        },
+        {
+          "id": "noobie_3",
+          "text": "I need the output of `python -V` from `/tmp/mada_slurm_eval/single_command`, thanks."
+        },
+        {
+          "id": "lazy_3",
+          "text": "I just need `python -V` run from `/tmp/mada_slurm_eval/single_command`."
+        },
+        {
+          "id": "direct_3",
+          "text": "Please call slurm submit_command for python -V, working directory /tmp/mada_slurm_eval/single_command, nodes 1, tasks 1."
+        },
+        {
+          "id": "natural_4",
+          "text": "Run this command for me: `python -V`, using `/tmp/mada_slurm_eval/single_command` as the working directory."
+        },
+        {
+          "id": "terse_4",
+          "text": "Need python -V in /tmp/mada_slurm_eval/single_command."
+        },
+        {
+          "id": "noobie_4",
+          "text": "Could you run `python -V` with the working folder set to `/tmp/mada_slurm_eval/single_command`? I'm just testing the setup."
+        },
+        {
+          "id": "lazy_4",
+          "text": "Run `python -V` in `/tmp/mada_slurm_eval/single_command` please."
+        },
+        {
+          "id": "direct_4",
+          "text": "Run python -V with slurm submit_command in /tmp/mada_slurm_eval/single_command. Keep it to 1 node and 1 task."
+        },
+        {
+          "id": "natural_5",
+          "text": "Could you submit `python -V` from `/tmp/mada_slurm_eval/single_command`?"
+        },
+        {
+          "id": "terse_5",
+          "text": "Just run python -V in /tmp/mada_slurm_eval/single_command."
+        },
+        {
+          "id": "noobie_5",
+          "text": "Run this for me: `python -V` in `/tmp/mada_slurm_eval/single_command`."
+        },
+        {
+          "id": "lazy_5",
+          "text": "Could you do `python -V` inside `/tmp/mada_slurm_eval/single_command`?"
+        },
+        {
+          "id": "direct_5",
+          "text": "Use submit_command on the slurm MCP server to run python -V in /tmp/mada_slurm_eval/single_command with one node and one task."
+        }
+      ],
+      "expected_call": {
+        "tool": "submit_command",
+        "arguments": {
+          "command": "python -V",
+          "nodes": 1,
+          "tasks": 1,
+          "working_directory": "/tmp/mada_slurm_eval/single_command"
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "submit_command_multi_task",
+      "server": "slurm",
+      "prompts": [
+        {
+          "id": "natural",
+          "text": "Please run `python simulate.py --case fluid_test --steps 10` on 2 nodes with 8 tasks in `/tmp/mada_slurm_eval/fluid_test_job`."
+        },
+        {
+          "id": "terse",
+          "text": "Run python simulate.py --case fluid_test --steps 10 in /tmp/mada_slurm_eval/fluid_test_job on 2 nodes with 8 tasks."
+        },
+        {
+          "id": "noobie",
+          "text": "Can you run this on Slurm for me from /tmp/mada_slurm_eval/fluid_test_job? The exact command is python simulate.py --case fluid_test --steps 10. I think it should use 2 nodes and 8 tasks."
+        },
+        {
+          "id": "lazy",
+          "text": "Can you run `python simulate.py --case fluid_test --steps 10` in `/tmp/mada_slurm_eval/fluid_test_job` on 2 nodes with 8 tasks?"
+        },
+        {
+          "id": "direct",
+          "text": "Please use the slurm submit_command tool to run python simulate.py --case fluid_test --steps 10 in /tmp/mada_slurm_eval/fluid_test_job on 2 nodes with 8 tasks."
+        },
+        {
+          "id": "natural_2",
+          "text": "Could you submit this command on Slurm for me: `python simulate.py --case fluid_test --steps 10`? Use 2 nodes, 8 tasks, and the working directory `/tmp/mada_slurm_eval/fluid_test_job`."
+        },
+        {
+          "id": "terse_2",
+          "text": "Please submit python simulate.py --case fluid_test --steps 10 from /tmp/mada_slurm_eval/fluid_test_job, using 2 nodes and 8 tasks."
+        },
+        {
+          "id": "noobie_2",
+          "text": "Please submit a command job for me in /tmp/mada_slurm_eval/fluid_test_job. Run python simulate.py --case fluid_test --steps 10 exactly, with 2 nodes and 8 tasks."
+        },
+        {
+          "id": "lazy_2",
+          "text": "Please submit `python simulate.py --case fluid_test --steps 10` from `/tmp/mada_slurm_eval/fluid_test_job`, using 2 nodes and 8 tasks."
+        },
+        {
+          "id": "direct_2",
+          "text": "On the slurm server, submit_command should execute python simulate.py --case fluid_test --steps 10, using working directory /tmp/mada_slurm_eval/fluid_test_job, with nodes set to 2 and tasks set to 8."
+        },
+        {
+          "id": "natural_3",
+          "text": "I need to launch `python simulate.py --case fluid_test --steps 10` from `/tmp/mada_slurm_eval/fluid_test_job` using 2 nodes and 8 tasks."
+        },
+        {
+          "id": "terse_3",
+          "text": "srun python simulate.py --case fluid_test --steps 10, 2 nodes, 8 tasks, workdir /tmp/mada_slurm_eval/fluid_test_job."
+        },
+        {
+          "id": "noobie_3",
+          "text": "I need to launch python simulate.py --case fluid_test --steps 10 in /tmp/mada_slurm_eval/fluid_test_job. Use 2 nodes and 8 tasks, please."
+        },
+        {
+          "id": "lazy_3",
+          "text": "I need `python simulate.py --case fluid_test --steps 10` launched in `/tmp/mada_slurm_eval/fluid_test_job` with 2 nodes and 8 tasks, thanks."
+        },
+        {
+          "id": "direct_3",
+          "text": "Can you submit an ad hoc slurm command for python simulate.py --case fluid_test --steps 10 from /tmp/mada_slurm_eval/fluid_test_job? Please use 2 nodes and 8 tasks."
+        },
+        {
+          "id": "natural_4",
+          "text": "Run `python simulate.py --case fluid_test --steps 10` with 2 nodes and 8 tasks, and set the working directory to `/tmp/mada_slurm_eval/fluid_test_job`."
+        },
+        {
+          "id": "terse_4",
+          "text": "Execute python simulate.py --case fluid_test --steps 10 in /tmp/mada_slurm_eval/fluid_test_job with 2 nodes and 8 tasks."
+        },
+        {
+          "id": "noobie_4",
+          "text": "Could you run this command on the cluster for me: python simulate.py --case fluid_test --steps 10? Use the working directory /tmp/mada_slurm_eval/fluid_test_job, 2 nodes, and 8 tasks."
+        },
+        {
+          "id": "lazy_4",
+          "text": "Run `python simulate.py --case fluid_test --steps 10` in the folder `/tmp/mada_slurm_eval/fluid_test_job` and make it 2 nodes, 8 tasks."
+        },
+        {
+          "id": "direct_4",
+          "text": "Use slurm submit_command for this exact command: python simulate.py --case fluid_test --steps 10. Set working_directory to /tmp/mada_slurm_eval/fluid_test_job, nodes to 2, and tasks to 8."
+        },
+        {
+          "id": "natural_5",
+          "text": "Please use Slurm to execute `python simulate.py --case fluid_test --steps 10` in `/tmp/mada_slurm_eval/fluid_test_job` on 2 nodes with 8 tasks."
+        },
+        {
+          "id": "terse_5",
+          "text": "Need python simulate.py --case fluid_test --steps 10 in /tmp/mada_slurm_eval/fluid_test_job; use 2 nodes and 8 tasks."
+        },
+        {
+          "id": "noobie_5",
+          "text": "Hi, can you submit python simulate.py --case fluid_test --steps 10 from /tmp/mada_slurm_eval/fluid_test_job? I want 2 nodes and 8 tasks for it."
+        },
+        {
+          "id": "lazy_5",
+          "text": "Could you execute `python simulate.py --case fluid_test --steps 10` at `/tmp/mada_slurm_eval/fluid_test_job` on 2 nodes with 8 tasks?"
+        },
+        {
+          "id": "direct_5",
+          "text": "I need the slurm submit_command tool to run python simulate.py --case fluid_test --steps 10 with working directory /tmp/mada_slurm_eval/fluid_test_job, on 2 nodes, using 8 tasks."
+        }
+      ],
+      "expected_call": {
+        "tool": "submit_command",
+        "arguments": {
+          "command": "python simulate.py --case fluid_test --steps 10",
+          "nodes": 2,
+          "tasks": 8,
+          "working_directory": "/tmp/mada_slurm_eval/fluid_test_job"
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "submit_jobs_generated_runs_default_sbatch",
+      "server": "slurm",
+      "prompts": [
+        {
+          "id": "natural",
+          "text": "Please submit these two simulation runs to Slurm for me: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "terse",
+          "text": "Submit these two runs: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "noobie",
+          "text": "Can you submit these two simulation runs to Slurm for me? I want the normal queued submission, not debug mode. The run info is this JSON string: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "lazy",
+          "text": "Please submit these two simulation runs with Slurm: the ones in {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}."
+        },
+        {
+          "id": "direct",
+          "text": "On the slurm server, submit jobs with submit_jobs using this run_info_json: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}."
+        },
+        {
+          "id": "natural_2",
+          "text": "Can you queue up this run manifest on Slurm? {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "terse_2",
+          "text": "Queue the following run manifest: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "noobie_2",
+          "text": "Please kick off the batch jobs for these generated runs on the cluster. Use the standard sbatch-style submit, and here is the run_info_json: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "lazy_2",
+          "text": "Can you queue up this run manifest for me? {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "direct_2",
+          "text": "Please use slurm submit_jobs to launch these generated runs. The run_info_json is {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}."
+        },
+        {
+          "id": "natural_3",
+          "text": "I have a JSON run list for two jobs and want them submitted with the usual queued Slurm behavior: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "terse_3",
+          "text": "Please submit these generated runs: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "noobie_3",
+          "text": "I've got two runs ready and I need them submitted to Slurm. Don't run them in blocking/debug mode; just submit the jobs normally. Use this exact run info JSON: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "lazy_3",
+          "text": "I've got two generated runs to submit, with the manifest JSON here: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}."
+        },
+        {
+          "id": "direct_3",
+          "text": "Can you submit the following batch on slurm with submit_jobs? run_info_json = {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}."
+        },
+        {
+          "id": "natural_4",
+          "text": "Submit these generated runs through Slurm for me, please: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "terse_4",
+          "text": "Run this manifest on Slurm: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "noobie_4",
+          "text": "Could you submit these generated simulation runs for me? They're in this run_info_json string: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}. Normal queue submission is fine."
+        },
+        {
+          "id": "lazy_4",
+          "text": "Submit the batch runs from this JSON string: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}."
+        },
+        {
+          "id": "direct_4",
+          "text": "Use the slurm submit_jobs tool for these generated runs. Pass this exact run_info_json: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}."
+        },
+        {
+          "id": "natural_5",
+          "text": "Could you launch the two runs in this manifest on the queue? {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "terse_5",
+          "text": "Submit the two simulation jobs from {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "noobie_5",
+          "text": "Please start the two jobs from this manifest on Slurm, using the default queued submission: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}. I just need the batch submission."
+        },
+        {
+          "id": "lazy_5",
+          "text": "Please use Slurm to submit these generated runs: {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        {
+          "id": "direct_5",
+          "text": "I need to queue two generated simulation runs on slurm with submit_jobs, using run_info_json {\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}."
+        }
+      ],
+      "expected_call": {
+        "tool": "submit_jobs",
+        "arguments": {
+          "run_info_json": "{\"runs\":[{\"id\":\"run_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case1.deck\"]},{\"id\":\"run_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"case2.deck\"]}]}"
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "submit_jobs_generated_runs_with_sbatch_options",
+      "server": "slurm",
+      "prompts": [
+        {
+          "id": "natural",
+          "text": "Please submit this Slurm run set for me with account science on the pdebug partition. I want it to block = false, use 2 nodes, 16 tasks, 4 CPUs per task, exclusive nodes, a job name prefix of slurm_eval, and a time limit of 02:30:00. The run info JSON is {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]}"
+        },
+        {
+          "id": "terse",
+          "text": "Submit this Slurm run info with sbatch options: {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]} on account science, partition pdebug, job name prefix slurm_eval, 2 nodes, 16 tasks, 4 CPUs per task, exclusive, time limit 02:30:00, and don't block."
+        },
+        {
+          "id": "noobie",
+          "text": "Can you submit this Slurm run for me? I want it queued normally, not blocking. Please use account science on partition pdebug, with job name prefix slurm_eval. It should run on 2 nodes with 16 tasks, 4 CPUs per task, exclusive nodes, and a time limit of 02:30:00. The run info JSON is {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]}"
+        },
+        {
+          "id": "lazy",
+          "text": "Can you submit this Slurm run for me with account science on pdebug? It should use the job name prefix slurm_eval, 2 nodes, 16 tasks, 4 CPUs per task, exclusive nodes, and a 02:30:00 time limit. Don't block; just queue it. Use this run info exactly: {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]}"
+        },
+        {
+          "id": "direct",
+          "text": "Please submit these generated runs to Slurm with submit_jobs: use account science, partition pdebug, job name prefix slurm_eval, 2 nodes, 16 tasks, 4 cpus per task, exclusive nodes, and a 02:30:00 time limit. Do not block; queue it normally. run_info_json should be {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]}."
+        },
+        {
+          "id": "natural_2",
+          "text": "Can you queue these generated runs on Slurm with science as the account and pdebug as the partition? Use slurm_eval as the job name prefix, request 2 nodes, 16 tasks, 4 CPUs per task, and exclusive access. Don't block on submission. The run_info_json should be {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]}, and set the time limit to 02:30:00."
+        },
+        {
+          "id": "terse_2",
+          "text": "Queue the run using this exact run_info_json: {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]} Use account science, partition pdebug, prefix slurm_eval, 2 nodes, 16 tasks, 4 cpus per task, exclusive mode, 02:30:00 limit, no blocking."
+        },
+        {
+          "id": "noobie_2",
+          "text": "I need to launch a batch job in Slurm, but just queue it normally and return right away. Use science as the account, pdebug as the partition, and slurm_eval as the job name prefix. Please request 2 nodes, 16 tasks, 4 CPUs per task, exclusive access, and set the time limit to 02:30:00. Here is the run info JSON: {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]}"
+        },
+        {
+          "id": "lazy_2",
+          "text": "Please kick off a Slurm batch job using account science and partition pdebug. I want the prefix slurm_eval, 2 nodes, 16 total tasks, 4 CPUs per task, exclusive access, and a 02:30:00 limit. Keep it non-blocking. Run info: {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]}"
+        },
+        {
+          "id": "direct_2",
+          "text": "Can you run submit_jobs on the slurm server for a generated run set with this exact run_info_json: {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]}? Use account science, partition pdebug, job_name_prefix slurm_eval, 2 nodes, 16 tasks, cpus_per_task 4, exclusive true, time_limit 02:30:00, and keep blocking false."
+        },
+        {
+          "id": "natural_3",
+          "text": "I need to submit one run through Slurm: account science, partition pdebug, prefix slurm_eval, 2 nodes, 16 tasks, 4 cpus per task, exclusive, and non-blocking submission. Please use this run info: {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]} with a 02:30:00 time limit."
+        },
+        {
+          "id": "terse_3",
+          "text": "Please submit jobs for {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]} with Slurm settings: science account, pdebug partition, slurm_eval prefix, nodes=2, tasks=16, cpus_per_task=4, exclusive=true, time limit 02:30:00, blocking off."
+        },
+        {
+          "id": "noobie_3",
+          "text": "Could you submit these generated runs to Slurm for me? I don't want blocking mode. The account should be science, the partition should be pdebug, and the job name prefix should be slurm_eval. Also set nodes to 2, tasks to 16, cpus per task to 4, exclusive to true, and the time limit to 02:30:00. The run info JSON is {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]}"
+        },
+        {
+          "id": "lazy_3",
+          "text": "Submit the generated run to Slurm for me. Use science as the account, pdebug as the partition, slurm_eval as the job name prefix, 2 nodes, 16 tasks, 4 CPUs per task, exclusive mode, and 02:30:00 wall time. Don't wait for it. Here's the run JSON: {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]}"
+        },
+        {
+          "id": "direct_3",
+          "text": "I need these generated simulation jobs submitted with Slurm. The run manifest is {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]}. Please use account science, partition pdebug, job name prefix slurm_eval, request 2 nodes and 16 tasks, set 4 CPUs per task, ask for exclusive access, and use a 02:30:00 walltime. Submit asynchronously, not blocking."
+        },
+        {
+          "id": "natural_4",
+          "text": "Please send these generated jobs to Slurm using account science on pdebug. Make it a normal queued submit, not blocking, with 2 nodes and 16 tasks, 4 CPUs per task, exclusive nodes, a job name prefix slurm_eval, and a 02:30:00 time limit. Use this run_info_json: {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]}."
+        },
+        {
+          "id": "terse_4",
+          "text": "Launch this manifest {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]} through sbatch. Use account science, partition pdebug, job prefix slurm_eval, 2 nodes, 16 tasks, 4 CPUs each, exclusive nodes, and a 02:30:00 time limit. Don't wait for it."
+        },
+        {
+          "id": "noobie_4",
+          "text": "Please do a normal Slurm submission, not a blocking one. I need account science, partition pdebug, job name prefix slurm_eval, 2 nodes, 16 tasks, 4 CPUs per task, and exclusive nodes. Set the time limit to 02:30:00. Use this run info JSON exactly: {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]}"
+        },
+        {
+          "id": "lazy_4",
+          "text": "I need this queued on Slurm with account science and partition pdebug. Use slurm_eval for the job prefix, request 2 nodes, 16 tasks, 4 CPUs each, and make it exclusive. Time limit should be 02:30:00, and it should return right away, not block. Run info: {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]}"
+        },
+        {
+          "id": "direct_4",
+          "text": "Please queue the generated run described by this JSON: {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]}. Use Slurm account science, partition pdebug, prefix the jobs with slurm_eval, allocate 2 nodes, 16 tasks, 4 cpus per task, exclusive=true, and set the time limit to 02:30:00. I want normal non-blocking sbatch submission."
+        },
+        {
+          "id": "natural_5",
+          "text": "Could you submit the batch runs for me? Use science for the Slurm account, pdebug for the partition, and slurm_eval as the job name prefix. I want 2 nodes, 16 tasks, 4 cpus per task, exclusive scheduling, blocking set to false, and a time limit of 02:30:00. The run_info_json is {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]}"
+        },
+        {
+          "id": "terse_5",
+          "text": "Submit the generated run info JSON {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]} with science, pdebug, slurm_eval, 2 nodes, 16 tasks, 4 cpus per task, exclusive, 02:30:00, and non-blocking queue submission."
+        },
+        {
+          "id": "noobie_5",
+          "text": "Submit this as a queued Slurm job, not a blocking/debug run. Please use science for the account, pdebug for the partition, slurm_eval as the job name prefix, 2 nodes, 16 tasks, 4 cpus per task, exclusive mode, and a 02:30:00 time limit. Run info JSON: {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]}"
+        },
+        {
+          "id": "lazy_5",
+          "text": "Could you submit this as a Slurm batch job? Use science, pdebug, slurm_eval, 2 nodes, 16 tasks, 4 CPUs per task, exclusive nodes, and a 02:30:00 time limit. Non-blocking please. The run info string is {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]}"
+        },
+        {
+          "id": "direct_5",
+          "text": "Submit a batch of generated runs with submit_jobs using this run_info_json exactly: {\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]}. Set account to science, partition to pdebug, job_name_prefix to slurm_eval, nodes to 2, tasks to 16, cpus_per_task to 4, exclusive to true, time_limit to 02:30:00, and blocking to false."
+        }
+      ],
+      "expected_call": {
+        "tool": "submit_jobs",
+        "arguments": {
+          "run_info_json": "{\"runs\":[{\"id\":\"run_sbatch_001\",\"run_location\":\"/tmp/mada_slurm_eval/sbatch_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sbatch1.deck\"]}]}",
+          "blocking": false,
+          "nodes": 2,
+          "tasks": 16,
+          "time_limit": "02:30:00",
+          "account": "science",
+          "partition": "pdebug",
+          "exclusive": true,
+          "cpus_per_task": 4,
+          "job_name_prefix": "slurm_eval"
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "submit_jobs_generated_runs_blocking_direct",
+      "server": "slurm",
+      "prompts": [
+        {
+          "id": "natural",
+          "text": "Please submit these two runs right away and make it blocking so it runs directly instead of queueing: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "terse",
+          "text": "Run these now, not queued: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "noobie",
+          "text": "Can you submit these two simulation runs directly, not queued, so it runs blocking and I can wait for it? Use this exact run info: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "lazy",
+          "text": "Please submit these two runs directly, not queued, so it blocks and runs them synchronously: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}."
+        },
+        {
+          "id": "direct",
+          "text": "Please use the slurm submit_jobs tool to submit these generated runs synchronously: blocking=true and run_info_json=\"{\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}\"."
+        },
+        {
+          "id": "natural_2",
+          "text": "Can you launch this job set in blocking mode? I want the runs executed directly, not just submitted to Slurm: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "terse_2",
+          "text": "Submit directly, blocking, with this run info: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "noobie_2",
+          "text": "I want to launch a couple of runs in Slurm, but please do it in blocking mode so it runs directly instead of just queueing. Here is the run info JSON: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "lazy_2",
+          "text": "Can you run this job manifest right away in blocking mode instead of submitting to Slurm asynchronously? {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}."
+        },
+        {
+          "id": "direct_2",
+          "text": "Submit the following Slurm run manifest with submit_jobs and make it block until done. Use blocking=true, and the run_info_json must be \"{\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}\"."
+        },
+        {
+          "id": "natural_3",
+          "text": "I need these generated runs submitted synchronously, with blocking turned on: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "terse_3",
+          "text": "Please run synchronously using this manifest: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "noobie_3",
+          "text": "Please submit these generated runs with Slurm and make it blocking, because I need the direct execution behavior, not the normal queued one. Use this exact run_info_json: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "lazy_3",
+          "text": "I want the two generated runs executed directly, with no queue wait. Use blocking submission for this run list: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}."
+        },
+        {
+          "id": "direct_3",
+          "text": "I need the slurm server's submit_jobs call for two generated runs, not queued async submission. Please set blocking to true and pass this exact run_info_json: \"{\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}\"."
+        },
+        {
+          "id": "natural_4",
+          "text": "Please start the two simulate_case runs directly from this manifest, and don't return until the blocking submission is handled: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "terse_4",
+          "text": "Do a blocking Slurm submit for these two runs: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "noobie_4",
+          "text": "Could you run these two jobs right away and block until they're done? I'm not trying to queue them. The run info is {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "lazy_4",
+          "text": "Submit these simulation runs in direct execution mode, not the default queued mode. Here's the run info: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}."
+        },
+        {
+          "id": "direct_4",
+          "text": "Use submit_jobs on slurm for a direct/debug-style submission of these generated runs. blocking=true, and the run_info_json should be \"{\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}\"."
+        },
+        {
+          "id": "natural_5",
+          "text": "Submit this run manifest in blocking mode so it executes immediately rather than as a normal queued job: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "terse_5",
+          "text": "Launch these generated runs directly, not via queue: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "noobie_5",
+          "text": "Submit these simulation runs in blocking mode, please. I need the direct/debug style execution. Use this exact JSON string for the runs: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}"
+        },
+        {
+          "id": "lazy_5",
+          "text": "Please do a blocking submit for this JSON run manifest so it runs immediately: {\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}."
+        },
+        {
+          "id": "direct_5",
+          "text": "Can you call slurm submit_jobs with blocking=true so it runs directly instead of queued, using this run_info_json exactly: \"{\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}\"?"
+        }
+      ],
+      "expected_call": {
+        "tool": "submit_jobs",
+        "arguments": {
+          "run_info_json": "{\"runs\":[{\"id\":\"run_sync_001\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_001\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync1.deck\"]},{\"id\":\"run_sync_002\",\"run_location\":\"/tmp/mada_slurm_eval/run_sync_002\",\"command\":\"simulate_case\",\"args\":[\"--input\",\"sync2.deck\"]}]}",
+          "blocking": true
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "check_job_status_by_job_set_id",
+      "server": "slurm",
+      "prompts": [
+        {
+          "id": "natural",
+          "text": "Can you check the status of job set job_set_000123 for me?"
+        },
+        {
+          "id": "terse",
+          "text": "Check job status for job_set_000123."
+        },
+        {
+          "id": "noobie",
+          "text": "Can you check the status of my job set job_set_000123 for me? I'm new to this and just want to know what's going on with it."
+        },
+        {
+          "id": "lazy",
+          "text": "Can you check the status of job_set_000123?"
+        },
+        {
+          "id": "direct",
+          "text": "On the slurm server, check the status of job set job_set_000123 using check_job_status."
+        },
+        {
+          "id": "natural_2",
+          "text": "Please look up job_set_000123 and tell me how it's doing."
+        },
+        {
+          "id": "terse_2",
+          "text": "Status of job_set_000123?"
+        },
+        {
+          "id": "noobie_2",
+          "text": "Hey, could you look up the status for job_set_000123? I think that's the job set ID, but I'm not totally sure how this works."
+        },
+        {
+          "id": "lazy_2",
+          "text": "What's the status for job_set_000123?"
+        },
+        {
+          "id": "direct_2",
+          "text": "Please use slurm check_job_status for job_set_000123."
+        },
+        {
+          "id": "natural_3",
+          "text": "What's the status of job set job_set_000123?"
+        },
+        {
+          "id": "terse_3",
+          "text": "Please check job set job_set_000123."
+        },
+        {
+          "id": "noobie_3",
+          "text": "Please check on job_set_000123 and tell me if it's running or done or whatever. I just need the status for that job set."
+        },
+        {
+          "id": "lazy_3",
+          "text": "Please check job_set_000123 for me."
+        },
+        {
+          "id": "direct_3",
+          "text": "Can you check the status of the Slurm job set job_set_000123? Use check_job_status."
+        },
+        {
+          "id": "natural_4",
+          "text": "Could you check job_set_000123 for me?"
+        },
+        {
+          "id": "terse_4",
+          "text": "Look up status for job_set_000123."
+        },
+        {
+          "id": "noobie_4",
+          "text": "I need to see the status of my MADA job set job_set_000123. Can you check it for me?"
+        },
+        {
+          "id": "lazy_4",
+          "text": "Could you look up the status of job_set_000123?"
+        },
+        {
+          "id": "direct_4",
+          "text": "Run check_job_status on slurm for job set id job_set_000123."
+        },
+        {
+          "id": "natural_5",
+          "text": "I need the status for job_set_000123."
+        },
+        {
+          "id": "terse_5",
+          "text": "Can you check job_set_000123 status?"
+        },
+        {
+          "id": "noobie_5",
+          "text": "Could you check job_set_000123 for status? I have the job set ID here and want to see what stage it's at."
+        },
+        {
+          "id": "lazy_5",
+          "text": "Need status on job_set_000123."
+        },
+        {
+          "id": "direct_5",
+          "text": "I need the status for job_set_000123 from check_job_status on the slurm server."
+        }
+      ],
+      "expected_call": {
+        "tool": "check_job_status",
+        "arguments": {
+          "job_set_id": "job_set_000123"
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "check_job_status_by_slurm_job_id",
+      "server": "slurm",
+      "prompts": [
+        {
+          "id": "natural",
+          "text": "Can you check the status of Slurm job 987654 for me?"
+        },
+        {
+          "id": "terse",
+          "text": "Check Slurm job 987654."
+        },
+        {
+          "id": "noobie",
+          "text": "Hey, can you check the status of Slurm job 987654 for me? I just want to know if that job is still running or done."
+        },
+        {
+          "id": "lazy",
+          "text": "Can you check the status of Slurm job 987654?"
+        },
+        {
+          "id": "direct",
+          "text": "On the slurm server, check the status of Slurm job 987654."
+        },
+        {
+          "id": "natural_2",
+          "text": "What's the status of job 987654 in Slurm?"
+        },
+        {
+          "id": "terse_2",
+          "text": "What's the status of Slurm job 987654?"
+        },
+        {
+          "id": "noobie_2",
+          "text": "I'm trying to see what's up with my Slurm job 987654 - can you check its status?"
+        },
+        {
+          "id": "lazy_2",
+          "text": "What's going on with Slurm job 987654?"
+        },
+        {
+          "id": "direct_2",
+          "text": "Please use check_job_status for slurm_job_id 987654."
+        },
+        {
+          "id": "natural_3",
+          "text": "Please check on Slurm job 987654."
+        },
+        {
+          "id": "terse_3",
+          "text": "Check status for job 987654."
+        },
+        {
+          "id": "noobie_3",
+          "text": "Could you look up the status for Slurm job id 987654? I think it may have finished, but I'm not sure."
+        },
+        {
+          "id": "lazy_3",
+          "text": "Can you look up job 987654 for me?"
+        },
+        {
+          "id": "direct_3",
+          "text": "Can you check the status of Slurm job ID 987654?"
+        },
+        {
+          "id": "natural_4",
+          "text": "Can you tell me whether Slurm job 987654 is still running or finished?"
+        },
+        {
+          "id": "terse_4",
+          "text": "Can you check Slurm job 987654 status?"
+        },
+        {
+          "id": "noobie_4",
+          "text": "Please check the job status for 987654 in Slurm. I only have the real job id, 987654."
+        },
+        {
+          "id": "lazy_4",
+          "text": "Please check whether Slurm job 987654 is still running."
+        },
+        {
+          "id": "direct_4",
+          "text": "Use the slurm check_job_status tool on job 987654 and tell me how it's doing."
+        },
+        {
+          "id": "natural_5",
+          "text": "Check the status of the Slurm job with ID 987654."
+        },
+        {
+          "id": "terse_5",
+          "text": "Status on 987654, please."
+        },
+        {
+          "id": "noobie_5",
+          "text": "Can you check Slurm job 987654 for me? That's the job ID, 987654, and I need its current status."
+        },
+        {
+          "id": "lazy_5",
+          "text": "Status check for job 987654, please."
+        },
+        {
+          "id": "direct_5",
+          "text": "I need the status for slurm_job_id 987654."
+        }
+      ],
+      "expected_call": {
+        "tool": "check_job_status",
+        "arguments": {
+          "slurm_job_id": "987654"
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "check_job_status_all_job_sets",
+      "server": "slurm",
+      "prompts": [
+        {
+          "id": "natural",
+          "text": "Can you check the status of my jobs?"
+        },
+        {
+          "id": "terse",
+          "text": "Check all my job sets."
+        },
+        {
+          "id": "noobie",
+          "text": "Can you check the status of my Slurm jobs? I just want to see everything that's being tracked right now."
+        },
+        {
+          "id": "lazy",
+          "text": "Can you check the job status for me?"
+        },
+        {
+          "id": "direct",
+          "text": "On the slurm server, check the status of all tracked job sets. Don't filter by job set ID or Slurm job ID."
+        },
+        {
+          "id": "natural_2",
+          "text": "What's the status of all my submitted job sets?"
+        },
+        {
+          "id": "terse_2",
+          "text": "Show status for all tracked job sets."
+        },
+        {
+          "id": "noobie_2",
+          "text": "Hey, can you look up the job status for me? Don't filter anything - just show all the tracked job sets."
+        },
+        {
+          "id": "lazy_2",
+          "text": "What's the status of my submitted jobs?"
+        },
+        {
+          "id": "direct_2",
+          "text": "Please use the slurm check_job_status tool with no job_set_id or slurm_job_id so it shows every tracked job set."
+        },
+        {
+          "id": "natural_3",
+          "text": "Please show me job status for everything I'm tracking."
+        },
+        {
+          "id": "terse_3",
+          "text": "What's the status of my submitted job sets?"
+        },
+        {
+          "id": "noobie_3",
+          "text": "I submitted a few Slurm jobs earlier. Could you check the status of all of them for me?"
+        },
+        {
+          "id": "lazy_3",
+          "text": "Check the status of the job sets."
+        },
+        {
+          "id": "direct_3",
+          "text": "Can you check the status of all my submitted job sets? Leave both job_set_id and slurm_job_id empty."
+        },
+        {
+          "id": "natural_4",
+          "text": "Can you check whether my queued jobs are running or finished?"
+        },
+        {
+          "id": "terse_4",
+          "text": "Check job status for everything I've got running."
+        },
+        {
+          "id": "noobie_4",
+          "text": "Can you see what my queued or running Slurm jobs are doing? Just check all job sets, no specific ID."
+        },
+        {
+          "id": "lazy_4",
+          "text": "Can you look up the current Slurm job status?"
+        },
+        {
+          "id": "direct_4",
+          "text": "On slurm, run a job status check for everything currently tracked, not a specific job set or job ID."
+        },
+        {
+          "id": "natural_5",
+          "text": "Just give me the current status of my Slurm jobs."
+        },
+        {
+          "id": "terse_5",
+          "text": "List the status of all job sets."
+        },
+        {
+          "id": "noobie_5",
+          "text": "Please check my job status in Slurm. I'm not asking about one job in particular, just the full list of tracked jobs."
+        },
+        {
+          "id": "lazy_5",
+          "text": "Please check my tracked jobs."
+        },
+        {
+          "id": "direct_5",
+          "text": "Show me the status of all tracked jobs in slurm. I'm not giving a job set id or a slurm job id."
+        }
+      ],
+      "expected_call": {
+        "tool": "check_job_status",
+        "arguments": {},
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "continuously_check_job_status_terminal_job_set",
+      "server": "slurm",
+      "prompts": [
+        {
+          "id": "natural",
+          "text": "Can you keep checking job_set_000123 every 2.5 seconds until it reaches terminal, but stop if it takes more than 120 seconds?"
+        },
+        {
+          "id": "terse",
+          "text": "Keep checking job set job_set_000123 every 2.5 seconds for up to 120 seconds until it reaches terminal."
+        },
+        {
+          "id": "noobie",
+          "text": "Can you keep checking job set job_set_000123 for me every 2.5 seconds? I want to know when it reaches terminal, and please stop after 120 seconds if it still isn't done."
+        },
+        {
+          "id": "lazy",
+          "text": "Can you keep checking job_set_000123 every 2.5 seconds until it's terminal, but stop after 120 seconds if needed?"
+        },
+        {
+          "id": "direct",
+          "text": "On the slurm server, continuously check job status for job_set_000123 every 2.5 seconds, wait until terminal, and stop after 120 seconds if it hasn't finished."
+        },
+        {
+          "id": "natural_2",
+          "text": "Please monitor job_set_000123 for me. Poll every 2.5 seconds, wait until terminal, and don't keep going past 120 seconds."
+        },
+        {
+          "id": "terse_2",
+          "text": "Poll job_set_000123 every 2.5 seconds, timeout 120 seconds, until terminal."
+        },
+        {
+          "id": "noobie_2",
+          "text": "I've got this job set job_set_000123 running and I need it monitored until everything is terminal. Please poll every 2.5 seconds, but don't wait longer than 120 seconds total."
+        },
+        {
+          "id": "lazy_2",
+          "text": "Please monitor job_set_000123 for me: poll every 2.5s, wait until terminal, and give up after 120 seconds."
+        },
+        {
+          "id": "direct_2",
+          "text": "Please use slurm continuously_check_job_status for job_set_000123 with a 2.5 second poll interval, timeout of 120 seconds, and wait_until set to terminal."
+        },
+        {
+          "id": "natural_3",
+          "text": "I need to watch job_set_000123 until terminal status. Check it every 2.5 seconds, and time out after 120 seconds if it hasn't finished."
+        },
+        {
+          "id": "terse_3",
+          "text": "Monitor job_set_000123 with a 2.5-second poll interval for 120 seconds, stopping when terminal."
+        },
+        {
+          "id": "noobie_3",
+          "text": "Please watch job_set_000123 for status changes. Check it repeatedly about every 2.5 seconds and keep going until it's terminal, or give up after 120 seconds."
+        },
+        {
+          "id": "lazy_3",
+          "text": "Watch job_set_000123 continuously with a 2.5 second poll interval and a 120 second timeout until everything is terminal."
+        },
+        {
+          "id": "direct_3",
+          "text": "Can you monitor job_set_000123 on slurm, polling every 2.5 seconds until terminal status, with a 120 second timeout?"
+        },
+        {
+          "id": "natural_4",
+          "text": "Could you continuously check job_set_000123 with a 2.5-second polling interval and a 120-second timeout, stopping once it gets to terminal?"
+        },
+        {
+          "id": "terse_4",
+          "text": "Continuously check job_set_000123 every 2.5 seconds, max 120 seconds, until terminal status."
+        },
+        {
+          "id": "noobie_4",
+          "text": "Can you poll job set job_set_000123 until all of it is terminal? Use a 2.5 second interval between checks, and make the timeout 120 seconds."
+        },
+        {
+          "id": "lazy_4",
+          "text": "I need status updates on job_set_000123 every 2.5 seconds. Keep going until terminal, but don't wait longer than 120 seconds."
+        },
+        {
+          "id": "direct_4",
+          "text": "I need repeated Slurm status checks for job_set_000123: poll every 2.5 seconds, wait until terminal, and give up after 120 seconds."
+        },
+        {
+          "id": "natural_5",
+          "text": "Please poll job_set_000123 every 2.5 seconds until terminal. If it isn't there within 120 seconds, give up."
+        },
+        {
+          "id": "terse_5",
+          "text": "Please watch job_set_000123, polling every 2.5 seconds for no more than 120 seconds, until it's terminal."
+        },
+        {
+          "id": "noobie_5",
+          "text": "I need repeated status checks on job_set_000123. Keep checking every 2.5 seconds, wait until terminal, and stop if it takes more than 120 seconds."
+        },
+        {
+          "id": "lazy_5",
+          "text": "Could you repeatedly check job_set_000123, using 2.5-second polls, until it reaches terminal or 120 seconds passes?"
+        },
+        {
+          "id": "direct_5",
+          "text": "Check the Slurm job set job_set_000123 continuously, using 2.5s between checks, terminal as the target state, and 120s total timeout."
+        }
+      ],
+      "expected_call": {
+        "tool": "continuously_check_job_status",
+        "arguments": {
+          "job_set_id": "job_set_000123",
+          "wait_until": "terminal",
+          "poll_interval_seconds": 2.5,
+          "timeout_seconds": 120
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "continuously_check_job_status_any_running_slurm_job",
+      "server": "slurm",
+      "prompts": [
+        {
+          "id": "natural",
+          "text": "Can you keep checking Slurm job 987654 every 5 seconds until it hits any_running, or stop after 300 seconds if nothing starts?"
+        },
+        {
+          "id": "terse",
+          "text": "Monitor Slurm job 987654 every 5 seconds, stop when any_running or after 300 seconds."
+        },
+        {
+          "id": "noobie",
+          "text": "Can you keep checking Slurm job 987654 every 5 seconds for up to 300 seconds, and stop as soon as it gets to any_running? I just want to know when it starts running."
+        },
+        {
+          "id": "lazy",
+          "text": "Can you keep an eye on Slurm job 987654 for me? Check every 5 seconds and let me know as soon as it's any_running, but don't wait forever-stop after 300 seconds if nothing happens."
+        },
+        {
+          "id": "direct",
+          "text": "Use the slurm server's continuously_check_job_status tool to monitor Slurm job 987654 every 5 seconds, waiting until any_running, and stop after 300 seconds if it never happens."
+        },
+        {
+          "id": "natural_2",
+          "text": "Please monitor Slurm job 987654 for me: poll every 5 seconds and return as soon as it reaches any_running, but don't wait longer than 300 seconds."
+        },
+        {
+          "id": "terse_2",
+          "text": "Please keep checking Slurm job 987654 every 5s until any_running, with a 300 second timeout."
+        },
+        {
+          "id": "noobie_2",
+          "text": "Please monitor Slurm job 987654 for me. Poll it every 5 seconds, don't wait longer than 300 seconds total, and return once it reaches any_running."
+        },
+        {
+          "id": "lazy_2",
+          "text": "Please monitor Slurm job 987654. I just need repeated status checks every 5 sec until it hits any_running, or give up after 300 seconds."
+        },
+        {
+          "id": "direct_2",
+          "text": "On the slurm server, please run continuously_check_job_status for slurm job id 987654 with a 5-second poll interval, timeout 300 seconds, and wait_until set to any_running."
+        },
+        {
+          "id": "natural_3",
+          "text": "I want continuous status checks on job 987654, with a 5-second polling interval, waiting for any_running and timing out after 300 seconds."
+        },
+        {
+          "id": "terse_3",
+          "text": "Poll job 987654 on Slurm every five seconds; return once any_running, no later than 300 seconds."
+        },
+        {
+          "id": "noobie_3",
+          "text": "I submitted Slurm job 987654 and I need you to watch it repeatedly. Check every 5 seconds, timeout after 300 seconds if needed, and finish when the status is any_running."
+        },
+        {
+          "id": "lazy_3",
+          "text": "Can you watch job 987654 on Slurm and poll it every 5 seconds? I want it to return once it's any_running, with a max wait of 300 seconds."
+        },
+        {
+          "id": "direct_3",
+          "text": "I need the slurm server to keep checking job 987654 until it reaches any_running; poll every 5 seconds and give up after 300 seconds."
+        },
+        {
+          "id": "natural_4",
+          "text": "Watch Slurm job 987654 and keep rechecking every 5 seconds until any_running shows up; if it takes more than 300 seconds, stop."
+        },
+        {
+          "id": "terse_4",
+          "text": "Watch Slurm job 987654, checking every 5 seconds until any_running, but give up after 300 seconds."
+        },
+        {
+          "id": "noobie_4",
+          "text": "Could you keep an eye on Slurm job 987654? Use a 5 second polling interval, only wait up to 300 seconds, and stop once it hits any_running."
+        },
+        {
+          "id": "lazy_4",
+          "text": "Track Slurm job 987654 for me. Check the status every 5 seconds, and stop when it becomes any_running or when 300 seconds is up."
+        },
+        {
+          "id": "direct_4",
+          "text": "Please continuously monitor Slurm job 987654 using continuously_check_job_status, checking every 5 seconds, timing out at 300 seconds, and returning as soon as any_running is reached."
+        },
+        {
+          "id": "natural_5",
+          "text": "Could you poll job 987654 every 5 seconds and wait until any_running, with a 300-second timeout?"
+        },
+        {
+          "id": "terse_5",
+          "text": "Continuously check Slurm job 987654 with a 5 second interval until any_running or 300s timeout."
+        },
+        {
+          "id": "noobie_5",
+          "text": "I'm trying to track Slurm job 987654 and don't want to miss when it starts. Please poll every 5 seconds for at most 300 seconds, and return when it's any_running."
+        },
+        {
+          "id": "lazy_5",
+          "text": "I need updates on Slurm job 987654: poll every 5 seconds and wait until any_running, but only for up to 300 seconds."
+        },
+        {
+          "id": "direct_5",
+          "text": "Run the slurm continuous status check for job 987654 with poll interval 5 seconds, wait_until any_running, and a 300-second timeout."
+        }
+      ],
+      "expected_call": {
+        "tool": "continuously_check_job_status",
+        "arguments": {
+          "slurm_job_id": "987654",
+          "wait_until": "any_running",
+          "poll_interval_seconds": 5,
+          "timeout_seconds": 300
+        },
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "list_queue",
+      "server": "slurm",
+      "prompts": [
+        {
+          "id": "natural",
+          "text": "Can you check the Slurm queue for me?"
+        },
+        {
+          "id": "terse",
+          "text": "List the SLURM queue."
+        },
+        {
+          "id": "noobie",
+          "text": "Hey, can you show me what jobs are currently in the Slurm queue? I just want to see everything that's waiting or running right now."
+        },
+        {
+          "id": "lazy",
+          "text": "Can you show me the current Slurm queue?"
+        },
+        {
+          "id": "direct",
+          "text": "On the slurm server, list the current queue for me."
+        },
+        {
+          "id": "natural_2",
+          "text": "Please list the jobs currently in the queue."
+        },
+        {
+          "id": "terse_2",
+          "text": "Show me all jobs in the queue."
+        },
+        {
+          "id": "noobie_2",
+          "text": "I'm new to this-could you list all the jobs in the SLURM queue for me?"
+        },
+        {
+          "id": "lazy_2",
+          "text": "List the jobs in the queue, please."
+        },
+        {
+          "id": "direct_2",
+          "text": "Use the slurm list_queue tool to show all jobs in the queue."
+        },
+        {
+          "id": "natural_3",
+          "text": "What's in the SLURM queue right now?"
+        },
+        {
+          "id": "terse_3",
+          "text": "Can you list the current SLURM jobs?"
+        },
+        {
+          "id": "noobie_3",
+          "text": "Can you check the queue and tell me what jobs are in it right now?"
+        },
+        {
+          "id": "lazy_3",
+          "text": "What's in squeue right now?"
+        },
+        {
+          "id": "direct_3",
+          "text": "Can you check what's currently in the SLURM queue? Just list the jobs."
+        },
+        {
+          "id": "natural_4",
+          "text": "Show me all queued jobs."
+        },
+        {
+          "id": "terse_4",
+          "text": "What's in the queue right now?"
+        },
+        {
+          "id": "noobie_4",
+          "text": "Please show me all current Slurm jobs in the queue, I'm trying to see what's running."
+        },
+        {
+          "id": "lazy_4",
+          "text": "Just check the queue for me."
+        },
+        {
+          "id": "direct_4",
+          "text": "Please run the slurm queue listing command and show me the active jobs."
+        },
+        {
+          "id": "natural_5",
+          "text": "I want to see the current queue status."
+        },
+        {
+          "id": "terse_5",
+          "text": "Check the job queue."
+        },
+        {
+          "id": "noobie_5",
+          "text": "Could you list the queue for me? I just need to see all the jobs on Slurm."
+        },
+        {
+          "id": "lazy_5",
+          "text": "Give me the current Slurm job list."
+        },
+        {
+          "id": "direct_5",
+          "text": "I need the current job queue from slurm - list everything that's queued or running."
+        }
+      ],
+      "expected_call": {
+        "tool": "list_queue",
+        "arguments": {},
+        "match": {
+          "mode": "subset"
+        }
+      }
+    },
+    {
+      "id": "get_cluster_info",
+      "server": "slurm",
+      "prompts": [
+        {
+          "id": "natural",
+          "text": "Can you check what cluster nodes are available right now?"
+        },
+        {
+          "id": "terse",
+          "text": "Show cluster info."
+        },
+        {
+          "id": "noobie",
+          "text": "Hey, can you show me the cluster info? I just want to see what nodes are available on the Slurm cluster."
+        },
+        {
+          "id": "lazy",
+          "text": "Can you check the cluster nodes for me?"
+        },
+        {
+          "id": "direct",
+          "text": "On the slurm server, call get_cluster_info and show me the cluster node info."
+        },
+        {
+          "id": "natural_2",
+          "text": "What does the cluster look like at the moment? Please show the node info."
+        },
+        {
+          "id": "terse_2",
+          "text": "Get the cluster nodes info."
+        },
+        {
+          "id": "noobie_2",
+          "text": "I'm new to this-could you check the cluster status and tell me about the available nodes?"
+        },
+        {
+          "id": "lazy_2",
+          "text": "What's the current node info on the cluster?"
+        },
+        {
+          "id": "direct_2",
+          "text": "Please use the slurm get_cluster_info tool to check the cluster nodes."
+        },
+        {
+          "id": "natural_3",
+          "text": "I need the current cluster node status."
+        },
+        {
+          "id": "terse_3",
+          "text": "What cluster nodes are available?"
+        },
+        {
+          "id": "noobie_3",
+          "text": "Can you get the Slurm cluster information for me? I'm trying to figure out what compute nodes are there."
+        },
+        {
+          "id": "lazy_3",
+          "text": "Need the Slurm cluster status for the nodes."
+        },
+        {
+          "id": "direct_3",
+          "text": "Can you run get_cluster_info on slurm and return the node information?"
+        },
+        {
+          "id": "natural_4",
+          "text": "Could you get me the cluster information for the nodes?"
+        },
+        {
+          "id": "terse_4",
+          "text": "Run sinfo and show me the cluster info."
+        },
+        {
+          "id": "noobie_4",
+          "text": "I need to see the cluster node info in Slurm. What's available right now?"
+        },
+        {
+          "id": "lazy_4",
+          "text": "Can you show me the cluster nodes?"
+        },
+        {
+          "id": "direct_4",
+          "text": "Use the slurm server's get_cluster_info command to get details about the cluster nodes."
+        },
+        {
+          "id": "natural_5",
+          "text": "Please show the current Slurm cluster info."
+        },
+        {
+          "id": "terse_5",
+          "text": "Check the cluster node status."
+        },
+        {
+          "id": "noobie_5",
+          "text": "Could you pull up the cluster info from Slurm? Just the node details would help."
+        },
+        {
+          "id": "lazy_5",
+          "text": "Just get the cluster info, please."
+        },
+        {
+          "id": "direct_5",
+          "text": "I need the cluster info from slurm, so please call get_cluster_info."
+        }
+      ],
+      "expected_call": {
+        "tool": "get_cluster_info",
+        "arguments": {},
+        "match": {
+          "mode": "subset"
+        }
+      }
+    }
+  ]
+}
