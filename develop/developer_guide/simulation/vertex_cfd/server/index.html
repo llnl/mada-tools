@@ -5068,7 +5068,7 @@ Vertex-CFD simulations.</p>
 </span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28"></a><span class="w">        </span><span class="sd">"""Register MCP tools for Vertex-CFD operations."""</span>
 </span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29"></a>
 </span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30"></a>        <span class="nd">@self</span><span class="o">.</span><span class="n">mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
-</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31"></a>        <span class="k">def</span><span class="w"> </span><span class="nf">generate_parameter_runs</span><span class="p">(</span>
+</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31"></a>        <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">generate_parameter_runs</span><span class="p">(</span>
 </span><span id="__span-0-32"><a id="__codelineno-0-32" name="__codelineno-0-32"></a>            <span class="n">num_samples</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
 </span><span id="__span-0-33"><a id="__codelineno-0-33" name="__codelineno-0-33"></a>            <span class="n">parameter_names</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
 </span><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34"></a>            <span class="n">lower_bounds</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">float</span><span class="p">],</span>
@@ -5095,7 +5095,7 @@ Vertex-CFD simulations.</p>
 </span><span id="__span-0-55"><a id="__codelineno-0-55" name="__codelineno-0-55"></a><span class="sd">            Returns:</span>
 </span><span id="__span-0-56"><a id="__codelineno-0-56" name="__codelineno-0-56"></a><span class="sd">                str: JSON string with run information for job submission</span>
 </span><span id="__span-0-57"><a id="__codelineno-0-57" name="__codelineno-0-57"></a><span class="sd">            """</span>
-</span><span id="__span-0-58"><a id="__codelineno-0-58" name="__codelineno-0-58"></a>            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">run_tool</span><span class="p">(</span>
+</span><span id="__span-0-58"><a id="__codelineno-0-58" name="__codelineno-0-58"></a>            <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">run_tool</span><span class="p">(</span>
 </span><span id="__span-0-59"><a id="__codelineno-0-59" name="__codelineno-0-59"></a>                <span class="bp">self</span><span class="o">.</span><span class="n">vertex_cfd_helper</span><span class="o">.</span><span class="n">generate_parameter_runs</span><span class="p">,</span>
 </span><span id="__span-0-60"><a id="__codelineno-0-60" name="__codelineno-0-60"></a>                <span class="n">num_samples</span><span class="p">,</span>
 </span><span id="__span-0-61"><a id="__codelineno-0-61" name="__codelineno-0-61"></a>                <span class="n">parameter_names</span><span class="p">,</span>
@@ -5107,7 +5107,7 @@ Vertex-CFD simulations.</p>
 </span><span id="__span-0-67"><a id="__codelineno-0-67" name="__codelineno-0-67"></a>            <span class="p">)</span>
 </span><span id="__span-0-68"><a id="__codelineno-0-68" name="__codelineno-0-68"></a>
 </span><span id="__span-0-69"><a id="__codelineno-0-69" name="__codelineno-0-69"></a>        <span class="nd">@self</span><span class="o">.</span><span class="n">mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
-</span><span id="__span-0-70"><a id="__codelineno-0-70" name="__codelineno-0-70"></a>        <span class="k">def</span><span class="w"> </span><span class="nf">post_process_runs</span><span class="p">(</span>
+</span><span id="__span-0-70"><a id="__codelineno-0-70" name="__codelineno-0-70"></a>        <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">post_process_runs</span><span class="p">(</span>
 </span><span id="__span-0-71"><a id="__codelineno-0-71" name="__codelineno-0-71"></a>            <span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
 </span><span id="__span-0-72"><a id="__codelineno-0-72" name="__codelineno-0-72"></a>        <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 </span><span id="__span-0-73"><a id="__codelineno-0-73" name="__codelineno-0-73"></a><span class="w">            </span><span class="sd">"""</span>
@@ -5122,10 +5122,10 @@ Vertex-CFD simulations.</p>
 </span><span id="__span-0-82"><a id="__codelineno-0-82" name="__codelineno-0-82"></a><span class="sd">            Returns:</span>
 </span><span id="__span-0-83"><a id="__codelineno-0-83" name="__codelineno-0-83"></a><span class="sd">                str: Success string</span>
 </span><span id="__span-0-84"><a id="__codelineno-0-84" name="__codelineno-0-84"></a><span class="sd">            """</span>
-</span><span id="__span-0-85"><a id="__codelineno-0-85" name="__codelineno-0-85"></a>            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">run_tool</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">vertex_cfd_helper</span><span class="o">.</span><span class="n">post_process_runs</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">)</span>
+</span><span id="__span-0-85"><a id="__codelineno-0-85" name="__codelineno-0-85"></a>            <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">run_tool</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">vertex_cfd_helper</span><span class="o">.</span><span class="n">post_process_runs</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">)</span>
 </span><span id="__span-0-86"><a id="__codelineno-0-86" name="__codelineno-0-86"></a>
 </span><span id="__span-0-87"><a id="__codelineno-0-87" name="__codelineno-0-87"></a>        <span class="nd">@self</span><span class="o">.</span><span class="n">mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
-</span><span id="__span-0-88"><a id="__codelineno-0-88" name="__codelineno-0-88"></a>        <span class="k">def</span><span class="w"> </span><span class="nf">in_situ_viz</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+</span><span id="__span-0-88"><a id="__codelineno-0-88" name="__codelineno-0-88"></a>        <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">in_situ_viz</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
 </span><span id="__span-0-89"><a id="__codelineno-0-89" name="__codelineno-0-89"></a><span class="w">            </span><span class="sd">"""</span>
 </span><span id="__span-0-90"><a id="__codelineno-0-90" name="__codelineno-0-90"></a><span class="sd">            Create In Situ Visualization for GUI Chat Interface.</span>
 </span><span id="__span-0-91"><a id="__codelineno-0-91" name="__codelineno-0-91"></a>
@@ -5134,7 +5134,7 @@ Vertex-CFD simulations.</p>
 </span><span id="__span-0-94"><a id="__codelineno-0-94" name="__codelineno-0-94"></a><span class="sd">            Returns:</span>
 </span><span id="__span-0-95"><a id="__codelineno-0-95" name="__codelineno-0-95"></a><span class="sd">                str: Success string</span>
 </span><span id="__span-0-96"><a id="__codelineno-0-96" name="__codelineno-0-96"></a><span class="sd">            """</span>
-</span><span id="__span-0-97"><a id="__codelineno-0-97" name="__codelineno-0-97"></a>            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">run_tool</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">vertex_cfd_helper</span><span class="o">.</span><span class="n">in_situ_viz</span><span class="p">)</span>
+</span><span id="__span-0-97"><a id="__codelineno-0-97" name="__codelineno-0-97"></a>            <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">run_tool</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">vertex_cfd_helper</span><span class="o">.</span><span class="n">in_situ_viz</span><span class="p">)</span>
 </span></code></pre></div></td></tr></tbody></table></div>
               </details>
 

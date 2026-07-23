@@ -5019,6 +5019,7 @@
 <li>Inherit from <code>BaseMCPServer</code>.</li>
 <li>Implement the <code>_register_tools</code> method to register all tools (APIs) your server provides.</li>
 <li>Prefer helper classes for business logic, and have your MCP tools call that logic with <code>self.run_tool(...)</code>.</li>
+<li>By default, <code>self.run_tool(..., background=True)</code> runs the MCP tool asynchronously so it does not block the chat in the MADA interfaces. If the tool is quick, or you want the chat to wait for the result, set <code>background=False</code>.</li>
 <li>Return structured success and payload information from helper methods so the same logic can be used by MCP and PTC callers.</li>
 <li>In the <code>__main__</code> block, call <code>run_with_args(server_key=...)</code> with your server’s key name (used in config files).</li>
 </ul>
