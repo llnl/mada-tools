@@ -25,9 +25,17 @@ class FastMCPStub:
     def __init__(self, **kwargs):
         self.init_kwargs = kwargs
         self.run_calls = []
+        self.registered_tools = []
 
     def run(self, **kwargs):
         self.run_calls.append(kwargs)
+
+    def tool(self):
+        def decorator(func):
+            self.registered_tools.append(func)
+            return func
+
+        return decorator
 
 
 @pytest.fixture
@@ -133,7 +141,9 @@ class TestParseArgs:
 class TestRunTool:
     """Unit tests for `BaseMCPServer.run_tool()`."""
 
-    def test_run_tool_returns_payload_when_wrapped_function_succeeds(self, server: BaseMCPServer):
+    pytestmark = pytest.mark.asyncio
+
+    async def test_run_tool_returns_payload_when_wrapped_function_succeeds(self, server: BaseMCPServer):
         """It returns the payload from a successful wrapped function."""
 
         def tool_impl(*args, **kwargs):
@@ -141,20 +151,23 @@ class TestRunTool:
             assert kwargs == {"count": 2}
             return True, "payload"
 
-        assert server.run_tool(tool_impl, "alpha", count=2) == "payload"
+        assert await server.run_tool(tool_impl, "alpha", count=2, background=False) == "payload"
 
-    def test_run_tool_raises_tool_execution_error_when_wrapped_function_reports_failure(self, server: BaseMCPServer):
+    async def test_run_tool_raises_tool_execution_error_when_wrapped_function_reports_failure(
+        self, server: BaseMCPServer
+    ):
         """It raises `ToolExecutionError` when the wrapped function returns `success=False`."""
 
         def tool_impl():
             return False, "explicit failure"
 
         with pytest.raises(
-            ToolExecutionError, match=r"Tool execution failed at .*base_server.py:\d+ in run_tool: explicit failure"
+            ToolExecutionError,
+            match=r"Tool execution failed at .*base_server.py:\d+ in _execute_tool: explicit failure",
         ):
-            server.run_tool(tool_impl)
+            await server.run_tool(tool_impl, background=False)
 
-    def test_run_tool_wraps_unexpected_exception_with_location(self, server: BaseMCPServer):
+    async def test_run_tool_wraps_unexpected_exception_with_location(self, server: BaseMCPServer):
         """It wraps unexpected exceptions with source location details."""
 
         def tool_impl():
@@ -163,7 +176,7 @@ class TestRunTool:
         with pytest.raises(
             ToolExecutionError, match=r"Tool execution failed at .*test_base_server.py:.* in tool_impl: boom"
         ):
-            server.run_tool(tool_impl)
+            await server.run_tool(tool_impl, background=False)
 
 
 class TestLoadConfig:

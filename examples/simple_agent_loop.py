@@ -137,6 +137,7 @@ class MultiServerAgent:
         self._base_context_messages: list[dict] = []
         self.sessions: Dict[str, ClientSession] = {}
         self.transports: Dict[str, Any] = {}
+        self._background_task_servers: Dict[str, str] = {}
 
         # Load static context once at startup
         if context_file:
@@ -276,10 +277,16 @@ class MultiServerAgent:
         try:
             # Find which server has this tool
             tool_server = None
-            for tool in self.tools:
-                if tool.name == tool_name:
-                    tool_server = tool.server_name
-                    break
+            if tool_name == "get_background_task_result":
+                task_id = tool_input.get("task_id")
+                if isinstance(task_id, str):
+                    tool_server = self._background_task_servers.get(task_id)
+
+            if tool_server is None:
+                for tool in self.tools:
+                    if tool.name == tool_name:
+                        tool_server = tool.server_name
+                        break
 
             if tool_server is None:
                 return f"Error: Tool '{tool_name}' not found"
@@ -297,11 +304,23 @@ class MultiServerAgent:
             # Handle different result content types
             if result.content:
                 if hasattr(result.content[0], "text"):
-                    return result.content[0].text
+                    tool_result = result.content[0].text
                 else:
-                    return str(result.content[0])
+                    tool_result = str(result.content[0])
             else:
-                return "Tool executed successfully (no output)"
+                tool_result = "Tool executed successfully (no output)"
+
+            try:
+                task_payload = json.loads(tool_result)
+            except json.JSONDecodeError:
+                task_payload = None
+
+            if isinstance(task_payload, dict):
+                task_id = task_payload.get("task_id")
+                if isinstance(task_id, str):
+                    self._background_task_servers[task_id] = tool_server
+
+            return tool_result
 
         except Exception as e:
             return f"Error executing {tool_name}: {str(e)}"
@@ -381,7 +400,7 @@ class MultiServerAgent:
                 self.add_message(
                     "assistant",
                     content=assistant_message.content,
-                    tool_calls=[tc.dict() for tc in tool_calls],
+                    tool_calls=[tc.model_dump() for tc in tool_calls],
                 )
 
                 for tool_call in tool_calls:

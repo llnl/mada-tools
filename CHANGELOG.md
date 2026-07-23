@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 - Refactored the `JobMonitorServer` and `ProfessorServer` to utilize `BaseMCPServer.run_tool()`
 - Dropped support for Python 3.10
 - Updated how plugins are discovered and registered to extend capabilities past just MCP servers
+- Converted MCP Tools to async so that long running tools do not block the chat.
 
 ### Fixed
 -

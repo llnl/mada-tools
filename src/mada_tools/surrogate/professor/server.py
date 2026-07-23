@@ -24,7 +24,7 @@ class ProfessorServer(BaseMCPServer):
         """Register MCP tools for Professor operations."""
 
         @self.mcp.tool()
-        def launch_professor_gui(yaml_file: str) -> str:
+        async def launch_professor_gui(yaml_file: str) -> str:
             """
             Launch Professor GUI from the given YAML config.
 
@@ -34,10 +34,10 @@ class ProfessorServer(BaseMCPServer):
             Returns:
                 str: Confirmation message once GUI process has started
             """
-            return self.run_tool(self.professor_helper.launch_professor_gui, yaml_file)
+            return await self.run_tool(self.professor_helper.launch_professor_gui, yaml_file)
 
         @self.mcp.tool()
-        def analyze_image_with_llm(image_path: str, prompt: str) -> str:
+        async def analyze_image_with_llm(image_path: str, prompt: str) -> str:
             """
             Use an LLM to analyze and describe an image based on a prompt.
 
@@ -48,7 +48,7 @@ class ProfessorServer(BaseMCPServer):
             Returns:
                 str: LLM-generated description or error message
             """
-            return self.run_tool(self.professor_helper.analyze_image_with_llm, image_path, prompt)
+            return await self.run_tool(self.professor_helper.analyze_image_with_llm, image_path, prompt)
 
 
 def main():

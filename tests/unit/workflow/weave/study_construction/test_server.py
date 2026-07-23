@@ -6,7 +6,7 @@ Unit tests for WEAVEStudyConstructionServer.
 """
 
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
@@ -224,7 +224,8 @@ class TestRegisterJinjaStudyTool:
         assert "Required template variables" in tool.__doc__
         assert "Supported override keys" in tool.__doc__
 
-    def test_registered_tool_builds_context_and_writes_yaml(
+    @pytest.mark.asyncio
+    async def test_registered_tool_builds_context_and_writes_yaml(
         self,
         server: DummyWEAVEStudyConstructionServer,
         monkeypatch: MonkeyPatch,
@@ -253,7 +254,7 @@ class TestRegisterJinjaStudyTool:
         monkeypatch.setattr(server.study_constructor, "build_context", build_context_mock)
         monkeypatch.setattr(server.study_constructor, "write_yaml_tool", write_yaml_mock)
 
-        result = tool(overrides={"required_value": 123}, output_dir=tmp_path)
+        result = await tool(overrides={"required_value": 123}, output_dir=tmp_path)
 
         assert "Wrote Maestro study YAML to" in result
         build_context_mock.assert_called_once()
@@ -317,7 +318,10 @@ class TestRegisterPathTools:
         tool_names = [tool.__name__ for tool in server.mcp.registered_tools]
         assert "abspath" in tool_names
 
-    def test_abspath_tool_calls_run_tool(self, server: DummyWEAVEStudyConstructionServer, monkeypatch: MonkeyPatch):
+    @pytest.mark.asyncio
+    async def test_abspath_tool_calls_run_tool(
+        self, server: DummyWEAVEStudyConstructionServer, monkeypatch: MonkeyPatch
+    ):
         """
         The abspath tool should delegate to `run_tool` with `study_constructor.abspath`.
 
@@ -330,10 +334,10 @@ class TestRegisterPathTools:
         server._register_path_tools()
         tool = next(t for t in server.mcp.registered_tools if t.__name__ == "abspath")
 
-        run_tool_mock = MagicMock(return_value="/tmp/output.yaml")
+        run_tool_mock = AsyncMock(return_value="/tmp/output.yaml")
         monkeypatch.setattr(server, "run_tool", run_tool_mock)
 
-        result = tool("relative/path.yaml")
+        result = await tool("relative/path.yaml")
 
         assert result == "/tmp/output.yaml"
         run_tool_mock.assert_called_once()

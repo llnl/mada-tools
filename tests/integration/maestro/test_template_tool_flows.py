@@ -37,7 +37,9 @@ class TestTemplateToolFlows:
     Integration tests for template-backed study construction tools.
     """
 
-    def test_register_single_template_tool_and_render_yaml(
+    pytestmark = pytest.mark.asyncio
+
+    async def test_register_single_template_tool_and_render_yaml(
         self,
         registered_tools_map: dict,
         tmp_path: Path,
@@ -54,7 +56,7 @@ class TestTemplateToolFlows:
         """
         tool = registered_tools_map["construct_example_study"]
 
-        result = tool(
+        result = await tool(
             overrides={
                 "study_name": "integration-study",
                 "required_value": 123,
@@ -74,7 +76,7 @@ class TestTemplateToolFlows:
         assert "optional: fallback" in contents
         assert "prep_flag: yes" in contents
 
-    def test_template_tool_applies_preprocess_before_rendering(
+    async def test_template_tool_applies_preprocess_before_rendering(
         self,
         registered_tools_map: dict,
         tmp_path: Path,
@@ -90,7 +92,7 @@ class TestTemplateToolFlows:
         """
         tool = registered_tools_map["construct_example_study"]
 
-        tool(
+        await tool(
             overrides={
                 "study_name": "prep-test",
                 "required_value": 9,
@@ -103,7 +105,7 @@ class TestTemplateToolFlows:
 
         assert "prep_flag: yes" in contents
 
-    def test_template_tool_rejects_unknown_override_keys(
+    async def test_template_tool_rejects_unknown_override_keys(
         self,
         registered_tools_map: dict,
         tmp_path: Path,
@@ -120,7 +122,7 @@ class TestTemplateToolFlows:
         tool = registered_tools_map["construct_example_study"]
 
         with pytest.raises(ToolExecutionError, match="unknown template variables"):
-            tool(
+            await tool(
                 overrides={
                     "study_name": "bad-study",
                     "required_value": 1,
@@ -129,7 +131,7 @@ class TestTemplateToolFlows:
                 output_dir=tmp_path,
             )
 
-    def test_template_tool_rejects_missing_required_keys(
+    async def test_template_tool_rejects_missing_required_keys(
         self,
         registered_tools_map: dict,
         tmp_path: Path,
@@ -146,14 +148,14 @@ class TestTemplateToolFlows:
         tool = registered_tools_map["construct_example_study"]
 
         with pytest.raises(ToolExecutionError, match="missing required template variables"):
-            tool(
+            await tool(
                 overrides={
                     "study_name": "missing-required-value",
                 },
                 output_dir=tmp_path,
             )
 
-    def test_template_tool_docstring_is_generated_from_template_metadata(
+    async def test_template_tool_docstring_is_generated_from_template_metadata(
         self,
         registered_tools_map: dict,
     ):
@@ -177,7 +179,7 @@ class TestTemplateToolFlows:
         assert "required_value" in doc
         assert "optional_value" in doc
 
-    def test_register_directory_of_templates_creates_multiple_tools(
+    async def test_register_directory_of_templates_creates_multiple_tools(
         self,
         dummy_study_construction_server,
     ):
@@ -195,7 +197,7 @@ class TestTemplateToolFlows:
         assert "construct_example_study" in dummy_study_construction_server.mcp.tools
         assert "construct_secondary_study" in dummy_study_construction_server.mcp.tools
 
-    def test_directory_registered_tool_can_render_yaml(
+    async def test_directory_registered_tool_can_render_yaml(
         self,
         dummy_study_construction_server,
         tmp_path: Path,
@@ -214,7 +216,7 @@ class TestTemplateToolFlows:
 
         tool = dummy_study_construction_server.mcp.tools["construct_secondary_study"]
 
-        result = tool(
+        result = await tool(
             overrides={"alpha_value": 42},
             output_dir=tmp_path,
         )
@@ -228,7 +230,7 @@ class TestTemplateToolFlows:
         assert "alpha: 42" in contents
         assert "beta: 5" in contents
 
-    def test_template_tool_ignores_none_override_values(
+    async def test_template_tool_ignores_none_override_values(
         self,
         registered_tools_map: dict,
         tmp_path: Path,
@@ -244,7 +246,7 @@ class TestTemplateToolFlows:
         """
         tool = registered_tools_map["construct_example_study"]
 
-        tool(
+        await tool(
             overrides={
                 "study_name": "none-test",
                 "required_value": 10,

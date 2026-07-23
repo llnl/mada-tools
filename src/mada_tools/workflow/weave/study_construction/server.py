@@ -126,22 +126,24 @@ class WEAVEStudyConstructionServer(BaseMCPServer, ABC):
         if tool_name is None or template_name is None:
             raise ValueError("Pass `tool_name` + `template_name`, or pass `templates_dir`.")
 
-        def _tool(
+        async def _tool(
             overrides: Dict[str, Any] | None = None,
             output_dir: str | Path | None = None,
         ) -> str:
             """Render the registered Jinja study template and write a Maestro YAML."""
-            context = self.run_tool(
+            context = await self.run_tool(
                 self.study_constructor.build_context,
                 template_name,
                 overrides=overrides,
                 preprocess=preprocess,
+                background=False,
             )
-            return self.run_tool(
+            return await self.run_tool(
                 self.study_constructor.write_yaml_tool,
                 template_name,
                 context,
                 output_dir=output_dir,
+                background=False,
             )
 
         _tool.__name__ = tool_name
@@ -152,7 +154,7 @@ class WEAVEStudyConstructionServer(BaseMCPServer, ABC):
         """Register tools related to file system paths."""
 
         @self.mcp.tool()
-        def abspath(output_path: str, base_path: str = None) -> str:
+        async def abspath(output_path: str, base_path: str = None) -> str:
             """Convert a user-provided path into an absolute path on the server.
 
             Args:
@@ -163,7 +165,12 @@ class WEAVEStudyConstructionServer(BaseMCPServer, ABC):
             Returns:
                 The absolute path as a string.
             """
-            return self.run_tool(self.study_constructor.abspath, output_path, base_path=base_path)
+            return await self.run_tool(
+                self.study_constructor.abspath,
+                output_path,
+                base_path=base_path,
+                background=False,
+            )
 
     @abstractmethod
     def register_study_construction_tools(self) -> None:
