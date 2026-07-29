@@ -50,8 +50,9 @@ stages:
 .install_mada_tools:
   image: $PYTHON_IMAGE
   before_script:
+    - enable-podman
     - python --version
-    - python -m pip install --upgrade pip setuptools wheel build
+    - python -m pip install --upgrade pip setuptools build
     - python -m pip install -e '.[tests, docs, examples]'
     - python -c "import setuptools.build_meta"
 
@@ -60,7 +61,7 @@ stages:
     - python3 --version
     - python3 -m venv venv
     - source venv/bin/activate
-    - python -m pip install --upgrade pip setuptools wheel build
+    - python -m pip install --upgrade pip setuptools build
     - python -m pip install -e '.[tests, flux, examples]'
     - python -c "import setuptools.build_meta"
 
