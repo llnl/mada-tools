@@ -130,10 +130,11 @@ def _skip_if_no_isolation_build_backend_is_unavailable(repo_root: Path) -> None:
 
     ``python -m build --no-isolation`` uses the current Python environment
     instead of creating an isolated build environment. This helper derives the
-    required setuptools version from ``pyproject.toml`` so the test does not
-    duplicate the project metadata.
+    required setuptools version and build backend from ``pyproject.toml`` so
+    the test does not duplicate the project metadata.
     """
-    required_setuptools = _required_setuptools_version(repo_root / "pyproject.toml")
+    pyproject_path = repo_root / "pyproject.toml"
+    required_setuptools = _required_setuptools_version(pyproject_path)
     if required_setuptools is None:
         return
 
@@ -148,6 +149,22 @@ def _skip_if_no_isolation_build_backend_is_unavailable(repo_root: Path) -> None:
             f"found setuptools {installed_setuptools}"
         )
 
+    build_backend = _build_backend(pyproject_path)
+    if build_backend is None:
+        return
+
+    backend_check = subprocess.run(
+        [sys.executable, "-c", f"import {build_backend}"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if backend_check.returncode != 0:
+        pytest.skip(
+            f"Build backend {build_backend!r} is required for no-isolation wheel build tests "
+            f"but cannot be imported: {backend_check.stderr.strip()}"
+        )
+
 
 def _required_setuptools_version(pyproject_path: Path) -> str | None:
     """Return the minimum setuptools version declared by ``build-system.requires``."""
@@ -157,6 +174,12 @@ def _required_setuptools_version(pyproject_path: Path) -> str | None:
         if match:
             return match.group(1)
     return None
+
+
+def _build_backend(pyproject_path: Path) -> str | None:
+    """Return the PEP 517 build backend declared by ``pyproject.toml``."""
+    pyproject = tomllib.loads(pyproject_path.read_text())
+    return pyproject.get("build-system", {}).get("build-backend")
 
 
 def _version_tuple(version: str) -> tuple[int, ...]:
