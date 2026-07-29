@@ -62,6 +62,8 @@ stages:
     - 'python3 -m venv .ci-venv'
     - '. .ci-venv/bin/activate'
     - 'python -m pip install --upgrade pip setuptools wheel build'
+    - python -m pip install -e '.[tests, flux, examples]'
+    - python -c "import setuptools.build_meta"
 
 .install_mada_tools_runner:
   before_script:
