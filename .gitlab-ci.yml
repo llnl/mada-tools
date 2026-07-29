@@ -57,8 +57,6 @@ stages:
     - 'echo "PYTHONPATH=${PYTHONPATH-}"'
     - 'python3 --version'
     - 'python3 -c ''import sys; print(sys.executable); print(sys.prefix); print(sys.path)'''
-    - 'unset PYTHONHOME PYTHONPATH'
-    - 'rm -rf .ci-venv'
     - 'python3 -m venv .ci-venv'
     - '. .ci-venv/bin/activate'
     - 'python -m pip install --upgrade pip setuptools wheel build'
