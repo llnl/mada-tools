@@ -50,7 +50,6 @@ stages:
 .install_mada_tools:
   image: $PYTHON_IMAGE
   before_script:
-    - enable-podman
     - python --version
     - python -m pip install --upgrade pip setuptools build
     - python -m pip install -e '.[tests, docs, examples]'
