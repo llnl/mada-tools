@@ -50,18 +50,26 @@ stages:
 .install_mada_tools:
   image: $PYTHON_IMAGE
   before_script:
-    - python3 --version
-    - python3 -m venv venv
-    - source venv/bin/activate
-    - python -m pip install --upgrade pip setuptools wheel build
-    - python -m pip install -e '.[tests, docs, examples]'
-    - python -c "import setuptools.build_meta"
+  - set -eux
+  - echo "Working directory: $(pwd)"
+  - echo "PATH=${PATH}"
+  - echo "PYTHONHOME=${PYTHONHOME-}"
+  - echo "PYTHONPATH=${PYTHONPATH-}"
+  - python3 --version
+  - python3 -c 'import sys; print("executable:", sys.executable); print("prefix:", sys.prefix); print("base_prefix:", sys.base_prefix); print("sys.path:"); print("\n".join(sys.path))'
+  - python3 -c 'import venv; print("venv module:", venv); print("venv file:", getattr(venv, "__file__", None)); print("venv path:", getattr(venv, "__path__", None))'
+  - find . -maxdepth 3 \( -name "venv.py" -o -type d -name venv \) -print
+  - unset PYTHONHOME PYTHONPATH
+  - rm -rf .ci-venv
+  - python3 -m venv .ci-venv
+  - source .ci-venv/bin/activate
+  - python -m pip install --upgrade pip setuptools wheel build
 
 .install_mada_tools_runner:
   before_script:
     - python3 --version
-    - python3 -m venv venv
-    - source venv/bin/activate
+    - python3 -m venv .ci-venv
+    - source .ci-venv/bin/activate
     - python -m pip install --upgrade pip setuptools wheel build
     - python -m pip install -e '.[tests, flux, examples]'
     - python -c "import setuptools.build_meta"
