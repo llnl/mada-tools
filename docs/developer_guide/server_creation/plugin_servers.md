@@ -31,7 +31,7 @@ Make sure you have the `mada-tools` library installed. See [Installation](../../
 
 In your project, create a python file to house your MCP server.
 
-In this file, start by importing the [`BaseMCPServer`](../shared/base_server.md#shared.base_server.BaseMCPServer) class:
+In this file, start by importing the [`BaseMCPServer`](../shared/base_server.md#mada_tools.shared.base_server.BaseMCPServer) class:
 
 ```python
 from mada_tools import BaseMCPServer

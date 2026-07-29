@@ -106,7 +106,6 @@ plugins:
   - mkdocstrings:
       handlers:
         python:
-          paths: [src/mada_tools]
           options:
             docstring_style: google
   - literate-nav:
