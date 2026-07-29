@@ -50,17 +50,11 @@ stages:
 .install_mada_tools:
   image: $PYTHON_IMAGE
   before_script:
-    - 'set -eux'
-    - 'echo "Working directory: $(pwd)"'
-    - 'echo "PATH=${PATH}"'
-    - 'echo "PYTHONHOME=${PYTHONHOME-}"'
-    - 'echo "PYTHONPATH=${PYTHONPATH-}"'
-    - 'python3 --version'
-    - 'python3 -c ''import sys; print(sys.executable); print(sys.prefix); print(sys.path)'''
-    - 'python3 -m venv .ci-venv'
-    - '. .ci-venv/bin/activate'
-    - 'python -m pip install --upgrade pip setuptools wheel build'
-    - python -m pip install -e '.[tests, docs, examples]'
+    - python --version
+    - python -m venv .ci-venv
+    - source .ci-venv/bin/activate
+    - pip install --upgrade pip
+    - pip install -e '.[tests, docs, examples]'
     - python -c "import setuptools.build_meta"
 
 .install_mada_tools_runner:
