@@ -14,11 +14,26 @@ import random
 import uuid
 from contextlib import AsyncExitStack
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from mada_tools.agents import MultiServerAgent
 from mada_tools.server_management.server_manager import ServerManager
 from mada_tools.testing.server_checks import load_server_config, validate_server_state
+
+
+class AgentProtocol(Protocol):
+    """Protocol for agent instances managed by `AgentTestRunner`."""
+
+    def __init__(self, *, config_path: str): ...
+
+    async def initialize(self, stack: AsyncExitStack) -> None: ...
+
+    async def process_query(
+        self,
+        query: str,
+        max_tool_calls: int = 10,
+        add_tool_context: bool = False,
+    ) -> str: ...
 
 
 class AgentTestRunner:
@@ -38,7 +53,7 @@ class AgentTestRunner:
         self,
         servers_config_path: Path,
         agent_config_path: Path,
-        agent_cls=MultiServerAgent,
+        agent_cls: type[AgentProtocol] = MultiServerAgent,
     ):
         """Initialize the test runner.
 
@@ -58,7 +73,7 @@ class AgentTestRunner:
             state_file=Path.home() / ".mada" / f"server_statuses_{uuid.uuid4().hex}.json"
         )
         self.stack: AsyncExitStack | None = None
-        self.agent: Any | None = None
+        self.agent: AgentProtocol | None = None
         self.servers_config: dict[str, Any] | None = None
         self._generated_config_paths: list[Path] = []
 
