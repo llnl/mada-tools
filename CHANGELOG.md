@@ -12,12 +12,14 @@ All notable changes to this project will be documented in this file.
 - GitLab CI for Hubcast
 - Simulation tests and generic tools for LLM MCP Tool tests
 - DOI link to README
+- Public `mada_tools.testing` utilities for reusable server validation and agent-driven end-to-end tests in extension packages
 
 ### Changed
 - Refactored the `JobMonitorServer` and `ProfessorServer` to utilize `BaseMCPServer.run_tool()`
 - Dropped support for Python 3.10
 - Updated how plugins are discovered and registered to extend capabilities past just MCP servers
 - Converted MCP Tools to async so that long running tools do not block the chat.
+- Promoted `MultiServerAgent` into package code under `mada_tools.agents` and refactored the interactive example to consume the supported library API
 
 ### Fixed
 -
