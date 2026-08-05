@@ -59,4 +59,7 @@ The main goals of the MADA Tools project are:
 
     This configuration file utilizes the Flux MCP server. You can modify this to use any servers that MADA supports. See a table of these [here](./user_guide/supported_servers/index.md#available-servers).
 
+    The example script uses the reusable `mada_tools.agents.MultiServerAgent`
+    implementation, which is also available for your own scripts and tests.
+
 The application is now running and you can interact with the agent to runs jobs Flux!
