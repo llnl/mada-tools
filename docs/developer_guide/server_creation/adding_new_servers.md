@@ -1,6 +1,6 @@
 # Adding New MCP Servers to the MADA Tools Repository
 
-To add a new MCP server directly to the MADA Tools Repository, you’ll need to create a server class that inherits from the [`BaseMCPServer`](../shared/base_server.md#shared.base_server.BaseMCPServer) class, and then register the server so it can be launched and discovered by the rest of the MADA MCP system. This page details the process step by step.
+To add a new MCP server directly to the MADA Tools Repository, you’ll need to create a server class that inherits from the [`BaseMCPServer`](../shared/base_server.md#mada_tools.shared.base_server.BaseMCPServer) class, and then register the server so it can be launched and discovered by the rest of the MADA MCP system. This page details the process step by step.
 
 ## Understanding the Base MCP Server Class
 

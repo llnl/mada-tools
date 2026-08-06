@@ -66,6 +66,20 @@ mkdocs build
 ```
 If you want to test version publishing locally, use `mike` commands in a Git repository with the `gh-pages` branch available.
 
+## Exporting packaged docs
+
+MADA Tools wheels include the MkDocs source project so downstream packages can build compatible documentation without assuming a repository checkout. Export the packaged documentation with:
+
+```bash
+mada-tools export-docs mada-tools-docs
+cd mada-tools-docs
+mkdocs build --strict
+```
+
+The export contains `mkdocs.yaml`, the `docs/` source tree, and supporting fragments such as `configs/` files used by Markdown snippets. API reference generation imports `mada_tools` from the installed environment, so build the exported docs from an environment where the target wheel is installed.
+
+The `src/mada_tools/_docs` package resource is generated during wheel and source distribution builds from the repository's top-level `docs/`, `configs/`, and `mkdocs.yaml` sources. Do not edit or check in a duplicate `_docs` tree.
+
 ## Notes
 
 - The workflows require write access to the repository so they can update `gh-pages`.

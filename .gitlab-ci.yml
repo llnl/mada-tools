@@ -51,16 +51,20 @@ stages:
   image: $PYTHON_IMAGE
   before_script:
     - python --version
-    - pip install --upgrade pip
+    - python -m venv .ci-venv
+    - source .ci-venv/bin/activate
+    - pip install --upgrade pip setuptools wheel build
     - pip install -e '.[tests, docs, examples]'
+    - python -c "import setuptools.build_meta"
 
 .install_mada_tools_runner:
   before_script:
     - python3 --version
-    - python3 -m venv venv
-    - source venv/bin/activate
-    - pip install --upgrade pip
-    - pip install -e '.[tests, flux, examples]'
+    - python3 -m venv .ci-venv
+    - source .ci-venv/bin/activate
+    - python -m pip install --upgrade pip setuptools wheel build
+    - python -m pip install -e '.[tests, flux, examples]'
+    - python -c "import setuptools.build_meta"
 
 ##########################################
 ##### Test definitions via job files #####

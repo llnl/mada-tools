@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 
 ### Added
+- Packaged the documentation source project in wheels and added `mada-tools export-docs` command
+- Added wheel-based documentation package validation to CI
 - Added common parameter_samples_generator and associated documentation.
 - Support for Windows OS
 - Support for Python 3.14

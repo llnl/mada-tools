@@ -6,18 +6,25 @@ It uses the `mkdocs_gen_files` package to create the necessary Markdown files
 at build time.
 """
 
+import importlib.util
 from pathlib import Path
 
 import mkdocs_gen_files
 
 nav = mkdocs_gen_files.Nav()
 
-TOP_LEVEL_MODULE = Path("src/mada_tools")
+PACKAGE_NAME = "mada_tools"
+
+package_spec = importlib.util.find_spec(PACKAGE_NAME)
+if package_spec is None or package_spec.submodule_search_locations is None:
+    raise RuntimeError(f"Unable to find installed package {PACKAGE_NAME!r}.")
+
+TOP_LEVEL_MODULE = Path(next(iter(package_spec.submodule_search_locations))).resolve()
 
 API_REFERENCE = Path("developer_guide")
 
 # If you want to ignore certain files or directories, add their patterns here.
-IGNORE_PATTERNS = []
+IGNORE_PATTERNS = [Path("_docs")]
 
 
 def should_ignore(path: Path) -> bool:
@@ -40,10 +47,11 @@ def should_ignore(path: Path) -> bool:
 
 
 for path in sorted(TOP_LEVEL_MODULE.rglob("*.py")):
-    if should_ignore(path):
+    relative_path = path.relative_to(TOP_LEVEL_MODULE)
+    if should_ignore(relative_path):
         continue
-    module_path = path.relative_to(TOP_LEVEL_MODULE).with_suffix("")
-    doc_path = path.relative_to(TOP_LEVEL_MODULE).with_suffix(".md")
+    module_path = relative_path.with_suffix("")
+    doc_path = relative_path.with_suffix(".md")
     full_doc_path = API_REFERENCE / doc_path
 
     parts = list(module_path.parts)
@@ -60,10 +68,10 @@ for path in sorted(TOP_LEVEL_MODULE.rglob("*.py")):
     nav[parts] = doc_path.as_posix()
 
     with mkdocs_gen_files.open(full_doc_path, "w") as fd:
-        identifier = ".".join(parts)
+        identifier = ".".join([PACKAGE_NAME, *parts])
         print("::: " + identifier, file=fd)
 
-    mkdocs_gen_files.set_edit_path(full_doc_path, path)
+    mkdocs_gen_files.set_edit_path(full_doc_path, Path("src") / PACKAGE_NAME / relative_path)
 
 
 # NOTE: SUMMARY.md has to be the name of the nav file
