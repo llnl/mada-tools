@@ -62,7 +62,10 @@ Fixtures can be defined at different levels of a test suite by using `conftest.p
 
 MADA ships reusable test helpers under `mada_tools.testing` so extension
 packages can share the same server-validation and agent-driven end-to-end
-testing utilities used in this repository.
+testing utilities used in this repository. See [Vertex CFD integration tests](https://github.com/llnl/mada-tools/blob/develop/tests/integration/simulation/test_vertex_cfd.py)
+and [Vertex CFD end-to-end tests](https://github.com/llnl/mada-tools/blob/develop/tests/e2e/simulation/test_vertex_cfd.py)
+as examples. More specifically, these tests are using fixtures from the
+[top-level `conftest.py` file](https://github.com/llnl/mada-tools/blob/develop/tests/conftest.py), the [integration tests' `conftest.py` file](https://github.com/llnl/mada-tools/blob/develop/tests/integration/conftest.py), and the [end-to-end tests' `conftest.py` file](https://github.com/llnl/mada-tools/blob/develop/tests/e2e/conftest.py).
 
 Install the existing test extra in your extension package environment:
 
