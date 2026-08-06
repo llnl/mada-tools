@@ -35,6 +35,36 @@ jobs:
       test-name: "docs"
       test-command: "mkdocs build --strict"
 
+  package-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+
+      - name: Build wheel
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build
+          python -m build --wheel
+
+      - name: Install wheel in clean environment
+        run: |
+          python -m venv .venv-package-docs
+          source .venv-package-docs/bin/activate
+          python -m pip install --upgrade pip
+          WHEEL=$(python -c "from pathlib import Path; print(next(Path('dist').glob('*.whl')))")
+          python -m pip install "${WHEEL}[docs]"
+
+      - name: Export and build packaged docs
+        run: |
+          source .venv-package-docs/bin/activate
+          mada-tools export-docs exported-docs
+          cd exported-docs
+          mkdocs build --strict
+
   lint:
     uses: ./.github/workflows/test-job.yml
     with:

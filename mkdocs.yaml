@@ -34,6 +34,7 @@ nav:
       - Overview: "developer_guide/server_creation/index.md"
       - Adding New MCP Servers to MADA Tools: "developer_guide/server_creation/adding_new_servers.md"
       - Parameter Samples Generator: "developer_guide/server_creation/parameter_samples_generator.md"
+      - Registering MADA Extensions: "developer_guide/server_creation/extensions.md"
       - Creating Plugin MCP Servers: "developer_guide/server_creation/plugin_servers.md"
       - Creating WEAVE Study Construction Servers: "developer_guide/server_creation/weave_study_servers.md"
     - Testing Guide: "developer_guide/testing.md"
@@ -106,7 +107,6 @@ plugins:
   - mkdocstrings:
       handlers:
         python:
-          paths: [src/mada_tools]
           options:
             docstring_style: google
   - literate-nav:

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -64,6 +64,7 @@ examples = [
 flux = ["flux-python==0.63.0"]
 
 tests = [
+    "build",
     "pytest",
     "pytest-mock",
     "pre-commit",
@@ -87,6 +88,12 @@ mada_tools = "mada_tools.extensions.builtins:get_extension_manifest"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+mada_tools = ["_docs/*", "_docs/**/*"]
+
+[tool.setuptools.exclude-package-data]
+mada_tools = ["_docs/**/__pycache__/*", "_docs/**/*.py[cod]"]
 
 [tool.ruff]
 line-length = 120

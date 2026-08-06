@@ -1,0 +1,3 @@
+include mkdocs.yaml
+recursive-include docs *
+recursive-include configs *

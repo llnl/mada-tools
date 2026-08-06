@@ -313,6 +313,14 @@ mkdocs serve
 
 This will provide a localhost URL for you. Open that in your browser to view the documentation.
 
+Installed wheels also include the documentation source project. To export and build that packaged copy:
+
+```bash
+mada-tools export-docs mada-tools-docs
+cd mada-tools-docs
+mkdocs build --strict
+```
+
 
 ## Release
 

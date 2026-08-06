@@ -8,3 +8,4 @@ logs/
 **simple_agent_loop_history_*
 .codex
 slirp.out
+**/*vertex_cfd*_randomized_*

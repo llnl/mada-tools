@@ -25,22 +25,52 @@ Modules:
     main: The entry point to the MADA tools repository.
 """
 
-from mada_tools.shared.base_server import BaseMCPServer
-from mada_tools.shared.exceptions import MCPServerError, ToolExecutionError
-from mada_tools.workflow.weave import WEAVEStudyConstructionServer
-
-try:
-    from mada_tools.server_management.server_manager import ServerManager
-except ModuleNotFoundError as exc:
-    if exc.name != "fcntl":
-        raise
-    ServerManager = None
+from importlib import import_module
 
 __version__ = "0.1.1"
 
 VERSION = __version__
 
-# No server imports - each server runs independently via entry points
+_LAZY_IMPORTS = {
+    "BaseMCPServer": ("mada_tools.shared.base_server", "BaseMCPServer"),
+    "MCPServerError": ("mada_tools.shared.exceptions", "MCPServerError"),
+    "ToolExecutionError": ("mada_tools.shared.exceptions", "ToolExecutionError"),
+    "WEAVEStudyConstructionServer": ("mada_tools.workflow.weave", "WEAVEStudyConstructionServer"),
+}
+
+
+def __getattr__(name):
+    """Lazily resolve legacy top-level exports.
+
+    Importing a submodule such as ``mada_tools.docs`` executes this package
+    initializer first. Keep the initializer free of dependency-heavy imports so
+    lightweight APIs can be used without requiring optional MCP runtime
+    dependencies such as FastMCP.
+    """
+    if name == "ServerManager":
+        try:
+            # ``server_management`` imports ``fcntl``, which is not available on
+            # Windows. Preserve the previous Windows behavior while delaying the
+            # import until callers explicitly request ``ServerManager``.
+            value = import_module("mada_tools.server_management.server_manager").ServerManager
+        except ModuleNotFoundError as exc:
+            if exc.name != "fcntl":
+                raise
+            value = None
+        globals()[name] = value
+        return value
+
+    if name in _LAZY_IMPORTS:
+        # These exports preserve the historical top-level API without making
+        # every ``mada_tools`` import load the MCP server dependency stack.
+        module_name, attribute_name = _LAZY_IMPORTS[name]
+        value = getattr(import_module(module_name), attribute_name)
+        globals()[name] = value
+        return value
+
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 __all__ = [
     "BaseMCPServer",
     "MCPServerError",
