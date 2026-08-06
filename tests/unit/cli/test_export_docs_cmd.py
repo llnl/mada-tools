@@ -28,8 +28,8 @@ def test_add_parser_registers_subcommand(create_parser: Callable, export_docs_cm
     assert callable(args.func)
 
 
-def test_process_command_exports_docs(monkeypatch: pytest.MonkeyPatch, capsys, tmp_path):
-    """Verify that the command delegates to the docs exporter and reports the output path."""
+def test_process_command_exports_docs(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, tmp_path):
+    """Verify that the command delegates to the docs exporter and logs the output path."""
     destination = tmp_path / "docs-out"
     exported_path = destination.resolve()
     calls = []
@@ -41,8 +41,9 @@ def test_process_command_exports_docs(monkeypatch: pytest.MonkeyPatch, capsys, t
     import mada_tools.cli.commands.export_docs as export_docs_mod
 
     monkeypatch.setattr(export_docs_mod, "export_docs", fake_export_docs)
+    caplog.set_level("INFO", logger="mada_tools.cli.commands.export_docs")
 
     ExportDocsCmd().process_command(type("Args", (), {"destination": destination})())
 
     assert calls == [destination]
-    assert str(exported_path) in capsys.readouterr().out
+    assert str(exported_path) in caplog.text
