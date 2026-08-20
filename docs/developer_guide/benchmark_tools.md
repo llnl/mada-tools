@@ -91,6 +91,8 @@ Example:
 ```bash
 python benchmark/gen_benchmark_fixture.py \
   --cases benchmark/flux_tool_call_eval_cases.input.json \
+  --styles-file benchmark/tool_call_prompt_styles.default.json \
+  --argument-policies-file benchmark/flux_tool_call_eval_argument_policies.json \
   --output benchmark/flux_tool_call_eval_cases.generated.json \
   --num-prompts 5
 ```
@@ -108,8 +110,11 @@ natural_5, terse_5, noobie_5, lazy_5, direct_5
 
 ### Prompt Generation Config
 
-Styles are specified in the input fixture under top-level `prompt_generation`.
-The generator also accepts CLI overrides.
+Styles and server/tool argument policies can be specified inline under
+top-level `prompt_generation`, or split into reusable JSON files. External
+files override only their own section, while scalar settings such as `model`,
+`num_prompts`, `prompt_source`, and augmentation options remain in the cases
+fixture. The generator also accepts CLI overrides.
 
 Excerpt from `benchmark/flux_tool_call_eval_cases.input.json`:
 
@@ -117,10 +122,79 @@ Excerpt from `benchmark/flux_tool_call_eval_cases.input.json`:
 {
   "prompt_generation": {
     "model": "gpt-5.4-mini",
-    "num_prompts": 5,
-    "prompt_source": "generated",
-    "augment_prompts": false,
-    "augment_source": "both",
+    "num_prompts": 5
+  }
+}
+```
+
+Shared style file shape:
+
+```json
+{
+  "styles": [
+    {
+      "id": "natural",
+      "description": "A normal conversational request from a capable user."
+    },
+    {
+      "id": "terse",
+      "description": "A short command-like request with minimal extra wording."
+    },
+    {
+      "id": "noobie",
+      "description": "A beginner-style request that uses informal wording and may over-explain."
+    },
+    {
+      "id": "lazy",
+      "description": "An underspecified casual request, but still containing enough information to imply the expected tool call."
+    },
+    {
+      "id": "direct",
+      "description": "An explicit instruction naming the intended server, tool, and key arguments."
+    }
+  ]
+}
+```
+
+Argument policy file shape:
+
+```json
+{
+  "argument_policies": [
+    {
+      "server": "flux",
+      "tool": "submit_command",
+      "arguments": {
+        "command": {
+          "mode": "verbatim",
+          "guidance": "Repeat the command exactly as written."
+        },
+        "nodes": {
+          "mode": "semantic",
+          "guidance": "Express the node count clearly enough to recover the expected numeric value."
+        },
+        "time_limit": {
+          "mode": "semantic",
+          "guidance": "Express the time limit clearly enough to recover the expected value."
+        },
+        "working_directory": {
+          "mode": "verbatim",
+          "guidance": "Working directories are paths; preserve the expected value exactly."
+        }
+      },
+      "guidance": [
+        "Flux scheduler/resource arguments such as nodes, tasks, time_limit, job_name, and working_directory are separate tool arguments."
+      ]
+    }
+  ]
+}
+```
+
+The same sections can still be embedded inline for single-file fixtures:
+
+```json
+{
+  "prompt_generation": {
     "argument_policies": [
       {
         "server": "flux",
@@ -146,28 +220,6 @@ Excerpt from `benchmark/flux_tool_call_eval_cases.input.json`:
         "guidance": [
           "Flux scheduler/resource arguments such as nodes, tasks, time_limit, job_name, and working_directory are separate tool arguments."
         ]
-      }
-    ],
-    "styles": [
-      {
-        "id": "natural",
-        "description": "A normal conversational request from a capable user."
-      },
-      {
-        "id": "terse",
-        "description": "A short command-like request with minimal extra wording."
-      },
-      {
-        "id": "noobie",
-        "description": "A beginner-style request that uses informal wording and may over-explain."
-      },
-      {
-        "id": "lazy",
-        "description": "An underspecified casual request, but still containing enough information to imply the expected tool call."
-      },
-      {
-        "id": "direct",
-        "description": "An explicit instruction naming the intended server, tool, and key arguments."
       }
     ]
   }
@@ -300,6 +352,26 @@ The generator needs tool names, descriptions, and argument schemas. With
 `--server-source auto` it first tries live MCP discovery using
 `mcp_servers.<name>.url`. If that fails, it falls back to parsing local
 `server.py` docstrings and function signatures.
+
+For live discovery without persistent fixture URLs, pass
+`--server-management-config`. The generator starts the required MCP servers,
+builds temporary in-memory `mcp_servers` URLs for discovery, and stops those
+servers on exit unless `--keep-managed-servers` is set:
+
+```bash
+python benchmark/gen_benchmark_fixture.py \
+  --cases benchmark/flux_tool_call_eval_cases.input.json \
+  --styles-file benchmark/tool_call_prompt_styles.default.json \
+  --argument-policies-file benchmark/flux_tool_call_eval_argument_policies.json \
+  --server-management-config configs/development.json \
+  --output benchmark/flux_tool_call_eval_cases.generated.json
+```
+
+`mcp_servers` can be omitted from generation input when using
+`--server-management-config`, `--server-source static`, or
+`--prompt-source existing`. It is still required for unmanaged live discovery
+and for directly running generated fixtures without benchmark run-config server
+management.
 
 Fallback path resolution order:
 
@@ -655,8 +727,10 @@ JSON-only details.
 
 | Option | Description |
 | --- | --- |
-| `--cases PATH` | Required input fixture with `mcp_servers` and `tests`. |
+| `--cases PATH` | Required input fixture with expected-call tests. |
 | `--output PATH` | Required output fixture path. The input file is not modified. |
+| `--styles-file PATH` | Optional JSON file with a top-level `styles` list. |
+| `--argument-policies-file PATH` | Optional JSON file with a top-level `argument_policies` list. |
 | `--config PATH` | Optional JSON config with model API settings. |
 | `--model MODEL` | Generation model name. Overrides `prompt_generation.model`. |
 | `--base-url URL` | OpenAI-compatible API base URL. |
@@ -666,6 +740,9 @@ JSON-only details.
 | `--prompt-source generated\|existing\|both` | Choose generated prompts, existing fixture prompts, or both. |
 | `--augment-prompts` | Pass selected prompts through the no-op NLPA augmentation hook. |
 | `--augment-source generated\|existing\|both` | Source to augment when augmentation is enabled. |
+| `--server-management-config PATH` | Start required MCP servers from a server-management config for live discovery. |
+| `--no-randomize-server-ports` | Use configured ports with `--server-management-config`. |
+| `--keep-managed-servers` | Leave managed MCP servers running after generation. |
 | `--temperature FLOAT` | Optional generation temperature. |
 | `--request-timeout SECONDS` | LLM request timeout. |
 | `--server-source auto\|live\|static` | Tool-schema source. `auto` tries live MCP then static `server.py`. |

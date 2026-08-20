@@ -1,0 +1,24 @@
+{
+  "styles": [
+    {
+      "id": "natural",
+      "description": "A normal conversational request from a capable user."
+    },
+    {
+      "id": "terse",
+      "description": "A short command-like request with minimal extra wording."
+    },
+    {
+      "id": "noobie",
+      "description": "A beginner-style request that uses informal wording and may over-explain."
+    },
+    {
+      "id": "lazy",
+      "description": "An underspecified casual request, but still containing enough information to imply the expected tool call."
+    },
+    {
+      "id": "direct",
+      "description": "An explicit instruction naming the intended server, tool, and key arguments."
+    }
+  ]
+}

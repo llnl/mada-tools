@@ -1700,6 +1700,248 @@ class TestMergeToolCallEvalResults:
 
 
 class TestGenBenchmarkFixture:
+    def test_load_input_fixture_composes_styles_and_argument_policies(self, tmp_path: Path):
+        cases_path = tmp_path / "cases.json"
+        styles_path = tmp_path / "styles.json"
+        policies_path = tmp_path / "policies.json"
+        cases_path.write_text(
+            json.dumps(
+                {
+                    "mcp_servers": {"flux": {"url": "http://localhost:8101/mcp"}},
+                    "prompt_generation": {
+                        "model": "model",
+                        "styles": [{"id": "inline", "description": "Inline style"}],
+                        "argument_policies": [],
+                    },
+                    "tests": [
+                        {
+                            "id": "case",
+                            "server": "flux",
+                            "expected_call": {
+                                "tool": "check_job_status",
+                                "arguments": {},
+                                "match": {"mode": "subset"},
+                            },
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        styles_path.write_text(
+            json.dumps({"styles": [{"id": "external", "description": "External style"}]}),
+            encoding="utf-8",
+        )
+        policies_path.write_text(
+            json.dumps(
+                {
+                    "argument_policies": [
+                        {
+                            "server": "flux",
+                            "tool": "check_job_status",
+                            "arguments": {"job_id": "verbatim"},
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        fixture = gen_benchmark_fixture.load_input_fixture(
+            cases_path,
+            styles_file=styles_path,
+            argument_policies_file=policies_path,
+        )
+
+        assert fixture["prompt_generation"]["model"] == "model"
+        assert fixture["prompt_generation"]["styles"] == [{"id": "external", "description": "External style"}]
+        assert fixture["prompt_generation"]["argument_policies"] == [
+            {
+                "server": "flux",
+                "tool": "check_job_status",
+                "arguments": {"job_id": "verbatim"},
+            }
+        ]
+
+    def test_load_input_fixture_accepts_missing_mcp_servers_when_not_required(self, tmp_path: Path):
+        cases_path = tmp_path / "cases.json"
+        cases_path.write_text(
+            json.dumps(
+                {
+                    "tests": [
+                        {
+                            "id": "case",
+                            "server": "flux",
+                            "expected_call": {
+                                "tool": "check_job_status",
+                                "arguments": {},
+                                "match": {"mode": "subset"},
+                            },
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        fixture = gen_benchmark_fixture.load_input_fixture(cases_path, require_mcp_servers=False)
+
+        assert fixture["tests"][0]["server"] == "flux"
+
+    def test_load_input_fixture_requires_mcp_servers_by_default(self, tmp_path: Path):
+        cases_path = tmp_path / "cases.json"
+        cases_path.write_text(
+            json.dumps(
+                {
+                    "tests": [
+                        {
+                            "id": "case",
+                            "server": "flux",
+                            "expected_call": {
+                                "tool": "check_job_status",
+                                "arguments": {},
+                                "match": {"mode": "subset"},
+                            },
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="mcp_servers"):
+            gen_benchmark_fixture.load_input_fixture(cases_path)
+
+    def test_load_input_fixture_rejects_invalid_split_file_shapes(self, tmp_path: Path):
+        cases_path = tmp_path / "cases.json"
+        styles_path = tmp_path / "styles.json"
+        cases_path.write_text(
+            json.dumps(
+                {
+                    "mcp_servers": {"flux": {"url": "http://localhost:8101/mcp"}},
+                    "tests": [
+                        {
+                            "id": "case",
+                            "server": "flux",
+                            "expected_call": {
+                                "tool": "check_job_status",
+                                "arguments": {},
+                                "match": {"mode": "subset"},
+                            },
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        styles_path.write_text(json.dumps({"styles": {"id": "natural"}}), encoding="utf-8")
+
+        with pytest.raises(ValueError, match="expected a 'styles' list"):
+            gen_benchmark_fixture.load_input_fixture(cases_path, styles_file=styles_path)
+
+    @pytest.mark.asyncio
+    async def test_discover_tools_rejects_missing_mcp_servers_for_live_discovery(self):
+        fixture = {
+            "tests": [
+                {
+                    "id": "case",
+                    "server": "flux",
+                    "expected_call": {"tool": "check_job_status", "arguments": {}, "match": {"mode": "subset"}},
+                }
+            ]
+        }
+
+        with pytest.raises(ValueError, match="live MCP discovery"):
+            await gen_benchmark_fixture.discover_tools(fixture, "live", quiet=True)
+
+    @pytest.mark.asyncio
+    async def test_discover_tools_allows_static_discovery_without_mcp_servers(self, monkeypatch):
+        fixture = {
+            "tests": [
+                {
+                    "id": "case",
+                    "server": "flux",
+                    "expected_call": {"tool": "check_job_status", "arguments": {}, "match": {"mode": "subset"}},
+                }
+            ]
+        }
+
+        async def fake_tools_for_server(server_name, server_config, source, quiet=False):
+            assert server_name == "flux"
+            assert server_config == {}
+            assert source == "static"
+            assert quiet is True
+            return [{"type": "function", "function": {"name": "check_job_status"}}]
+
+        monkeypatch.setattr(gen_benchmark_fixture, "tools_for_server", fake_tools_for_server)
+
+        tools = await gen_benchmark_fixture.discover_tools(fixture, "static", quiet=True)
+
+        assert tools == {"flux": [{"type": "function", "function": {"name": "check_job_status"}}]}
+
+    def test_managed_generation_servers_build_effective_fixture_and_stop(self, tmp_path: Path, monkeypatch):
+        events = []
+
+        class FakeServerManager:
+            def __init__(self, state_file):
+                events.append(("init", state_file))
+
+            def start_servers(self, config_path, required_servers):
+                events.append(("start", config_path, required_servers))
+
+            def stop_servers(self):
+                events.append(("stop",))
+
+        monkeypatch.setattr(gen_benchmark_fixture, "ServerManager", FakeServerManager)
+        server_config_path = tmp_path / "servers.json"
+        server_config_path.write_text(
+            json.dumps(
+                {
+                    "servers": {
+                        "flux": {
+                            "host": "127.0.0.1",
+                            "port": 8101,
+                            "transport": "streamable-http",
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        fixture = {
+            "tests": [
+                {
+                    "id": "case",
+                    "server": "flux",
+                    "expected_call": {"tool": "check_job_status", "arguments": {}, "match": {"mode": "subset"}},
+                }
+            ]
+        }
+        settings = gen_benchmark_fixture.ManagedGenerationServerSettings(
+            config_path=server_config_path,
+            randomize_ports=False,
+            stop_on_exit=True,
+        )
+
+        managed = gen_benchmark_fixture.start_managed_generation_servers(settings, fixture, tmp_path, quiet=True)
+        gen_benchmark_fixture.stop_managed_generation_servers(managed, quiet=True)
+
+        assert managed.effective_fixture["mcp_servers"] == {
+            "flux": {"transport": "streamable-http", "url": "http://127.0.0.1:8101/mcp"}
+        }
+        assert "mcp_servers" not in fixture
+        assert events[1][0] == "start"
+        assert events[1][2] == ["flux"]
+        assert events[-1] == ("stop",)
+
+    def test_managed_startup_failure_error_recommends_static_discovery(self):
+        error = gen_benchmark_fixture.managed_startup_failure_error(RuntimeError("cannot bind port"))
+
+        message = str(error)
+        assert "Managed MCP server startup failed" in message
+        assert "--server-source static" in message
+        assert "RuntimeError: cannot bind port" in message
+
     def test_build_generation_settings_prefers_cli_over_fixture_config(self):
         fixture = {
             "prompt_generation": {

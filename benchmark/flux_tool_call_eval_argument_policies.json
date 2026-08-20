@@ -1,0 +1,60 @@
+{
+  "argument_policies": [
+    {
+      "server": "flux",
+      "tool": "submit_command",
+      "arguments": {
+        "command": {
+          "mode": "verbatim",
+          "guidance": [
+            "The command argument is the exact program invocation to execute. Repeat it exactly as written.",
+            "Do not substitute a workload description, add cd/setup wrappers, change python/python3, or infer a different command from surrounding context."
+          ]
+        },
+        "nodes": {
+          "mode": "semantic",
+          "guidance": "Express the node count clearly enough to recover the expected numeric value."
+        },
+        "tasks": {
+          "mode": "semantic",
+          "guidance": "Express the task count clearly enough to recover the expected numeric value."
+        },
+        "time_limit": {
+          "mode": "semantic",
+          "guidance": "Express the time limit clearly enough to recover the expected value; exact spelling is helpful but not required."
+        },
+        "job_name": {
+          "mode": "verbatim",
+          "guidance": "Job names are identifiers; preserve the expected job_name exactly."
+        },
+        "working_directory": {
+          "mode": "verbatim",
+          "guidance": "Working directories are paths; preserve the expected working_directory exactly."
+        }
+      },
+      "guidance": [
+        "Flux scheduler/resource arguments such as nodes, tasks, time_limit, job_name, and working_directory are separate tool arguments. They are not part of command unless already present in the expected command string."
+      ]
+    },
+    {
+      "server": "flux",
+      "tool": "submit_jobs",
+      "arguments": {
+        "run_info_json": {
+          "mode": "verbatim",
+          "guidance": "run_info_json is a literal JSON string argument. Preserve that string exactly when it is included in a generated prompt."
+        }
+      }
+    },
+    {
+      "server": "flux",
+      "tool": "check_job_status",
+      "arguments": {
+        "job_id": {
+          "mode": "verbatim",
+          "guidance": "job_id is the local MADA tracking identifier. Do not replace it with flux_job_id."
+        }
+      }
+    }
+  ]
+}

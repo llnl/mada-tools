@@ -21,6 +21,7 @@ import copy
 import json
 import os
 import sys
+import uuid
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,8 +35,18 @@ if str(SCRIPT_DIR) not in sys.path:
 if str(REPO_SRC) not in sys.path:
     sys.path.insert(0, str(REPO_SRC))
 
-from run_tool_call_eval import connect_server, exception_messages, expected_call_from_test_case  # noqa: E402
+from run_tool_call_eval import (  # noqa: E402
+    connect_server,
+    effective_mcp_fixture,
+    exception_messages,
+    expected_call_from_test_case,
+    load_server_management_json,
+    randomize_server_ports,
+    required_server_names,
+    write_json_file,
+)  # noqa: E402
 
+from mada_tools.server_management import ServerManager  # noqa: E402
 from mada_tools.shared.config import get_config_value, load_json_object_config  # noqa: E402
 
 DEFAULT_BASE_URL = "https://livai-api.llnl.gov/v1"
@@ -141,6 +152,26 @@ class GenerationSettings:
     argument_policies: list[PromptArgumentPolicy] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class ManagedGenerationServerSettings:
+    """CLI settings for starting MCP servers while generating prompts."""
+
+    config_path: Path | None = None
+    randomize_ports: bool = True
+    stop_on_exit: bool = True
+
+
+@dataclass
+class ManagedGenerationServerRun:
+    """State for MCP servers started only for prompt-generation discovery."""
+
+    manager: ServerManager
+    required_servers: list[str]
+    servers_config_path: Path
+    effective_fixture: dict[str, Any]
+    stop_on_exit: bool
+
+
 def positive_int(option_name: str):
     """Return an argparse parser for positive integer options."""
 
@@ -168,12 +199,9 @@ def load_json_object(path: Path) -> dict[str, Any]:
     return loaded
 
 
-def validate_input_fixture(fixture: dict[str, Any]) -> None:
-    """Validate the fixture fields needed before prompt generation."""
-    mcp_servers = fixture.get("mcp_servers")
+def validate_input_fixture_tests(fixture: dict[str, Any]) -> None:
+    """Validate generation test cases independent of MCP connection details."""
     tests = fixture.get("tests")
-    if not isinstance(mcp_servers, dict) or not mcp_servers:
-        raise ValueError("Fixture 'mcp_servers' must be a non-empty object")
     if not isinstance(tests, list) or not tests:
         raise ValueError("Fixture 'tests' must be a non-empty list")
 
@@ -184,15 +212,78 @@ def validate_input_fixture(fixture: dict[str, Any]) -> None:
         server = test_case.get("server")
         if not isinstance(server, str) or not server:
             raise ValueError(f"Test case {case_id} must contain a non-empty server string")
-        if server not in mcp_servers:
-            raise ValueError(f"Test case {case_id} references unknown MCP server '{server}'")
         expected_call_from_test_case(test_case)
 
 
-def load_input_fixture(path: Path) -> dict[str, Any]:
-    """Load and validate the prompt-generation input fixture."""
+def validate_fixture_server_configs(fixture: dict[str, Any]) -> None:
+    """Validate that every test case references a configured MCP server."""
+    mcp_servers = fixture.get("mcp_servers")
+    if not isinstance(mcp_servers, dict) or not mcp_servers:
+        raise ValueError("Fixture 'mcp_servers' must be a non-empty object")
+    for index, test_case in enumerate(fixture.get("tests", []), start=1):
+        case_id = test_case.get("id", f"case_{index}") if isinstance(test_case, dict) else f"case_{index}"
+        server = test_case.get("server") if isinstance(test_case, dict) else None
+        if server not in mcp_servers:
+            raise ValueError(f"Test case {case_id} references unknown MCP server '{server}'")
+
+
+def validate_input_fixture(fixture: dict[str, Any], require_mcp_servers: bool = True) -> None:
+    """Validate the fixture fields needed before prompt generation."""
+    validate_input_fixture_tests(fixture)
+    if require_mcp_servers:
+        validate_fixture_server_configs(fixture)
+
+
+def overlay_prompt_generation_section(
+    fixture: dict[str, Any],
+    section_name: str,
+    value: Any,
+) -> None:
+    """Overlay one external prompt_generation section onto a fixture."""
+    prompt_generation = fixture.get("prompt_generation")
+    if prompt_generation is None:
+        prompt_generation = {}
+        fixture["prompt_generation"] = prompt_generation
+    if not isinstance(prompt_generation, dict):
+        raise ValueError("Fixture prompt_generation must be an object when provided")
+    prompt_generation[section_name] = value
+
+
+def load_styles_file(path: Path) -> list[dict[str, Any]]:
+    """Load an external prompt style file."""
+    loaded = load_json_object(path)
+    styles = loaded.get("styles")
+    if not isinstance(styles, list):
+        raise ValueError(f"{path}: expected a 'styles' list")
+    return styles
+
+
+def load_argument_policies_file(path: Path) -> list[dict[str, Any]]:
+    """Load an external prompt argument policy file."""
+    loaded = load_json_object(path)
+    policies = loaded.get("argument_policies")
+    if not isinstance(policies, list):
+        raise ValueError(f"{path}: expected an 'argument_policies' list")
+    return policies
+
+
+def load_input_fixture(
+    path: Path,
+    styles_file: Path | None = None,
+    argument_policies_file: Path | None = None,
+    require_mcp_servers: bool = True,
+) -> dict[str, Any]:
+    """Load, compose, and validate the prompt-generation input fixture."""
     fixture = load_json_object(path)
-    validate_input_fixture(fixture)
+    if styles_file is not None:
+        overlay_prompt_generation_section(fixture, "styles", load_styles_file(styles_file))
+    if argument_policies_file is not None:
+        overlay_prompt_generation_section(
+            fixture,
+            "argument_policies",
+            load_argument_policies_file(argument_policies_file),
+        )
+    validate_input_fixture(fixture, require_mcp_servers=require_mcp_servers)
     return fixture
 
 
@@ -656,11 +747,85 @@ async def discover_tools(
 ) -> dict[str, list[dict[str, Any]]]:
     """Discover tool schemas for every server referenced by the fixture tests."""
     required_servers = sorted({test_case["server"] for test_case in fixture["tests"]})
-    server_configs = fixture["mcp_servers"]
+    server_configs = fixture.get("mcp_servers")
+    if not isinstance(server_configs, dict):
+        if source == "live":
+            raise ValueError("Fixture 'mcp_servers' must be a non-empty object for live MCP discovery")
+        server_configs = {}
     discovered = {}
     for server_name in required_servers:
-        discovered[server_name] = await tools_for_server(server_name, server_configs[server_name], source, quiet)
+        server_config = server_configs.get(server_name)
+        if not isinstance(server_config, dict):
+            if source == "live":
+                raise ValueError(f"Fixture is missing MCP server config for live discovery: {server_name}")
+            server_config = {}
+        discovered[server_name] = await tools_for_server(server_name, server_config, source, quiet)
     return discovered
+
+
+def managed_generation_settings(args: argparse.Namespace) -> ManagedGenerationServerSettings:
+    """Resolve CLI settings for optional managed MCP servers."""
+    config_path = getattr(args, "server_management_config", None)
+    if config_path is None:
+        return ManagedGenerationServerSettings()
+    return ManagedGenerationServerSettings(
+        config_path=config_path,
+        randomize_ports=not getattr(args, "no_randomize_server_ports", False),
+        stop_on_exit=not getattr(args, "keep_managed_servers", False),
+    )
+
+
+def start_managed_generation_servers(
+    settings: ManagedGenerationServerSettings,
+    fixture: dict[str, Any],
+    output_dir: Path,
+    quiet: bool,
+) -> ManagedGenerationServerRun:
+    """Start MCP servers for prompt-generation tool-schema discovery."""
+    if settings.config_path is None:
+        raise ValueError("Server management config is not set")
+
+    validate_input_fixture_tests(fixture)
+    required_servers = required_server_names(fixture)
+    servers_data = load_server_management_json(settings.config_path)
+    port_map = randomize_server_ports(servers_data, required_servers, settings.randomize_ports)
+    effective_fixture = effective_mcp_fixture(fixture, servers_data, required_servers, port_map)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    server_config_path = output_dir / f"{settings.config_path.stem}_generation_effective_{uuid.uuid4().hex}.json"
+    write_json_file(server_config_path, servers_data)
+
+    manager = ServerManager(state_file=Path.home() / ".mada" / f"server_statuses_{uuid.uuid4().hex}.json")
+    if not quiet:
+        print("Starting managed MCP server(s): " + ", ".join(required_servers))
+    manager.start_servers(server_config_path, required_servers)
+    return ManagedGenerationServerRun(
+        manager=manager,
+        required_servers=required_servers,
+        servers_config_path=server_config_path,
+        effective_fixture=effective_fixture,
+        stop_on_exit=settings.stop_on_exit,
+    )
+
+
+def stop_managed_generation_servers(managed: ManagedGenerationServerRun | None, quiet: bool) -> None:
+    """Stop managed MCP servers unless the CLI requested they remain running."""
+    if managed is None or not managed.stop_on_exit:
+        return
+    if not quiet:
+        print("Stopping managed MCP server(s): " + ", ".join(managed.required_servers))
+    managed.manager.stop_servers()
+
+
+def managed_startup_failure_error(exc: BaseException) -> RuntimeError:
+    """Return a user-facing error for managed MCP startup failures."""
+    original = "; ".join(exception_messages(exc))
+    return RuntimeError(
+        "Managed MCP server startup failed. "
+        "If you want to generate prompts from local MCP server docstrings and signatures instead, "
+        "rerun with --server-source static. "
+        f"Original error: {original}"
+    )
 
 
 def generation_system_prompt() -> str:
@@ -1117,8 +1282,14 @@ def parse_style_ids(value: str) -> list[str]:
 def parse_args() -> argparse.Namespace:
     """Parse the fixture-generation CLI."""
     parser = argparse.ArgumentParser(description="Generate prompt variants for MCP tool-call benchmark fixtures.")
-    parser.add_argument("--cases", required=True, type=Path, help="Input fixture with mcp_servers and tests")
+    parser.add_argument("--cases", required=True, type=Path, help="Input fixture with expected-call tests")
     parser.add_argument("--output", required=True, type=Path, help="Write generated fixture JSON here")
+    parser.add_argument("--styles-file", type=Path, help="Optional JSON file with a top-level styles list")
+    parser.add_argument(
+        "--argument-policies-file",
+        type=Path,
+        help="Optional JSON file with a top-level argument_policies list",
+    )
     parser.add_argument("--config", type=Path, help="Optional JSON config with model.api_key and model.base_url")
     parser.add_argument("--model", help="Generation model name")
     parser.add_argument("--base-url", help="OpenAI-compatible API base URL")
@@ -1158,26 +1329,66 @@ def parse_args() -> argparse.Namespace:
         default="auto",
         help="Where to get MCP tool schemas from (default: auto)",
     )
+    parser.add_argument(
+        "--server-management-config",
+        type=Path,
+        help="Optional server-management JSON config used to start MCP servers for live discovery",
+    )
+    parser.add_argument(
+        "--no-randomize-server-ports",
+        action="store_true",
+        help="Use configured MCP server ports when --server-management-config is set",
+    )
+    parser.add_argument(
+        "--keep-managed-servers",
+        action="store_true",
+        help="Leave managed MCP servers running after generation",
+    )
     parser.add_argument("--quiet", action="store_true", help="Suppress progress output")
     return parser.parse_args()
 
 
 async def run(args: argparse.Namespace) -> int:
     """Run fixture generation from parsed CLI arguments."""
-    fixture = load_input_fixture(args.cases)
+    fixture = load_input_fixture(
+        args.cases,
+        styles_file=args.styles_file,
+        argument_policies_file=args.argument_policies_file,
+        require_mcp_servers=False,
+    )
     api_config = load_json_object_config(args.config)
     settings = build_generation_settings(fixture, api_config, args)
+    managed_settings = managed_generation_settings(args)
 
     tools_by_server = None
     client = None
-    if should_generate_prompts(settings):
-        from openai import AsyncOpenAI
+    managed_servers = None
+    try:
+        if should_generate_prompts(settings):
+            from openai import AsyncOpenAI
 
-        api_key, base_url = resolve_api_settings(args, api_config)
-        tools_by_server = await discover_tools(fixture, args.server_source, args.quiet)
-        client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=settings.request_timeout)
+            api_key, base_url = resolve_api_settings(args, api_config)
+            discovery_fixture = fixture
+            if managed_settings.config_path is not None and args.server_source != "static":
+                try:
+                    managed_servers = start_managed_generation_servers(
+                        managed_settings,
+                        fixture,
+                        args.output.parent,
+                        args.quiet,
+                    )
+                except Exception as exc:
+                    raise managed_startup_failure_error(exc) from exc
+                discovery_fixture = managed_servers.effective_fixture
+            elif args.server_source in {"auto", "live"}:
+                validate_fixture_server_configs(fixture)
 
-    output = await generate_fixture(fixture, tools_by_server, client, settings, args.quiet)
+            tools_by_server = await discover_tools(discovery_fixture, args.server_source, args.quiet)
+            client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=settings.request_timeout)
+
+        output = await generate_fixture(fixture, tools_by_server, client, settings, args.quiet)
+    finally:
+        stop_managed_generation_servers(managed_servers, args.quiet)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", encoding="utf-8") as f:
