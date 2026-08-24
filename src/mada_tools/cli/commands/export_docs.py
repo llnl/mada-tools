@@ -39,4 +39,4 @@ class ExportDocsCmd(BaseCmd):
             args: Parsed CLI arguments containing the destination path.
         """
         destination = export_docs(args.destination)
-        LOG.info(f"Exported documentation source to {destination}")
+        LOG.info("Exported documentation source to %s", destination)

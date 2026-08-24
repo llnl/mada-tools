@@ -58,6 +58,31 @@ Additional markers are below. You'll see how these markers are utilized in the [
 
 Fixtures can be defined at different levels of a test suite by using `conftest.py` files, and they can also be defined directly inside individual test modules. Where you define a fixture determines how broadly it is available. In general, fixtures defined in a test module are only available in that module, while fixtures defined in a `conftest.py` file are available to tests in that directory and its subdirectories. Because fixture discovery is scoped this way, fixture names should still be chosen carefully to avoid confusion or unintended overriding.
 
+## Shared Test Utilities For Extensions
+
+MADA ships reusable test helpers under `mada_tools.testing` so extension
+packages can share the same server-validation and agent-driven end-to-end
+testing utilities used in this repository. See [Vertex CFD integration tests](https://github.com/llnl/mada-tools/blob/develop/tests/integration/simulation/test_vertex_cfd.py)
+and [Vertex CFD end-to-end tests](https://github.com/llnl/mada-tools/blob/develop/tests/e2e/simulation/test_vertex_cfd.py)
+as examples. More specifically, these tests are using fixtures from the
+[top-level `conftest.py` file](https://github.com/llnl/mada-tools/blob/develop/tests/conftest.py), the [integration tests' `conftest.py` file](https://github.com/llnl/mada-tools/blob/develop/tests/integration/conftest.py), and the [end-to-end tests' `conftest.py` file](https://github.com/llnl/mada-tools/blob/develop/tests/e2e/conftest.py).
+
+Install the existing test extra in your extension package environment:
+
+```bash
+pip install -e .
+pip install "mada_tools[tests]"
+```
+
+Common imports:
+
+```python
+from mada_tools.testing import AgentTestRunner, load_server_config, validate_server_state
+```
+
+`AgentTestRunner` accepts explicit config paths, so extension packages can use
+their own fixture layout instead of mirroring the `mada-tools` repository.
+
 ## Running Tests
 
 There are multiple ways to run the test suite, due to the [marks mentioned earlier](#marking-tests). Here is how the test suite can be ran:

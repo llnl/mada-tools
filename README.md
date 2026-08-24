@@ -145,6 +145,10 @@ The `examples/` directory contains example agents that can connect to and use MA
    python simple_agent_loop.py --config config.json
    ```
 
+    The example script wraps the supported library API
+    `mada_tools.agents.MultiServerAgent`, so you can reuse the same agent class
+    in your own applications and extension-package tests.
+
    **Use custom config**:
    ```bash
    python simple_agent_loop.py --config my_config.json

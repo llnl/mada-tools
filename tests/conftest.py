@@ -1,8 +1,11 @@
 # Copyright 2026, Lawrence Livermore National Security, LLC and MADA contributors
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""
-This module contains pytest fixtures to be used throughout the entire test suite.
+"""Top-level pytest configuration shared across the repository test suite.
+
+This file centralizes test-directory markers, command-line options, environment
+checks, and general-purpose fixtures that are used by more specific unit,
+integration, and end-to-end test layers.
 """
 
 import json
@@ -15,9 +18,7 @@ from typing import Callable, Generator
 import pytest
 from _pytest.tmpdir import TempPathFactory
 
-from tests.utils import (
-    get_server_env_vars,
-)
+from mada_tools.testing import get_server_env_vars
 
 REPO_DIR = Path(__file__).parent.parent
 
@@ -38,6 +39,10 @@ def pytest_collection_modifyitems(config, items):
     """
     Modifies pytest items prior to running the tests. In our case,
     this is specifically marking tests appropriately.
+
+    Args:
+        config: Pytest configuration object. Unused, but provided by the hook.
+        items: Collected pytest items to inspect and mark.
     """
     # Resolve test directories
     e2e_dir = E2E_DIR.resolve()
@@ -85,8 +90,9 @@ def pytest_runtest_setup(item):
 
     This hook checks for the presence of required environment variables for tests
     marked with `@pytest.mark.requires_env`. If any required environment variables
-    are missing, the test is skipped. If "MCP_SERVER:my_mcp" is passed, it will look
-    through `configs/development.json` to confirm MCP Server paths are available.
+    are missing, the test is skipped. If `MCP_SERVER:<name>` is passed, the hook
+    looks through `configs/development.json` and verifies that any path-like
+    environment variables point to readable filesystem locations.
 
     Args:
         item: The pytest test item being set up.
@@ -166,9 +172,12 @@ def create_testing_dir() -> Callable:
 @pytest.fixture(scope="session")
 def temp_output_dir(tmp_path_factory: TempPathFactory) -> Generator[str, None, None]:
     """
-    This fixture will create a temporary directory to store output files of integration tests.
-    The temporary directory will be stored at /tmp/`whoami`/pytest-of-`whoami`/. There can be at most
-    3 temp directories in this location so upon the 4th test run, the 1st temp directory will be removed.
+    Create and switch into a temporary directory for test outputs.
+
+    Pytest manages the underlying temp-directory retention policy. This fixture
+    additionally changes the current working directory for the duration of the
+    session so tests that emit output files without explicit absolute paths do
+    not write into the repository checkout.
 
     Args:
         tmp_path_factory:
@@ -247,6 +256,12 @@ def configure_env():
 
     @contextmanager
     def _configure(server_key: str):
+        """Apply the configured environment variables for one server key.
+
+        Args:
+            server_key: Name of the server entry in `CONFIG_PATH` whose
+                `env_vars` block should be applied temporarily.
+        """
 
         env_vars = get_server_env_vars(CONFIG_PATH, server_key)
         old_values = {key: os.environ.get(key) for key in env_vars}

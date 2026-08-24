@@ -172,6 +172,17 @@ After installing your package, run
 [`mada-tools available-servers`](../../user_guide/cli.md#available-servers-mada-tools-available-servers)
 to confirm that your extension's servers are being discovered.
 
+For AI-driven end-to-end tests, extension packages can also reuse the shared
+test helpers in `mada_tools.testing`. The supported reusable agent is
+`mada_tools.agents.MultiServerAgent`, which is also the implementation behind
+the repository's interactive example app.
+
+Example test import:
+
+```python
+from mada_tools.testing import AgentTestRunner
+```
+
 ## Legacy Registration
 
 MADA still supports legacy registration through
