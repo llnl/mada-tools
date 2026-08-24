@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 
 ### Added
+-
+
+### Changed
+-
+
+### Fixed
+-
+
+## 0.2.0 - 2026-08-24
+
+### Added
 - Packaged the documentation source project in wheels and added `mada-tools export-docs` command
 - Added wheel-based documentation package validation to CI
 - Added common parameter_samples_generator and associated documentation.
@@ -22,9 +33,6 @@ All notable changes to this project will be documented in this file.
 - Updated how plugins are discovered and registered to extend capabilities past just MCP servers
 - Converted MCP Tools to async so that long running tools do not block the chat.
 - Promoted `MultiServerAgent` into package code under `mada_tools.agents` and refactored the interactive example to consume the supported library API
-
-### Fixed
--
 
 ## 0.1.1 - 2026-06-23
 
