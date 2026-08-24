@@ -35,7 +35,7 @@ class SlurmServer(BaseMCPServer):
         """Register MCP tools for Slurm operations."""
 
         @self.mcp.tool()
-        def submit_jobs(
+        async def submit_jobs(
             run_info_json: str,
             blocking: bool = False,
             nodes: int = 1,
@@ -72,7 +72,7 @@ class SlurmServer(BaseMCPServer):
             Returns:
                 str: JSON containing submission results and job IDs.
             """
-            return self.run_tool(
+            return await self.run_tool(
                 self.job_manager.submit_jobs,
                 run_info_json,
                 blocking=blocking,
@@ -87,7 +87,7 @@ class SlurmServer(BaseMCPServer):
             )
 
         @self.mcp.tool()
-        def check_job_status(job_set_id: str = None, slurm_job_id: str = None) -> str:
+        async def check_job_status(job_set_id: str = None, slurm_job_id: str = None) -> str:
             """
             Check the status of submitted job sets or one tracked Slurm job.
 
@@ -98,14 +98,14 @@ class SlurmServer(BaseMCPServer):
             Returns:
                 str: JSON containing job status information
             """
-            return self.run_tool(
+            return await self.run_tool(
                 self.job_manager.get_job_status,
                 job_set_id=job_set_id,
                 slurm_job_id=slurm_job_id,
             )
 
         @self.mcp.tool()
-        def continuously_check_job_status(
+        async def continuously_check_job_status(
             job_set_id: str = None,
             slurm_job_id: str = None,
             wait_until: str = "terminal",
@@ -132,7 +132,7 @@ class SlurmServer(BaseMCPServer):
             Returns:
                 str: JSON containing polling metadata plus the last status response.
             """
-            return self.run_tool(
+            return await self.run_tool(
                 self.job_manager.continuously_check_job_status,
                 job_set_id=job_set_id,
                 slurm_job_id=slurm_job_id,
@@ -142,7 +142,7 @@ class SlurmServer(BaseMCPServer):
             )
 
         @self.mcp.tool()
-        def submit_command(
+        async def submit_command(
             command: str, working_directory: Optional[str] = None, nodes: int = 1, tasks: int = 1
         ) -> str:
             """
@@ -160,7 +160,7 @@ class SlurmServer(BaseMCPServer):
             Returns:
                 str: Command output and status
             """
-            self.run_tool(
+            return await self.run_tool(
                 self.job_manager.submit_command,
                 command,
                 nodes,
@@ -169,19 +169,19 @@ class SlurmServer(BaseMCPServer):
             )
 
         @self.mcp.tool()
-        def list_queue() -> str:
+        async def list_queue() -> str:
             """List all jobs in the SLURM queue using squeue."""
-            self.run_tool(self.job_manager.list_queue)
+            return await self.run_tool(self.job_manager.list_queue)
 
         @self.mcp.tool()
-        def get_cluster_info() -> str:
+        async def get_cluster_info() -> str:
             """
             Get information about the cluster nodes using `sinfo`.
 
             Returns:
                 Information about the cluster nodes from `sinfo`.
             """
-            self.run_tool(self.job_manager.get_cluster_info)
+            return await self.run_tool(self.job_manager.get_cluster_info)
 
 
 def main():

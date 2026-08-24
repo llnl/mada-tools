@@ -19,9 +19,29 @@ Modules:
         A file to store ASCII art that can be used in the CLI output.
 """
 
-from mada_tools.cli.ascii_art import BANNER
-from mada_tools.cli.commands import ALL_COMMANDS
 from mada_tools.logging_config import LEVEL_MAP, set_log_level, setup_logging
+
+
+def __getattr__(name):
+    """Lazily expose CLI objects that import command implementations.
+
+    Importing an individual command module first executes this package
+    initializer. Keep the command registry lazy so lightweight commands such as
+    ``export-docs`` can be imported without loading every MCP server-management
+    command and its runtime dependencies.
+    """
+    if name == "ALL_COMMANDS":
+        from mada_tools.cli.commands import ALL_COMMANDS
+
+        return ALL_COMMANDS
+
+    if name == "BANNER":
+        from mada_tools.cli.ascii_art import BANNER
+
+        return BANNER
+
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "set_log_level",

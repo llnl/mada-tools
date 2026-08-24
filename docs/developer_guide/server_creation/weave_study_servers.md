@@ -1,6 +1,6 @@
 # Creating WEAVE Study Construction Servers
 
-If you need an MCP server for constructing Jinja-templated WEAVE studies for your project, you should generally build it on top of [`WEAVEStudyConstructionServer`](../workflow/weave/study_construction/server.md#workflow.weave.study_construction.server.WEAVEStudyConstructionServer) rather than directly on [`BaseMCPServer`](../shared/base_server.md#shared.base_server.BaseMCPServer). Here, "WEAVE studies" refer to any study supported by [WEAVE Workflow Orchestration Tools](https://llnl-weave.readthedocs.io/en/latest/tools.html#workflow-orchestration).
+If you need an MCP server for constructing Jinja-templated WEAVE studies for your project, you should generally build it on top of [`WEAVEStudyConstructionServer`](../workflow/weave/study_construction/server.md#mada_tools.workflow.weave.study_construction.server.WEAVEStudyConstructionServer) rather than directly on [`BaseMCPServer`](../shared/base_server.md#mada_tools.shared.base_server.BaseMCPServer). Here, "WEAVE studies" refer to any study supported by [WEAVE Workflow Orchestration Tools](https://llnl-weave.readthedocs.io/en/latest/tools.html#workflow-orchestration).
 
 `WEAVEStudyConstructionServer` is a specialized base class for MCP servers that expose study-construction functionality through template-backed tools. It is designed for servers that:
 
@@ -19,7 +19,7 @@ Use `WEAVEStudyConstructionServer` when your server needs to do one or more of t
 - Bundle project-specific preprocessing or validation logic for workflow inputs
 - Provide a standard set of study-construction tools for WEAVE-based workflows
 
-If your server does not construct WEAVE studies, or if it simply exposes unrelated computational tools, you should likely inherit directly from [`BaseMCPServer`](../shared/base_server.md#shared.base_server.BaseMCPServer) instead.
+If your server does not construct WEAVE studies, or if it simply exposes unrelated computational tools, you should likely inherit directly from [`BaseMCPServer`](../shared/base_server.md#mada_tools.shared.base_server.BaseMCPServer) instead.
 
 ## What `WEAVEStudyConstructionServer` Provides
 

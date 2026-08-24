@@ -58,7 +58,7 @@ class MaestroCommandExecutionServer(BaseMCPServer):
         """
 
         @self.mcp.tool()
-        def run_workflow(
+        async def run_workflow(
             workflow_yaml: str | Path,
             attempts: int = 1,
             rlimit: int = 1,
@@ -122,7 +122,7 @@ class MaestroCommandExecutionServer(BaseMCPServer):
                 run_workflow("/path/to/workflow.yaml", pgen="/path/to/pgen.py")
                 ```
             """
-            return self.run_tool(
+            return await self.run_tool(
                 self.command_executor.run_workflow,
                 workflow_yaml,
                 attempts=attempts,
@@ -139,7 +139,7 @@ class MaestroCommandExecutionServer(BaseMCPServer):
             )
 
         @self.mcp.tool()
-        def get_statuses(
+        async def get_statuses(
             workflow_dirs: List[str | Path],
             layout: str = "flat",
             disable_theme: bool = False,
@@ -175,12 +175,12 @@ class MaestroCommandExecutionServer(BaseMCPServer):
                 )
                 ```
             """
-            return self.run_tool(
+            return await self.run_tool(
                 self.command_executor.get_statuses, workflow_dirs, layout=layout, disable_theme=disable_theme
             )
 
         @self.mcp.tool()
-        def cancel_workflows(workflow_dirs: List[str | Path]) -> str:
+        async def cancel_workflows(workflow_dirs: List[str | Path]) -> str:
             """
             Cancel one or more running Maestro workflows.
 
@@ -211,10 +211,10 @@ class MaestroCommandExecutionServer(BaseMCPServer):
                     print(f"Failed to cancel workflow: {msg}")
                 ```
             """
-            return self.run_tool(self.command_executor.cancel_workflows, workflow_dirs)
+            return await self.run_tool(self.command_executor.cancel_workflows, workflow_dirs)
 
         @self.mcp.tool()
-        def update_workflows(
+        async def update_workflows(
             workflow_dirs: List[str | Path],
             rlimit: int = None,
             throttle: int = None,
@@ -244,7 +244,7 @@ class MaestroCommandExecutionServer(BaseMCPServer):
             Raises:
                 ToolExecutionError: If the underlying Maestro command fails.
             """
-            return self.run_tool(
+            return await self.run_tool(
                 self.command_executor.update_workflows,
                 workflow_dirs,
                 rlimit=rlimit,

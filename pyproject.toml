@@ -1,12 +1,12 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "mada_tools"
 description = "Tooling for the MADA multi-agent ecosystem"
-version = "0.1.1"
-requires-python = ">=3.10"
+version = "0.2.0"
+requires-python = ">=3.11"
 readme = "README.md"
 dependencies = [
     "fastmcp>=3.0.0",
@@ -64,10 +64,12 @@ examples = [
 flux = ["flux-python==0.63.0"]
 
 tests = [
+    "build",
     "pytest",
     "pytest-mock",
     "pre-commit",
-    "ruff"
+    "ruff",
+    "pytest-asyncio"
 ]
 
 all = ["mada_tools[docs, examples, flux, tests]"]
@@ -81,16 +83,17 @@ mada-mcp-professor = "mada_tools.surrogate.professor.server:main"
 mada-mcp-monitor = "mada_tools.monitor.job_monitor.server:main"
 mada-mcp-maestro-command-executor = "mada_tools.workflow.weave.maestro.server:main"
 
-[project.entry-points."mada_tools.servers"]
-flux = "mada_tools.scheduler.flux.server"
-slurm = "mada_tools.scheduler.slurm.server"
-vertex_cfd = "mada_tools.simulation.vertex_cfd.server"
-professor = "mada_tools.surrogate.professor.server"
-job_monitor = "mada_tools.monitor.job_monitor.server"
-maestro_command_executor = "mada_tools.workflow.weave.maestro.server"
+[project.entry-points."mada_tools.extensions"]
+mada_tools = "mada_tools.extensions.builtins:get_extension_manifest"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+mada_tools = ["_docs/*", "_docs/**/*"]
+
+[tool.setuptools.exclude-package-data]
+mada_tools = ["_docs/**/__pycache__/*", "_docs/**/*.py[cod]"]
 
 [tool.ruff]
 line-length = 120
@@ -105,5 +108,6 @@ markers = [
     "integration: marks tests as integration tests",
     "e2e: marks tests as end-to-end tests",
     "allocation_required: marks tests that require an allocation",
-    "requires_env(var): skip test if the given env var is not set",
+    "requires_env(var): skip test if the given server env var is not set or available",
+    "requires_gitlab_runner: marks tests that need an HPC GitLab runner",
 ]

@@ -15,10 +15,14 @@ Below are more details on the MADA-provided applications.
 
 ## Single-Agent Example App
 
-The Simple-Agent Application is located in the examples/ folder at the top of the repository. Inside this folder, you’ll find:
+The Simple-Agent Application is located in the `examples/` folder at the top of the repository. Inside this folder, you’ll find:
 
 - `config.json`: Configuration for your model and MCP servers
-- `simple_agent_loop.py`: The Python script containing the application logic
+- `simple_agent_loop.py`: The runnable example entrypoint
+
+The reusable implementation now lives in `mada_tools.agents.MultiServerAgent`.
+The example script is a thin wrapper around that supported library API so you
+still have a concrete reference app in the repository.
 
 ### Configuration
 
@@ -51,6 +55,13 @@ The Simple-Agent Application (`simple_agent_loop.py`) connects to one or more MC
 - **Automatic Tool Discovery:** Discovers tools on each MCP server and makes them available for use.
 - **Interactive Chat Loop:** Provides a command-line interface for entering queries and receiving results.
 - **OpenAI Integration:** Uses an OpenAI-compatible model to interpret queries and determine which tools to call.
+
+If you are building your own application instead of using the example script,
+import `MultiServerAgent` directly:
+
+```python
+from mada_tools.agents import MultiServerAgent
+```
 
 ### Running the Application
 

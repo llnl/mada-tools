@@ -2,6 +2,10 @@ name: CI
 
 on: [pull_request]
 
+concurrency:
+  group: "ci-${{ github.event.pull_request.number }}"
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -31,6 +35,36 @@ jobs:
       test-name: "docs"
       test-command: "mkdocs build --strict"
 
+  package-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+
+      - name: Build wheel
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build
+          python -m build --wheel
+
+      - name: Install wheel in clean environment
+        run: |
+          python -m venv .venv-package-docs
+          source .venv-package-docs/bin/activate
+          python -m pip install --upgrade pip
+          WHEEL=$(python -c "from pathlib import Path; print(next(Path('dist').glob('*.whl')))")
+          python -m pip install "${WHEEL}[docs]"
+
+      - name: Export and build packaged docs
+        run: |
+          source .venv-package-docs/bin/activate
+          mada-tools export-docs exported-docs
+          cd exported-docs
+          mkdocs build --strict
+
   lint:
     uses: ./.github/workflows/test-job.yml
     with:
@@ -42,9 +76,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     uses: ./.github/workflows/test-job.yml
     with:
+      runs-on: ${{ matrix.os }}
       python-version: ${{ matrix.python-version }}
       test-name: "unit"
       test-command: 'pytest -m "unit and not allocation_required" tests/'
@@ -53,9 +89,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     uses: ./.github/workflows/test-job.yml
     with:
+      runs-on: ${{ matrix.os }}
       python-version: ${{ matrix.python-version }}
       test-name: "integration"
       test-command: 'pytest -m "integration and not allocation_required" tests/'
@@ -64,9 +102,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     uses: ./.github/workflows/test-job.yml
     with:
+      runs-on: ${{ matrix.os }}
       python-version: ${{ matrix.python-version }}
       test-name: "e2e"
       test-command: 'pytest -m "e2e and not allocation_required" tests/'

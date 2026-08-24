@@ -4,11 +4,15 @@
 """Base MCP server class for common functionality."""
 
 import argparse
+import asyncio
 import json
 import logging
 import os
+import threading
 import traceback
 from abc import ABC
+from datetime import datetime
+from itertools import count
 from typing import Any, Callable, Dict, Optional
 
 from fastmcp import FastMCP
@@ -35,26 +39,9 @@ class BaseMCPServer(ABC):
         self.mcp = None
         # OAuth configuration (set during run_with_args)
         self.oauth_enabled = False
-
-    def get_env_var(self, var_name: str, default: Optional[str] = None, required: bool = False) -> Optional[str]:
-        """
-        Get environment variable with optional default and required validation.
-
-        Args:
-            var_name: Name of the environment variable
-            default: Default value if not set
-            required: Whether the variable is required
-
-        Returns:
-            The environment variable value
-
-        Raises:
-            ValueError: If required variable is not set
-        """
-        value = os.getenv(var_name, default)
-        if required and value is None:
-            raise ValueError(f"Required environment variable {var_name} is not set")
-        return value
+        self._tool_task_lock = threading.Lock()
+        self._tool_task_counter = count(1)
+        self._tool_tasks: Dict[str, Dict[str, Any]] = {}
 
     def parse_args(self) -> argparse.Namespace:
         """Parse command line arguments."""
@@ -169,6 +156,7 @@ class BaseMCPServer(ABC):
                 self.mcp = FastMCP(name=self.server_name)
 
         # Register tools now that mcp is initialized
+        self._register_base_tools()
         self._register_tools()
 
         # Start the server
@@ -190,18 +178,110 @@ class BaseMCPServer(ABC):
         else:
             raise ValueError(f"Unsupported transport: {transport}")
 
-    def run_tool(self, func: Callable, *args, **kwargs) -> Any:
+    def _register_base_tools(self):
+        """Register tools shared by all MADA MCP servers."""
+
+        @self.mcp.tool()
+        async def get_background_task_result(task_id: str) -> str:
+            """
+            Get the status and result for a background tool task.
+
+            Args:
+                task_id: Task id returned by a background tool call.
+
+            Returns:
+                JSON describing the task status, result, or error.
+            """
+            with self._tool_task_lock:
+                task_info = self._tool_tasks.get(task_id)
+                if task_info is None:
+                    return json.dumps(
+                        {
+                            "task_id": task_id,
+                            "status": "not_found",
+                            "message": "Background task not found.",
+                        },
+                        indent=2,
+                    )
+                return json.dumps(task_info, default=str, indent=2)
+
+    async def run_tool(self, func: Callable, *args, background: bool = True, **kwargs) -> Any:
+        """
+        Execute a tool and return either a background task descriptor or its payload.
+
+        Args:
+            func: The function/method to execute.
+            background: Whether to run the tool in the background. Defaults to True.
+
+        Returns:
+            A JSON task descriptor when running in the background, otherwise the normalized tool payload.
+        """
+        if not background:
+            return await asyncio.to_thread(self._execute_tool, func, *args, **kwargs)
+
+        with self._tool_task_lock:
+            task_id = f"tool-task-{next(self._tool_task_counter)}"
+            tool_name = getattr(func, "__name__", repr(func))
+            submitted_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+            self._tool_tasks[task_id] = {
+                "task_id": task_id,
+                "tool_name": tool_name,
+                "status": "running",
+                "submitted_at": submitted_at,
+                "completed_at": None,
+                "result": None,
+                "error": None,
+            }
+        task = asyncio.create_task(asyncio.to_thread(self._execute_tool, func, *args, **kwargs))
+
+        def _save_background_result(done_task):
+            completed_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+            if done_task.cancelled():
+                with self._tool_task_lock:
+                    self._tool_tasks[task_id]["status"] = "cancelled"
+                    self._tool_tasks[task_id]["completed_at"] = completed_at
+                    self._tool_tasks[task_id]["error"] = "Background tool was cancelled."
+                LOG.error(f"Background tool {tool_name} ({task_id}) was cancelled")
+            else:
+                error = done_task.exception()
+                if error is not None:
+                    with self._tool_task_lock:
+                        self._tool_tasks[task_id]["status"] = "failed"
+                        self._tool_tasks[task_id]["completed_at"] = completed_at
+                        self._tool_tasks[task_id]["error"] = str(error)
+                    LOG.error(f"Background tool {tool_name} ({task_id}) failed: {error}")
+                else:
+                    with self._tool_task_lock:
+                        self._tool_tasks[task_id]["status"] = "completed"
+                        self._tool_tasks[task_id]["completed_at"] = completed_at
+                        self._tool_tasks[task_id]["result"] = done_task.result()
+                    LOG.info(f"Background tool {tool_name} ({task_id}) completed")
+
+        task.add_done_callback(_save_background_result)
+        return json.dumps(
+            {
+                "task_id": task_id,
+                "tool_name": tool_name,
+                "status": "running",
+                "submitted_at": submitted_at,
+                "message": "Tool started in background.",
+            },
+            indent=2,
+        )
+
+    def _execute_tool(self, func: Callable, *args, **kwargs) -> Any:
         """
         Helper function to run a tool and handle errors.
 
         Args:
-            func: The function/method to execute.
+        func: The function/method to execute.
+        background: Whether to run the tool in the background. Defaults to True.
 
         Returns:
-            The successful payload returned by the tool.
+        The successful payload returned by the tool.
 
         Raises:
-            ToolExecutionError: If the tool execution fails.
+        ToolExecutionError: If the tool execution fails.
         """
         try:
             success, payload = func(*args, **kwargs)

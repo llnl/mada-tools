@@ -46,15 +46,42 @@ Depending on which test type (e2e, integration, etc.) you put a test file under,
 - `integration`: Marks tests as integration tests
 - `e2e`: Marks tests as end-to-end tests
 
-If you create a test that requires an allocation, mark the test with `@pytest.mark.allocation_required`.
+Additional markers are below. You'll see how these markers are utilized in the [Running Tests](#running-tests) section.
 
-If you create a test that requires a specific environment variable, mark the test with `@pytest.mark.requires_env("MY_VAR")`.
-
-You'll see how these marks are utilized in the [Running Tests](#running-tests) section.
+| Condition | Marker |
+|---|---|
+| Requires an allocation | `@pytest.mark.allocation_required` |
+| Requires a specific server environment variable. If "MCP_SERVER:my_mcp" is passed, it will look through `configs/development.json` to confirm MCP Server paths are available. | `@pytest.mark.requires_env("MY_VAR")` |
+| Requires an HPC GitLab runner | `@pytest.mark.requires_gitlab_runner` |
 
 ### Fixture Architecture
 
 Fixtures can be defined at different levels of a test suite by using `conftest.py` files, and they can also be defined directly inside individual test modules. Where you define a fixture determines how broadly it is available. In general, fixtures defined in a test module are only available in that module, while fixtures defined in a `conftest.py` file are available to tests in that directory and its subdirectories. Because fixture discovery is scoped this way, fixture names should still be chosen carefully to avoid confusion or unintended overriding.
+
+## Shared Test Utilities For Extensions
+
+MADA ships reusable test helpers under `mada_tools.testing` so extension
+packages can share the same server-validation and agent-driven end-to-end
+testing utilities used in this repository. See [Vertex CFD integration tests](https://github.com/llnl/mada-tools/blob/develop/tests/integration/simulation/test_vertex_cfd.py)
+and [Vertex CFD end-to-end tests](https://github.com/llnl/mada-tools/blob/develop/tests/e2e/simulation/test_vertex_cfd.py)
+as examples. More specifically, these tests are using fixtures from the
+[top-level `conftest.py` file](https://github.com/llnl/mada-tools/blob/develop/tests/conftest.py), the [integration tests' `conftest.py` file](https://github.com/llnl/mada-tools/blob/develop/tests/integration/conftest.py), and the [end-to-end tests' `conftest.py` file](https://github.com/llnl/mada-tools/blob/develop/tests/e2e/conftest.py).
+
+Install the existing test extra in your extension package environment:
+
+```bash
+pip install -e .
+pip install "mada_tools[tests]"
+```
+
+Common imports:
+
+```python
+from mada_tools.testing import AgentTestRunner, load_server_config, validate_server_state
+```
+
+`AgentTestRunner` accepts explicit config paths, so extension packages can use
+their own fixture layout instead of mirroring the `mada-tools` repository.
 
 ## Running Tests
 
@@ -94,4 +121,10 @@ You can also choose to run *only* the tests that require an allocation using:
 
 ```bash
 flux alloc -N 1 -q pdebug -t 60  pytest -m allocation_required --include-allocation-required tests/
+```
+
+Some tests require a connection to an llm, thus you will need an environment file `${HOME}/.mada_env` with your `API_KEY`.
+
+```
+API_KEY=##############
 ```

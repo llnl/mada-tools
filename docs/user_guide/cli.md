@@ -146,3 +146,19 @@ mada-tools available-servers [OPTIONS]
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this help message and exit | `False` |
+
+## Export Docs (`mada-tools export-docs`)
+
+Export the packaged documentation source project from an installed MADA Tools wheel. The exported project includes `mkdocs.yaml`, the `docs/` source tree, and supporting files used by documentation snippets.
+
+**Usage:**
+
+```bash
+mada-tools export-docs DESTINATION
+```
+
+**Arguments:**
+
+| Name | Type | Description |
+| ---- | ---- | ----------- |
+| `DESTINATION` | string | Directory where the documentation source project will be exported |

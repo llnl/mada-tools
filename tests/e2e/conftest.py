@@ -1,18 +1,25 @@
 # Copyright 2026, Lawrence Livermore National Security, LLC and MADA contributors
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""
-Fixtures for end-to-end tests.
+"""Fixtures and helpers shared by repository end-to-end tests.
+
+This layer keeps the pytest-facing convenience fixtures used by end-to-end
+tests while delegating the reusable implementation to `mada_tools.testing`.
+That split lets extension packages consume the same runner without importing
+from the repository's private `tests/` package.
 """
 
 from pathlib import Path
 from typing import Any, Callable, List, Tuple
 
 import pytest
+import pytest_asyncio
 from _pytest.monkeypatch import MonkeyPatch
 
 from mada_tools.server_management import ServerInfo, ServerStatus
 from mada_tools.server_management.state_manager import ServerStateManager
+from mada_tools.testing import AgentTestRunner
+from tests.conftest import REPO_DIR
 
 
 @pytest.fixture
@@ -60,7 +67,7 @@ def capture_rich_prints(monkeypatch: MonkeyPatch) -> List[Tuple[Any, ...]]:
 @pytest.fixture
 def extract_tables():
     """
-    A fixture for extracting printed Rich table objects from captured Console.print calls.
+    Return a helper that extracts Rich table objects from captured print calls.
 
     Args:
         captured_prints: Captured Console.print argument tuples.
@@ -92,7 +99,7 @@ def extract_tables():
 @pytest.fixture
 def register_server() -> Callable:
     """
-    A fixture for registering servers in a real state file.
+    Return a helper that registers synthetic servers in a real state file.
 
     Args:
         state_file: Path to the state file.
@@ -147,3 +154,42 @@ def register_server() -> Callable:
         state_manager.update_server_status(name, status)
 
     return _register_server
+
+
+@pytest_asyncio.fixture
+def agent_test_runner():
+    """Create repository-relative `AgentTestRunner` instances for e2e tests.
+
+    The packaged runner itself is path-based and reusable by extension packages.
+    This fixture keeps only the repository-specific convenience of resolving
+    config file names relative to the local `configs/` and `examples/`
+    directories.
+    """
+
+    async def _create(
+        servers_config_file: str,
+        agent_config_file: str,
+    ):
+        """
+        Create an async factory for constructing AgentTestRunner instances
+        from repository-relative config file names.
+
+        Args:
+            servers_config_file: File name under the repository `configs/`
+                directory.
+            agent_config_file: File name under the repository `examples/`
+                directory.
+
+        Returns:
+            AgentTestRunner: Configured runner ready to be used as an async
+            context manager.
+        """
+        servers_config_path = REPO_DIR / "configs" / servers_config_file
+        agent_config_path = REPO_DIR / "examples" / agent_config_file
+
+        return AgentTestRunner(
+            servers_config_path=servers_config_path,
+            agent_config_path=agent_config_path,
+        )
+
+    return _create

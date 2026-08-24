@@ -17,6 +17,7 @@ from typing import Callable
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
 
+from mada_tools.extensions.manifest import MCPServerRegistration
 from mada_tools.main import main
 from mada_tools.server_management import ServerStatus
 
@@ -149,16 +150,10 @@ def test_main_restart_servers_restarts_all_configured_servers(
     )
 
     monkeypatch.setattr(
-        "mada_tools.server_management.server_manager.ServerManager._discover_servers",
+        "mada_tools.server_management.server_manager.ExtensionRegistry.get_mcp_server_index",
         lambda self: {
-            "alpha": {
-                "module_path": "fake_pkg.alpha.server",
-                "package": "fake_pkg",
-            },
-            "beta": {
-                "module_path": "fake_pkg.beta.server",
-                "package": "fake_pkg",
-            },
+            "alpha": MCPServerRegistration("alpha", "fake_pkg.alpha.server", "fake_pkg"),
+            "beta": MCPServerRegistration("beta", "fake_pkg.beta.server", "fake_pkg"),
         },
     )
 
@@ -183,7 +178,7 @@ def test_main_restart_servers_restarts_all_configured_servers(
     def fake_is_port_in_use(self, host, port):
         count = port_check_counts.get(port, 0) + 1
         port_check_counts[port] = count
-        return count >= 2
+        return 0 if count >= 2 else 111
 
     monkeypatch.setattr(
         "mada_tools.server_management.server_manager.psutil.Process",
@@ -271,16 +266,10 @@ def test_main_restart_servers_only_restarts_requested_server(
     )
 
     monkeypatch.setattr(
-        "mada_tools.server_management.server_manager.ServerManager._discover_servers",
+        "mada_tools.server_management.server_manager.ExtensionRegistry.get_mcp_server_index",
         lambda self: {
-            "alpha": {
-                "module_path": "fake_pkg.alpha.server",
-                "package": "fake_pkg",
-            },
-            "beta": {
-                "module_path": "fake_pkg.beta.server",
-                "package": "fake_pkg",
-            },
+            "alpha": MCPServerRegistration("alpha", "fake_pkg.alpha.server", "fake_pkg"),
+            "beta": MCPServerRegistration("beta", "fake_pkg.beta.server", "fake_pkg"),
         },
     )
 
@@ -301,8 +290,8 @@ def test_main_restart_servers_only_restarts_requested_server(
         count = port_check_counts.get(port, 0) + 1
         port_check_counts[port] = count
         if port == 8011:
-            return count >= 2
-        return False
+            return 0 if count >= 2 else 111
+        return 111
 
     monkeypatch.setattr(
         "mada_tools.server_management.server_manager.psutil.Process",
@@ -371,12 +360,9 @@ def test_main_restart_servers_starts_fresh_when_server_is_not_already_running(
             Path to a test-local state file.
     """
     monkeypatch.setattr(
-        "mada_tools.server_management.server_manager.ServerManager._discover_servers",
+        "mada_tools.server_management.server_manager.ExtensionRegistry.get_mcp_server_index",
         lambda self: {
-            "alpha": {
-                "module_path": "fake_pkg.alpha.server",
-                "package": "fake_pkg",
-            }
+            "alpha": MCPServerRegistration("alpha", "fake_pkg.alpha.server", "fake_pkg"),
         },
     )
 
@@ -389,7 +375,7 @@ def test_main_restart_servers_starts_fresh_when_server_is_not_already_running(
 
     def fake_is_port_in_use(self, host, port):
         port_check_counts["count"] += 1
-        return port_check_counts["count"] >= 2
+        return 0 if port_check_counts["count"] >= 2 else 111
 
     monkeypatch.setattr(
         "mada_tools.server_management.state_manager.ServerStateManager._is_port_in_use",
@@ -444,16 +430,10 @@ def test_main_restart_servers_exits_with_error_for_unknown_server_name(
             Path to a test-local state file.
     """
     monkeypatch.setattr(
-        "mada_tools.server_management.server_manager.ServerManager._discover_servers",
+        "mada_tools.server_management.server_manager.ExtensionRegistry.get_mcp_server_index",
         lambda self: {
-            "alpha": {
-                "module_path": "fake_pkg.alpha.server",
-                "package": "fake_pkg",
-            },
-            "beta": {
-                "module_path": "fake_pkg.beta.server",
-                "package": "fake_pkg",
-            },
+            "alpha": MCPServerRegistration("alpha", "fake_pkg.alpha.server", "fake_pkg"),
+            "beta": MCPServerRegistration("beta", "fake_pkg.beta.server", "fake_pkg"),
         },
     )
 
@@ -511,12 +491,9 @@ def test_main_restart_servers_exits_with_error_when_restarted_server_port_is_in_
     )
 
     monkeypatch.setattr(
-        "mada_tools.server_management.server_manager.ServerManager._discover_servers",
+        "mada_tools.server_management.server_manager.ExtensionRegistry.get_mcp_server_index",
         lambda self: {
-            "alpha": {
-                "module_path": "fake_pkg.alpha.server",
-                "package": "fake_pkg",
-            }
+            "alpha": MCPServerRegistration("alpha", "fake_pkg.alpha.server", "fake_pkg"),
         },
     )
 
@@ -535,7 +512,7 @@ def test_main_restart_servers_exits_with_error_when_restarted_server_port_is_in_
     )
     monkeypatch.setattr(
         "mada_tools.server_management.state_manager.ServerStateManager._is_port_in_use",
-        lambda self, host, port: True,
+        lambda self, host, port: 0,
     )
 
     monkeypatch.setattr(

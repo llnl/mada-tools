@@ -28,7 +28,7 @@ class VertexCFDServer(BaseMCPServer):
         """Register MCP tools for Vertex-CFD operations."""
 
         @self.mcp.tool()
-        def generate_parameter_runs(
+        async def generate_parameter_runs(
             num_samples: int,
             parameter_names: List[str],
             lower_bounds: List[float],
@@ -55,7 +55,7 @@ class VertexCFDServer(BaseMCPServer):
             Returns:
                 str: JSON string with run information for job submission
             """
-            return self.run_tool(
+            return await self.run_tool(
                 self.vertex_cfd_helper.generate_parameter_runs,
                 num_samples,
                 parameter_names,
@@ -67,7 +67,7 @@ class VertexCFDServer(BaseMCPServer):
             )
 
         @self.mcp.tool()
-        def post_process_runs(
+        async def post_process_runs(
             output_dir: str,
         ) -> str:
             """
@@ -82,10 +82,10 @@ class VertexCFDServer(BaseMCPServer):
             Returns:
                 str: Success string
             """
-            return self.run_tool(self.vertex_cfd_helper.post_process_runs, output_dir)
+            return await self.run_tool(self.vertex_cfd_helper.post_process_runs, output_dir)
 
         @self.mcp.tool()
-        def in_situ_viz() -> dict:
+        async def in_situ_viz() -> dict:
             """
             Create In Situ Visualization for GUI Chat Interface.
 
@@ -94,7 +94,7 @@ class VertexCFDServer(BaseMCPServer):
             Returns:
                 str: Success string
             """
-            return self.run_tool(self.vertex_cfd_helper.in_situ_viz)
+            return await self.run_tool(self.vertex_cfd_helper.in_situ_viz)
 
 
 def main():

@@ -145,6 +145,10 @@ The `examples/` directory contains example agents that can connect to and use MA
    python simple_agent_loop.py --config config.json
    ```
 
+    The example script wraps the supported library API
+    `mada_tools.agents.MultiServerAgent`, so you can reuse the same agent class
+    in your own applications and extension-package tests.
+
    **Use custom config**:
    ```bash
    python simple_agent_loop.py --config my_config.json
@@ -313,6 +317,14 @@ mkdocs serve
 
 This will provide a localhost URL for you. Open that in your browser to view the documentation.
 
+Installed wheels also include the documentation source project. To export and build that packaged copy:
+
+```bash
+mada-tools export-docs mada-tools-docs
+cd mada-tools-docs
+mkdocs build --strict
+```
+
 
 ## Release
 
@@ -325,3 +337,5 @@ See [LICENSE](./LICENSE), [COPYRIGHT](./COPYRIGHT), and [NOTICE](./NOTICE) for d
 SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 LLNL-CODE-2019936
+
+https://doi.org/10.11578/dc.20260717.1
