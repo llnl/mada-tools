@@ -9,3 +9,4 @@ logs/
 .codex
 slirp.out
 **/*vertex_cfd*_randomized_*
+**sandbox-config.yaml
