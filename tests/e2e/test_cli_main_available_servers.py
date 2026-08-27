@@ -262,3 +262,73 @@ def test_main_available_servers_discovers_manifest_servers_via_entry_points(
 
     tables = extract_tables(capture_rich_prints)
     assert len(tables) == 1
+
+
+def test_main_available_servers_keeps_core_and_plugin_servers_when_flux_is_unavailable(
+    monkeypatch: MonkeyPatch,
+    patch_cli_dependencies: None,
+    capsys,
+    caplog: LogCaptureFixture,
+):
+    """Verify the real CLI remains successful when the optional Flux package is absent."""
+
+    class FakeEntryPoint:
+        def __init__(self, name, value, loaded):
+            self.name = name
+            self.value = value
+            self._loaded = loaded
+            self.dist = None
+
+        def load(self):
+            return self._loaded
+
+    def core_manifest():
+        return ExtensionManifest(
+            display_name="MADA Tools",
+            version="1.0",
+            provider_package="mada_tools",
+            mcp_servers=(
+                MCPServerRegistration("flux", "mada_tools.scheduler.flux.server", "mada_tools"),
+                MCPServerRegistration("slurm", "mada_tools.scheduler.slurm.server", "mada_tools"),
+                MCPServerRegistration("job_monitor", "mada_tools.monitor.job_monitor.server", "mada_tools"),
+            ),
+        )
+
+    def plugin_manifest():
+        return ExtensionManifest(
+            display_name="Example Plugin",
+            version="1.0",
+            provider_package="plugin_package",
+            mcp_servers=(
+                MCPServerRegistration("plugin_alpha", "plugin_package.alpha.server", "plugin_package"),
+                MCPServerRegistration("plugin_beta", "plugin_package.beta.server", "plugin_package"),
+            ),
+        )
+
+    class AllFakeEntryPoints:
+        def select(self, group=None):
+            if group == "mada_tools.extensions":
+                return [
+                    FakeEntryPoint("mada_tools", "mada_tools.extensions:factory", core_manifest),
+                    FakeEntryPoint("plugin_package", "plugin_package.extension:factory", plugin_manifest),
+                ]
+            return []
+
+    def import_module(module_path):
+        if module_path == "mada_tools.scheduler.flux.server":
+            raise ModuleNotFoundError("No module named 'flux'")
+        return type("Module", (), {"main": staticmethod(lambda: None)})()
+
+    monkeypatch.setattr("importlib.metadata.entry_points", lambda: AllFakeEntryPoints())
+    monkeypatch.setattr("mada_tools.extensions.registry.importlib.import_module", import_module)
+    monkeypatch.setattr(sys, "argv", ["mada-tools", "available-servers"])
+
+    with caplog.at_level("WARNING"):
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+    assert exc_info.value.code in (None, 0)
+    output = capsys.readouterr().out
+    assert all(name in output for name in ("slurm", "job_monitor", "plugin_alpha", "plugin_beta"))
+    assert "flux" not in output
+    assert any("flux" in record.message.lower() for record in caplog.records)
