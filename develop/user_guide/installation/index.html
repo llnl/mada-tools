@@ -503,6 +503,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#server-discovery-and-optional-capabilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Server discovery and optional capabilities
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#installing-optional-dependencies" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5199,6 +5210,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#server-discovery-and-optional-capabilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Server discovery and optional capabilities
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#installing-optional-dependencies" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5227,46 +5249,26 @@
 
 
 <h1 id="installing-mada-tools">Installing MADA Tools</h1>
-<p>In this page you'll find <a href="#basic-installation">Basic Installation</a> instructions (most users should just look at this section) and instructions for <a href="#installing-optional-dependencies">Installing Optional Dependencies</a> which will likely only be needed by developers.</p>
+<p>In this page you'll find <a href="#basic-installation">Basic Installation</a> instructions (most users should just look at this section) and instructions for <a href="#installing-optional-dependencies">Installing Optional Dependencies</a>.</p>
 <h2 id="basic-installation">Basic Installation</h2>
-<p>Here are the steps required to install the MADA MCP Servers project:</p>
+<p>Here are the steps required to install the MADA Tools project:</p>
 <ol>
 <li>
-<p>First, clone the repository:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio"><input id="__tabbed_1_2" name="__tabbed_1" type="radio"><div class="tabbed-labels"><label for="__tabbed_1_1">ssh</label><label for="__tabbed_1_2">https</label></div>
-<div class="tabbed-content">
-<div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>git<span class="w"> </span>clone<span class="w"> </span>git@github.com:llnl/mada-tools.git
-</span></code></pre></div>
-</div>
-<div class="tabbed-block">
-<div class="language-csh highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>git clone https://github.com/llnl/mada-tools.git
-</span></code></pre></div>
-</div>
-</div>
-</div>
-</li>
-<li>
-<p>Next, move into the cloned repository:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nb">cd</span><span class="w"> </span>mada-tools/
-</span></code></pre></div>
-</li>
-<li>
 <p>Create a python virtual environment:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>mada_venv
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>python<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>mada_venv
 </span></code></pre></div>
 <p><strong>Note:</strong> If you've already installed <a href="https://software.llnl.gov/mada">MADA</a> into a virtual environment, install MADA Tools in the same virtual environment.</p>
 </li>
 <li>
 <p>Activate the environment:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="2:2"><input checked="checked" id="__tabbed_2_1" name="__tabbed_2" type="radio"><input id="__tabbed_2_2" name="__tabbed_2" type="radio"><div class="tabbed-labels"><label for="__tabbed_2_1">bash</label><label for="__tabbed_2_2">csh</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio"><input id="__tabbed_1_2" name="__tabbed_1" type="radio"><div class="tabbed-labels"><label for="__tabbed_1_1">bash</label><label for="__tabbed_1_2">csh</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nb">source</span><span class="w"> </span>mada_venv/bin/activate
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nb">source</span><span class="w"> </span>mada_venv/bin/activate
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-csh highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nb">source </span>mada_venv/bin/activate.csh
+<div class="language-csh highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nb">source </span>mada_venv/bin/activate.csh
 </span></code></pre></div>
 </div>
 </div>
@@ -5274,15 +5276,26 @@
 </li>
 <li>
 <p>From the top level of the repository, run:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>pip<span class="w"> </span>install<span class="w"> </span>mada-tools
 </span></code></pre></div>
 </li>
 </ol>
 <p>Congratulations, the MADA Tools project is now installed!</p>
 <p>You may also want to configure environment variables related to your API key and endpoint:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">API_KEY</span><span class="o">=</span><span class="s2">"your-api-key-here"</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">API_BASE_URL</span><span class="o">=</span><span class="s2">"https://api.openai.com/v1/responses"</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">API_KEY</span><span class="o">=</span><span class="s2">"your-api-key-here"</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">API_BASE_URL</span><span class="o">=</span><span class="s2">"https://api.openai.com/v1/responses"</span>
 </span></code></pre></div>
+<h2 id="server-discovery-and-optional-capabilities">Server discovery and optional capabilities</h2>
+<p>MADA discovers each core and plugin server independently. If an optional
+server dependency is missing, that server is omitted and the other available
+servers continue to appear in <code>mada-tools available-servers</code>.</p>
+<p>Flux is optional and requires the <code>flux-python</code> package plus a usable Flux
+system executable when the server is run. Install the Python support with:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"mada_tools[flux]"</span>
+</span></code></pre></div>
+<p>Server discovery does not start Flux or probe the scheduler executable. The
+Flux server will report configuration or executable problems when it is
+started or used.</p>
 <h2 id="installing-optional-dependencies">Installing Optional Dependencies</h2>
 <p>There are four sets of optional dependencies that can be installed:</p>
 <ul>
@@ -5292,35 +5305,35 @@
 <li>Tests</li>
 </ul>
 <p>These can be installed together:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="3:2"><input checked="checked" id="__tabbed_3_1" name="__tabbed_3" type="radio"><input id="__tabbed_3_2" name="__tabbed_3" type="radio"><div class="tabbed-labels"><label for="__tabbed_3_1">Shorthand</label><label for="__tabbed_3_2">Verbose</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="2:2"><input checked="checked" id="__tabbed_2_1" name="__tabbed_2" type="radio"><input id="__tabbed_2_2" name="__tabbed_2" type="radio"><div class="tabbed-labels"><label for="__tabbed_2_1">Shorthand</label><label for="__tabbed_2_2">Verbose</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[all]"</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"mada_tools[all]"</span>
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.<span class="o">[</span>tests,docs,examples,flux<span class="o">]</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"mada_tools[tests,docs,examples,flux]"</span>
 </span></code></pre></div>
 </div>
 </div>
 </div>
 <p>Or separately:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="4:4"><input checked="checked" id="__tabbed_4_1" name="__tabbed_4" type="radio"><input id="__tabbed_4_2" name="__tabbed_4" type="radio"><input id="__tabbed_4_3" name="__tabbed_4" type="radio"><input id="__tabbed_4_4" name="__tabbed_4" type="radio"><div class="tabbed-labels"><label for="__tabbed_4_1">Install Test Dependencies</label><label for="__tabbed_4_2">Install Documentation Dependencies</label><label for="__tabbed_4_3">Install Example Dependencies</label><label for="__tabbed_4_4">Install Flux Dependencies</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="3:4"><input checked="checked" id="__tabbed_3_1" name="__tabbed_3" type="radio"><input id="__tabbed_3_2" name="__tabbed_3" type="radio"><input id="__tabbed_3_3" name="__tabbed_3" type="radio"><input id="__tabbed_3_4" name="__tabbed_3" type="radio"><div class="tabbed-labels"><label for="__tabbed_3_1">Install Test Dependencies</label><label for="__tabbed_3_2">Install Documentation Dependencies</label><label for="__tabbed_3_3">Install Example Dependencies</label><label for="__tabbed_3_4">Install Flux Dependencies</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.<span class="o">[</span>tests<span class="o">]</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"mada_tools[tests]"</span>
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.<span class="o">[</span>docs<span class="o">]</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"mada_tools[docs]"</span>
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.<span class="o">[</span>examples<span class="o">]</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"mada_tools[examples]"</span>
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.<span class="o">[</span>flux<span class="o">]</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"mada_tools[flux]"</span>
 </span></code></pre></div>
 </div>
 </div>
