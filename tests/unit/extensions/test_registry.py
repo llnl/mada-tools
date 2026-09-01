@@ -114,6 +114,102 @@ def test_discover_manifest_extensions_discovers_valid_manifest(monkeypatch: Monk
     assert discovered == [manifest]
 
 
+def test_discover_manifest_extensions_keeps_servers_when_one_dependency_is_missing(
+    monkeypatch: MonkeyPatch, caplog: LogCaptureFixture
+):
+    """Verify that one unavailable server does not hide the rest of a manifest."""
+    registry = ExtensionRegistry()
+    manifest = make_manifest(
+        "provider_pkg",
+        MCPServerRegistration("available", "provider.available.server", "provider_pkg"),
+        MCPServerRegistration("optional", "provider.optional.server", "provider_pkg"),
+    )
+    entry_points = [FakeEntryPoint("provider_pkg", "provider_pkg.extension:get_extension_manifest", lambda: manifest)]
+
+    def import_module(module_path):
+        if module_path.endswith("optional.server"):
+            raise ModuleNotFoundError("No module named 'optional_dependency'")
+        return types.SimpleNamespace(main=lambda: None)
+
+    monkeypatch.setattr(
+        registry,
+        "_load_entry_points",
+        lambda group: entry_points if group == "mada_tools.extensions" else [],
+    )
+    monkeypatch.setattr("mada_tools.extensions.registry.importlib.import_module", import_module)
+
+    with caplog.at_level("WARNING"):
+        discovered = registry._discover_manifest_extensions()
+
+    assert [server.name for server in discovered[0].mcp_servers] == ["available"]
+    assert any("optional" in record.message and "Could not import" in record.message for record in caplog.records)
+
+
+def test_discover_manifest_extensions_omits_manifest_when_all_servers_are_unavailable(
+    monkeypatch: MonkeyPatch, caplog: LogCaptureFixture
+):
+    """Verify that an extension with no usable servers is omitted."""
+    registry = ExtensionRegistry()
+    manifest = make_manifest(
+        "provider_pkg",
+        MCPServerRegistration("optional_a", "provider.a.server", "provider_pkg"),
+        MCPServerRegistration("optional_b", "provider.b.server", "provider_pkg"),
+    )
+    entry_points = [FakeEntryPoint("provider_pkg", "provider_pkg.extension:get_extension_manifest", lambda: manifest)]
+    monkeypatch.setattr(
+        registry,
+        "_load_entry_points",
+        lambda group: entry_points if group == "mada_tools.extensions" else [],
+    )
+    monkeypatch.setattr(
+        "mada_tools.extensions.registry.importlib.import_module",
+        lambda module_path: (_ for _ in ()).throw(ModuleNotFoundError("missing dependency")),
+    )
+
+    with caplog.at_level("WARNING"):
+        discovered = registry._discover_manifest_extensions()
+
+    assert discovered == []
+    assert any("has no usable MCP server registrations" in record.message for record in caplog.records)
+
+
+def test_flux_import_failure_does_not_hide_other_builtin_servers(monkeypatch: MonkeyPatch, caplog: LogCaptureFixture):
+    """Verify that missing flux-python removes only Flux from built-in discovery."""
+    registry = ExtensionRegistry()
+
+    def import_module(module_path):
+        if module_path == "mada_tools.scheduler.flux.server":
+            raise ModuleNotFoundError("No module named 'flux'")
+        return types.SimpleNamespace(main=lambda: None)
+
+    from mada_tools.extensions.builtins import get_extension_manifest
+
+    monkeypatch.setattr(
+        registry,
+        "_load_entry_points",
+        lambda group: (
+            [
+                FakeEntryPoint(
+                    "mada_tools",
+                    "mada_tools.extensions.builtins:get_extension_manifest",
+                    get_extension_manifest,
+                )
+            ]
+            if group == "mada_tools.extensions"
+            else []
+        ),
+    )
+    monkeypatch.setattr("mada_tools.extensions.registry.importlib.import_module", import_module)
+
+    with caplog.at_level("WARNING"):
+        servers = registry.get_available_mcp_servers()
+
+    names = {server.name for server in servers}
+    assert "flux" not in names
+    assert {"slurm", "vertex_cfd", "professor", "job_monitor", "maestro_command_executor"} <= names
+    assert any("flux" in record.message.lower() for record in caplog.records)
+
+
 def test_discover_manifest_extensions_skips_duplicate_provider_packages(
     monkeypatch: MonkeyPatch, caplog: LogCaptureFixture
 ):
@@ -174,6 +270,23 @@ def test_validate_extension_manifest_rejects_empty_provider_package(caplog: LogC
 
     assert not is_valid
     assert any("empty provider_package" in record.message for record in caplog.records)
+
+
+def test_validate_extension_manifest_rejects_malformed_server_collection(caplog: LogCaptureFixture):
+    """Verify malformed manifest server collections remain rejected."""
+    registry = ExtensionRegistry()
+    manifest = ExtensionManifest(
+        display_name="Broken extension",
+        version="1.0.0",
+        provider_package="provider_pkg",
+        mcp_servers=None,  # type: ignore[arg-type]
+    )
+
+    with caplog.at_level("WARNING"):
+        is_valid = registry._validate_extension_manifest(manifest)
+
+    assert not is_valid
+    assert any("malformed mcp_servers" in record.message for record in caplog.records)
 
 
 def test_validate_extension_manifest_rejects_duplicate_server_names(

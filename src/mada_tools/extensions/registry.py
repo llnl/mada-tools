@@ -11,6 +11,7 @@ modules, and returning the final set of available MCP server registrations.
 import importlib
 import logging
 from collections import defaultdict
+from dataclasses import replace
 from typing import Any, Dict, List, Optional
 
 from mada_tools.extensions.manifest import ExtensionManifest, MCPServerRegistration
@@ -102,7 +103,8 @@ class ExtensionRegistry:
             if manifest is None:
                 continue
 
-            if not self._validate_extension_manifest(manifest):
+            manifest = self._validated_extension_manifest(manifest)
+            if manifest is None:
                 continue
 
             if manifest.provider_package in seen_provider_packages:
@@ -254,18 +256,37 @@ class ExtensionRegistry:
                 `True` when the manifest is structurally valid, otherwise
                 `False`.
         """
+        return self._validated_extension_manifest(manifest) is not None
+
+    def _validated_extension_manifest(self, manifest: ExtensionManifest) -> Optional[ExtensionManifest]:
+        """Return a manifest containing only usable server registrations.
+
+        Manifest metadata and duplicate registrations remain all-or-nothing,
+        but an unavailable server is an optional capability.  This distinction
+        lets one extension contribute its other servers when an optional
+        dependency (for example ``flux-python``) is not installed.
+        """
         if not manifest.provider_package:
             LOG.warning("Encountered extension manifest with empty provider_package")
-            return False
+            return None
 
         if not manifest.display_name:
             LOG.warning("Extension '%s' is missing display_name", manifest.provider_package)
-            return False
+            return None
+
+        if not isinstance(manifest.mcp_servers, tuple):
+            LOG.warning("Extension '%s' has malformed mcp_servers", manifest.provider_package)
+            return None
 
         seen_server_names: set[str] = set()
+        usable_servers: list[MCPServerRegistration] = []
         for server in manifest.mcp_servers:
-            if not self._validate_mcp_server_registration(server):
-                return False
+            if not isinstance(server, MCPServerRegistration):
+                LOG.warning(
+                    "Extension '%s' contains an invalid MCP server registration; skipping manifest",
+                    manifest.provider_package,
+                )
+                return None
 
             if server.name in seen_server_names:
                 LOG.warning(
@@ -273,11 +294,20 @@ class ExtensionRegistry:
                     manifest.provider_package,
                     server.name,
                 )
-                return False
-
+                return None
             seen_server_names.add(server.name)
 
-        return True
+            if self._validate_mcp_server_registration(server):
+                usable_servers.append(server)
+
+        if not usable_servers:
+            LOG.warning(
+                "Extension '%s' has no usable MCP server registrations",
+                manifest.provider_package,
+            )
+            return None
+
+        return replace(manifest, mcp_servers=tuple(usable_servers))
 
     def _validate_mcp_server_registration(self, server: MCPServerRegistration) -> bool:
         """Validate one MCP server registration, including runtime importability.

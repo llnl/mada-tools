@@ -8,10 +8,10 @@ All notable changes to this project will be documented in this file.
 -
 
 ### Changed
--
+- Updated installation docs to describe package installation from PyPI and optional server discovery behavior
 
 ### Fixed
--
+- Kept available MCP server discovery working when an optional server dependency is missing
 
 ## 0.2.0 - 2026-08-24
 
