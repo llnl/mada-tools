@@ -162,3 +162,33 @@ mada-tools export-docs DESTINATION
 | Name | Type | Description |
 | ---- | ---- | ----------- |
 | `DESTINATION` | string | Directory where the documentation source project will be exported |
+
+## Plugin Docs (`mada-tools plugin-docs`)
+
+Stage, build, serve, or clean a plugin-local documentation site that combines plugin docs with the core docs exported from the installed `mada-tools` package. The `build` and `serve` commands require the docs dependencies, such as from `pip install "mada_tools[docs]"`.
+
+Use `prepare` when you want to inspect the staged MkDocs source tree without building it. The `build` and `serve` commands call `prepare` automatically before running MkDocs. Use `clean` to remove the generated docs tree.
+
+**Usage:**
+
+```bash
+mada-tools plugin-docs prepare --config docs/plugin_docs.yaml
+mada-tools plugin-docs build --config docs/plugin_docs.yaml
+mada-tools plugin-docs serve --config docs/plugin_docs.yaml
+mada-tools plugin-docs clean --config docs/plugin_docs.yaml
+```
+
+Pass additional MkDocs arguments after `--`:
+
+```bash
+mada-tools plugin-docs build --config docs/plugin_docs.yaml -- --strict
+mada-tools plugin-docs serve --config docs/plugin_docs.yaml -- --dev-addr 127.0.0.1:9000
+```
+
+**Options:**
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `-h`, `--help` | boolean | Show this help message and exit | `False` |
+| `--config` | string | Path to the plugin docs configuration file | `docs/plugin_docs.yaml` |
+| `mkdocs_args` | List[string] | Additional arguments passed to `mkdocs build` or `mkdocs serve` | None |
