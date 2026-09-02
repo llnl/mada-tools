@@ -5,7 +5,8 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 
 ### Added
--
+- Added shared plugin documentation staging helpers and the `mada-tools plugin-docs` command group for preparing, building, serving, and cleaning plugin-local combined docs sites
+- Added shared API reference page generation helper for plugin documentation builds
 
 ### Changed
 - Updated installation docs to describe package installation from PyPI and optional server discovery behavior
