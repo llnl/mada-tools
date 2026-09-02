@@ -9,7 +9,8 @@ version = "0.2.0"
 requires-python = ">=3.11"
 readme = "README.md"
 dependencies = [
-    "fastmcp>=3.0.0",
+    "fastmcp>=4.0.0",
+    "httpx2",
     "openai",           # Used by Professor server for LLM calls
     "pyyaml",           # Used by Merlin server for YAML handling
     "sympy",

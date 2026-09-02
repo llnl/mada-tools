@@ -25,8 +25,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import httpx2
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from openai import AsyncOpenAI
 
 LOGGER = logging.getLogger(__name__)
@@ -245,8 +246,18 @@ class MultiServerAgent:
         """
         url = server_config["url"]
         try:
-            transport_cm = streamablehttp_client(url)
-            read_stream, write_stream, _ = await stack.enter_async_context(transport_cm)
+            http_client = httpx2.AsyncClient(
+                headers=server_config.get("headers"),
+                timeout=httpx2.Timeout(
+                    server_config.get("timeout", 30),
+                    read=server_config.get("sse_read_timeout", 300),
+                ),
+                follow_redirects=True,
+            )
+            await stack.enter_async_context(http_client)
+
+            transport_cm = streamable_http_client(url, http_client=http_client)
+            read_stream, write_stream, *_ = await stack.enter_async_context(transport_cm)
 
             session = ClientSession(read_stream, write_stream)
             await stack.enter_async_context(session)
