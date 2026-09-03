@@ -250,7 +250,7 @@ class MultiServerAgent:
                 headers=server_config.get("headers"),
                 timeout=httpx2.Timeout(
                     server_config.get("timeout", 30),
-                    read=server_config.get("sse_read_timeout", 300),
+                    read=server_config.get("sse_read_timeout", 150),
                 ),
                 follow_redirects=True,
             )
