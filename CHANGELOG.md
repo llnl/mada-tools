@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 
 ### Added
--
+- Support for FastMCP 4.0 and MCP 2.0
 
 ### Changed
 - Updated installation docs to describe package installation from PyPI and optional server discovery behavior
