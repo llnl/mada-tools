@@ -14,20 +14,27 @@ import argparse
 import asyncio
 import os
 
+import httpx2
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 
 
 # ------------------------------------------------------------
 # Utility function to connect to a monitor MCP server
 # ------------------------------------------------------------
 async def connect(url: str):
-    transport = streamablehttp_client(url)
-    read_stream, write_stream, _ = await transport.__aenter__()
+    http_client = httpx2.AsyncClient(
+        timeout=httpx2.Timeout(30, read=300),
+        follow_redirects=True,
+    )
+    await http_client.__aenter__()
+
+    transport = streamable_http_client(url, http_client=http_client)
+    read_stream, write_stream, *_ = await transport.__aenter__()
     session = ClientSession(read_stream, write_stream)
     await session.__aenter__()
     await session.initialize()
-    return session, transport
+    return session, transport, http_client
 
 
 # ------------------------------------------------------------
@@ -60,7 +67,7 @@ async def main():
     # 1. Connect to JobMonitor server
     # ------------------------------------------------------------
     print(f"Connecting to JobMonitor server at {monitor_url} ...")
-    monitor, monitor_t = await connect(monitor_url)
+    monitor, monitor_t, monitor_http = await connect(monitor_url)
     print("Connected.\n")
 
     print(f"Scanning study directory:\n  {study_dir}")
@@ -118,6 +125,7 @@ async def main():
     # ------------------------------------------------------------
     await monitor.__aexit__(None, None, None)
     await monitor_t.__aexit__(None, None, None)
+    await monitor_http.__aexit__(None, None, None)
 
 
 # Run

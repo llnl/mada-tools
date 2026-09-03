@@ -14,6 +14,7 @@ from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Any
 
+import httpx2
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
@@ -89,8 +90,14 @@ async def collect_server_tools(
         url = f"http://{active.host}:{active.port}/mcp"
 
         async with AsyncExitStack() as stack:
-            transport_cm = streamable_http_client(url)
-            read_stream, write_stream, _ = await stack.enter_async_context(transport_cm)
+            http_client = httpx2.AsyncClient(
+                timeout=httpx2.Timeout(30, read=300),
+                follow_redirects=True,
+            )
+            await stack.enter_async_context(http_client)
+
+            transport_cm = streamable_http_client(url, http_client=http_client)
+            read_stream, write_stream, *_ = await stack.enter_async_context(transport_cm)
 
             session = ClientSession(read_stream, write_stream)
             await stack.enter_async_context(session)
