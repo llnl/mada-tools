@@ -3,6 +3,7 @@
 
 """Tests for plugin documentation staging helpers."""
 
+import re
 import shutil
 from pathlib import Path
 
@@ -120,7 +121,7 @@ def test_prepare_plugin_docs_site_reports_missing_plugin_docs_dir(
 
     monkeypatch.setattr(docs_mod, "export_docs", fake_export_docs)
 
-    with pytest.raises(FileNotFoundError, match=str(missing_source)):
+    with pytest.raises(FileNotFoundError, match=re.escape(str(missing_source))):
         prepare_plugin_docs_site(config)
 
 
