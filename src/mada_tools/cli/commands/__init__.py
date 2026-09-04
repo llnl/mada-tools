@@ -22,6 +22,8 @@ Modules:
         Implements the `ServersStatusCmd` for displaying the status of MCP servers.
     export_docs:
         Implements the `ExportDocsCmd` for exporting packaged documentation sources.
+    plugin_docs:
+        Implements the `PluginDocsCmd` for combined core/plugin documentation sites.
 """
 
 from importlib import import_module
@@ -29,6 +31,7 @@ from importlib import import_module
 _COMMAND_EXPORTS = {
     "AvailableServersCmd": ("mada_tools.cli.commands.available_servers", "AvailableServersCmd"),
     "ExportDocsCmd": ("mada_tools.cli.commands.export_docs", "ExportDocsCmd"),
+    "PluginDocsCmd": ("mada_tools.cli.commands.plugin_docs", "PluginDocsCmd"),
     "RestartServersCmd": ("mada_tools.cli.commands.restart_servers", "RestartServersCmd"),
     "ServersStatusCmd": ("mada_tools.cli.commands.servers_status", "ServersStatusCmd"),
     "StartServersCmd": ("mada_tools.cli.commands.start_servers", "StartServersCmd"),
@@ -47,6 +50,7 @@ def __getattr__(name):
         commands = [
             __getattr__("AvailableServersCmd")(),
             __getattr__("ExportDocsCmd")(),
+            __getattr__("PluginDocsCmd")(),
             __getattr__("RestartServersCmd")(),
             __getattr__("ServersStatusCmd")(),
             __getattr__("StartServersCmd")(),
@@ -68,6 +72,7 @@ __all__ = [
     "ALL_COMMANDS",
     "AvailableServersCmd",
     "ExportDocsCmd",
+    "PluginDocsCmd",
     "RestartServersCmd",
     "ServersStatusCmd",
     "StartServersCmd",

@@ -197,3 +197,115 @@ them per server name:
 
 This allows packages to migrate incrementally from `mada_tools.servers` to
 `mada_tools.extensions` instead of moving every server in one change.
+
+## Plugin Documentation
+
+Plugin repositories should build plugin-local combined docs when they need to publish documentation alongside the core MADA Tools guides. This keeps each plugin responsible for its own docs while still showing the matching installed MADA Tools reference in the same MkDocs site.
+
+The combined docs workflow exports the core docs from the installed `mada-tools` package, then stages plugin docs into a generated docs tree. Install the docs dependencies in the environment that builds or serves the site:
+
+```bash
+pip install "mada_tools[docs]"
+```
+
+Keep plugin pages namespaced so they do not collide with core docs, such as `example_plugin_index.md`, `example_plugin_user_guide`, or `example_plugin_developer_guide`. The staging tool does not require those exact names, but it refuses to overwrite paths exported from the core docs.
+
+Create a config file such as `docs/plugin_docs.yaml`. It is an extension
+manifest; the installed `mada-tools` package supplies the canonical
+`mkdocs.yaml`:
+
+```yaml
+project_root: ..
+generated_root: .generated_docs
+plugin_docs_dir: docs
+
+site_name: My Plugin
+
+nav:
+  - My Plugin User Guide:
+      - Overview: my_plugin_user_guide/index.md
+
+gen_files:
+  scripts:
+    - docs/my_plugin_gen_ref_pages.py
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/example/my-plugin
+      name: My Plugin on GitHub
+```
+
+The `generated_root` and `plugin_docs_dir` settings should be relative paths to
+the `project_root`. `site_name` intentionally overrides the core title so the
+published site identifies the plugin.
+
+Supported extension fields are `site_name`, `nav`, `gen_files.scripts`, and
+`extra.social`. The core theme, Markdown extensions, standard plugins,
+`docs_dir`, and `site_dir` are always retained. Plugin navigation is appended
+after core navigation; generation scripts are appended to the core
+`gen-files` plugin; and social links are appended to core social links.
+
+If a field is omitted, these defaults are used:
+
+| Field | Default | Path base |
+| ---- | ---- | ---- |
+| `project_root` | `.` | directory containing `plugin_docs.yaml` |
+| `generated_root` | `.generated_docs` | `project_root` |
+| `plugin_docs_dir` | `docs` | `project_root` |
+
+The plugin docs directory is copied into the staged MkDocs `docs/` directory. For example, a plugin repository can use this source layout:
+
+```text
+docs/
+  plugin_docs.yaml              # config file; read by the CLI, not copied into the staged site
+  example_plugin_index.md
+  example_plugin_user_guide/
+    index.md
+  example_plugin_developer_guide/
+    index.md
+```
+
+During staging, the content under `plugin_docs_dir` is copied into `.generated_docs/docs`. The plugin docs config file itself is skipped, and Python cache artifacts like `__pycache__` and `.pyc` files are excluded.
+
+The generated `.generated_docs/mkdocs.yaml` contains the merged configuration.
+Plugin API scripts remain relative to that generated project, for example
+`docs/gen_ref_pages.py` followed by `docs/my_plugin_gen_ref_pages.py`.
+
+Choose the command for the task:
+
+```bash
+mada-tools plugin-docs prepare --config docs/plugin_docs.yaml
+mada-tools plugin-docs build --config docs/plugin_docs.yaml
+mada-tools plugin-docs serve --config docs/plugin_docs.yaml
+mada-tools plugin-docs clean --config docs/plugin_docs.yaml
+```
+
+Use `prepare` when you want to inspect the staged MkDocs source tree without building it. The `build` and `serve` commands call `prepare` automatically before running MkDocs. Use `clean` to remove the generated docs tree.
+
+The `build` and `serve` commands pass trailing arguments to MkDocs:
+
+```bash
+mada-tools plugin-docs build --config docs/plugin_docs.yaml -- --strict
+mada-tools plugin-docs serve --config docs/plugin_docs.yaml -- --dev-addr 127.0.0.1:9000
+```
+
+For plugin API reference pages, call the shared generator from the plugin's
+script listed under `gen_files.scripts` instead of copying MADA Tools' full
+`docs/gen_ref_pages.py` implementation:
+
+```python
+from pathlib import Path
+
+from mada_tools.docs import ApiReferenceMapping, generate_api_reference_pages
+
+generate_api_reference_pages(
+    [
+        ApiReferenceMapping(
+            package_name="example_plugin",
+            api_reference_path=Path("example_plugin_developer_guide/api"),
+            source_path=Path("src/example_plugin"),
+        )
+    ]
+)
+```

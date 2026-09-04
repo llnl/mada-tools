@@ -117,3 +117,7 @@ Now when you install your library, your server will be available with MADA.
 In order to check that your server is available with MADA, use the [`mada-tools available-servers`](../../user_guide/cli.md#available-servers-mada-tools-available-servers) command. For example, after following the previous set of instructions for the template server, you should see output like so:
 
 ![Output of available-servers for template server](../../assets/images/avail-servers-template.png)
+
+## Plugin Documentation
+
+Plugin packages can build plugin-local docs that combine their own pages with the core docs exported from the installed `mada-tools` package. See [Plugin Documentation](./extensions.md#plugin-documentation) for the supported config format, defaults, naming guidance, and CLI commands.
