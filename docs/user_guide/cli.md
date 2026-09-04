@@ -167,6 +167,13 @@ mada-tools export-docs DESTINATION
 
 Stage, build, serve, or clean a plugin-local documentation site that combines plugin docs with the core docs exported from the installed `mada-tools` package. The `build` and `serve` commands require the docs dependencies, such as from `pip install "mada_tools[docs]"`.
 
+The plugin configuration is an extension manifest, not a second full MkDocs
+project. `mada-tools` supplies the canonical theme, Markdown extensions,
+standard plugins, and core navigation. `nav`, `gen_files.scripts`, and
+`extra.social` from the plugin are appended to those core values, and
+`site_name` may set the published plugin title. Inspect the merged result in
+`.generated_docs/mkdocs.yaml` after `prepare`.
+
 Use `prepare` when you want to inspect the staged MkDocs source tree without building it. The `build` and `serve` commands call `prepare` automatically before running MkDocs. Use `clean` to remove the generated docs tree.
 
 **Usage:**
