@@ -3,6 +3,7 @@
 
 """Tests for plugin documentation staging helpers."""
 
+import re
 import shutil
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from mada_tools.docs import (
     build_plugin_docs,
     clean_plugin_docs,
     load_plugin_docs_config,
+    merge_mkdocs_config,
     prepare_plugin_docs_site,
     serve_plugin_docs,
 )
@@ -26,9 +28,9 @@ def test_load_plugin_docs_config_resolves_paths(tmp_path: Path):
     config_path.write_text(
         """
 project_root: ..
-mkdocs_config: mkdocs.yaml
 generated_root: .generated_docs
 plugin_docs_dir: docs
+site_name: Plugin
 """,
         encoding="utf-8",
     )
@@ -37,7 +39,6 @@ plugin_docs_dir: docs
 
     assert config.config_path == config_path.resolve()
     assert config.project_root == tmp_path.resolve()
-    assert config.mkdocs_config == (tmp_path / "mkdocs.yaml").resolve()
     assert config.generated_root == (tmp_path / ".generated_docs").resolve()
     assert config.plugin_docs_dir == (tmp_path / "docs").resolve()
 
@@ -50,9 +51,44 @@ def test_load_plugin_docs_config_uses_defaults(tmp_path: Path):
     config = load_plugin_docs_config(config_path)
 
     assert config.project_root == tmp_path.resolve()
-    assert config.mkdocs_config == (tmp_path / "mkdocs.yaml").resolve()
     assert config.generated_root == (tmp_path / ".generated_docs").resolve()
     assert config.plugin_docs_dir == (tmp_path / "docs").resolve()
+    assert config.extensions == {}
+
+
+def test_merge_mkdocs_config_preserves_core_and_appends_plugin_fields():
+    core = {
+        "site_name": "MADA Tools",
+        "nav": [{"Core": "index.md"}],
+        "plugins": [{"gen-files": {"scripts": ["docs/gen_ref_pages.py"]}}],
+        "extra": {"social": [{"name": "Core"}]},
+        "theme": {"name": "material"},
+    }
+    plugin = {
+        "site_name": "Plugin",
+        "nav": [{"Plugin": "plugin/index.md"}],
+        "gen_files": {"scripts": ["docs/plugin_gen_ref_pages.py"]},
+        "extra": {"social": [{"name": "Plugin"}]},
+    }
+
+    merged = merge_mkdocs_config(core, plugin)
+
+    assert merged["site_name"] == "Plugin"
+    assert merged["nav"] == [{"Core": "index.md"}, {"Plugin": "plugin/index.md"}]
+    assert merged["plugins"][0]["gen-files"]["scripts"] == ["docs/gen_ref_pages.py", "docs/plugin_gen_ref_pages.py"]
+    assert merged["extra"]["social"] == [{"name": "Core"}, {"name": "Plugin"}]
+    assert core["nav"] == [{"Core": "index.md"}]
+
+
+@pytest.mark.parametrize(
+    "config_text",
+    ["bad_field: true", "nav: invalid", "gen_files: {scripts: nope}"],
+)
+def test_load_plugin_docs_config_rejects_unsupported_or_malformed_fields(tmp_path: Path, config_text: str):
+    config_path = tmp_path / "plugin_docs.yaml"
+    config_path.write_text(config_text, encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_plugin_docs_config(config_path)
 
 
 def test_prepare_plugin_docs_site_stages_core_docs_plugin_docs_and_landing_page(
@@ -83,6 +119,58 @@ def test_prepare_plugin_docs_site_stages_core_docs_plugin_docs_and_landing_page(
     assert (generated_root / "mkdocs.yaml").read_text(encoding="utf-8") == "site_name: Plugin\n"
 
 
+def test_prepare_merges_core_config_without_plugin_mkdocs_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    (docs_dir / "plugin.md").write_text("plugin\n", encoding="utf-8")
+    (docs_dir / "plugin_docs.yaml").write_text(
+        "project_root: ..\n"
+        "generated_root: .generated_docs\n"
+        "plugin_docs_dir: docs\n"
+        "site_name: Plugin\n"
+        "nav:\n"
+        "  - Plugin: plugin.md\n"
+        "gen_files:\n"
+        "  scripts:\n"
+        "    - docs/plugin_gen_ref_pages.py\n"
+        "extra:\n"
+        "  social:\n"
+        "    - name: Plugin\n"
+        "      link: https://example.test/plugin\n",
+        encoding="utf-8",
+    )
+    config = load_plugin_docs_config(docs_dir / "plugin_docs.yaml")
+
+    def fake_export_docs(destination: Path):
+        (destination / "docs").mkdir(parents=True)
+        (destination / "docs" / "core.md").write_text("core\n", encoding="utf-8")
+        (destination / "mkdocs.yaml").write_text(
+            "site_name: Core\n"
+            "nav:\n"
+            "  - Core: core.md\n"
+            "plugins:\n"
+            "  - gen-files:\n"
+            "      scripts:\n"
+            "        - docs/gen_ref_pages.py\n",
+            encoding="utf-8",
+        )
+        return destination
+
+    import yaml
+
+    import mada_tools.docs as docs_mod
+
+    monkeypatch.setattr(docs_mod, "export_docs", fake_export_docs)
+    prepare_plugin_docs_site(config)
+
+    generated = yaml.safe_load((tmp_path / ".generated_docs" / "mkdocs.yaml").read_text())
+    assert generated["site_name"] == "Plugin"
+    assert generated["nav"] == [{"Core": "core.md"}, {"Plugin": "plugin.md"}]
+    assert generated["plugins"][0]["gen-files"]["scripts"] == ["docs/gen_ref_pages.py", "docs/plugin_gen_ref_pages.py"]
+    assert (tmp_path / ".generated_docs" / "docs" / "plugin.md").exists()
+    assert not (tmp_path / "mkdocs.yaml").exists()
+
+
 def test_prepare_plugin_docs_site_excludes_python_cache_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     """Local docs directory copies should not include Python cache artifacts."""
     _write_plugin_docs_project(tmp_path)
@@ -90,6 +178,7 @@ def test_prepare_plugin_docs_site_excludes_python_cache_files(monkeypatch: pytes
 
     def fake_export_docs(destination: Path):
         (destination / "docs").mkdir(parents=True)
+        (destination / "mkdocs.yaml").write_text("site_name: Core\n", encoding="utf-8")
         return destination
 
     import mada_tools.docs as docs_mod
@@ -114,13 +203,14 @@ def test_prepare_plugin_docs_site_reports_missing_plugin_docs_dir(
 
     def fake_export_docs(destination: Path):
         (destination / "docs").mkdir(parents=True)
+        (destination / "mkdocs.yaml").write_text("site_name: Core\n", encoding="utf-8")
         return destination
 
     import mada_tools.docs as docs_mod
 
     monkeypatch.setattr(docs_mod, "export_docs", fake_export_docs)
 
-    with pytest.raises(FileNotFoundError, match=str(missing_source)):
+    with pytest.raises(FileNotFoundError, match=re.escape(str(missing_source))):
         prepare_plugin_docs_site(config)
 
 
@@ -136,6 +226,7 @@ def test_prepare_plugin_docs_site_reports_core_docs_collision(
     def fake_export_docs(destination: Path):
         (destination / "docs").mkdir(parents=True)
         (destination / "docs" / "index.md").write_text("core index\n", encoding="utf-8")
+        (destination / "mkdocs.yaml").write_text("site_name: Core\n", encoding="utf-8")
         return destination
 
     import mada_tools.docs as docs_mod
@@ -158,13 +249,12 @@ def test_prepare_plugin_docs_site_accepts_config_path(monkeypatch: pytest.Monkey
         lambda config_path: PluginDocsConfig(
             config_path=Path(config_path),
             project_root=tmp_path,
-            mkdocs_config=tmp_path / "mkdocs.yaml",
             generated_root=expected_root,
             plugin_docs_dir=tmp_path / "docs",
         ),
     )
     monkeypatch.setattr(docs_mod, "export_docs", lambda destination: destination)
-    monkeypatch.setattr(docs_mod, "_copy_mkdocs_config", lambda config: None)
+    monkeypatch.setattr(docs_mod, "_write_staged_mkdocs_config", lambda config: None)
     monkeypatch.setattr(docs_mod, "_copy_plugin_docs_dir", lambda config: None)
 
     assert prepare_plugin_docs_site(tmp_path / "docs" / "plugin_docs.yaml") == expected_root
@@ -179,7 +269,6 @@ def test_build_and_serve_plugin_docs_pass_mkdocs_args_after_prepare(
     config = PluginDocsConfig(
         config_path=config_path,
         project_root=tmp_path,
-        mkdocs_config=tmp_path / "mkdocs.yaml",
         generated_root=tmp_path / ".generated_docs",
         plugin_docs_dir=tmp_path / "docs",
     )
@@ -210,7 +299,6 @@ def test_clean_plugin_docs_removes_generated_root(tmp_path: Path):
     config = PluginDocsConfig(
         config_path=tmp_path / "docs" / "plugin_docs.yaml",
         project_root=tmp_path,
-        mkdocs_config=tmp_path / "mkdocs.yaml",
         generated_root=generated_root,
         plugin_docs_dir=tmp_path / "docs",
     )
@@ -231,13 +319,12 @@ def _write_plugin_docs_project(project_root: Path) -> None:
     (guide_dir / "usage.md").write_text("usage\n", encoding="utf-8")
     (guide_dir / "compiled.pyc").write_bytes(b"cache")
     (cache_dir / "ignored.py").write_text("cache\n", encoding="utf-8")
-    (project_root / "mkdocs.yaml").write_text("site_name: Plugin\n", encoding="utf-8")
     (docs_dir / "plugin_docs.yaml").write_text(
         """
 project_root: ..
-mkdocs_config: mkdocs.yaml
 generated_root: .generated_docs
 plugin_docs_dir: docs
+site_name: Plugin
 """,
         encoding="utf-8",
     )
