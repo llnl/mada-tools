@@ -11,13 +11,14 @@ packages without assuming they have a MADA Tools source checkout available.
 
 from __future__ import annotations
 
+import copy
 import shutil
 import subprocess
 from dataclasses import dataclass, field
 from importlib import resources
 from importlib.resources.abc import Traversable
 from pathlib import Path
-from typing import Iterable, Union
+from typing import Any, Iterable, Mapping, Union
 
 import yaml
 
@@ -43,7 +44,6 @@ class PluginDocsConfig:
 
     Defaults used by `load_plugin_docs_config()`:
     - `project_root`: the directory containing `plugin_docs.yaml`
-    - `mkdocs_config`: `project_root / "mkdocs.yaml"`
     - `generated_root`: `project_root / ".generated_docs"`
     - `plugin_docs_dir`: `project_root / "docs"`
 
@@ -56,9 +56,9 @@ class PluginDocsConfig:
 
     config_path: Path
     project_root: Path
-    mkdocs_config: Path
     generated_root: Path
     plugin_docs_dir: Path
+    extensions: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def staged_mkdocs_config(self) -> Path:
@@ -68,7 +68,7 @@ class PluginDocsConfig:
         from the self-contained staged tree that contains both exported core
         docs and copied plugin docs.
         """
-        return self.generated_root / self.mkdocs_config.name
+        return self.generated_root / "mkdocs.yaml"
 
 
 def export_docs(destination: PathLike) -> Path:
@@ -95,7 +95,7 @@ def load_plugin_docs_config(config_path: PathLike) -> PluginDocsConfig:
     """Load and resolve a plugin docs staging configuration file.
 
     Relative `project_root` is resolved against the config file directory.
-    Relative `mkdocs_config`, `generated_root`, and `plugin_docs_dir` paths are
+    Relative `generated_root` and `plugin_docs_dir` paths are
     then resolved against that project root because they point to files and
     directories in the plugin repository. The destination is fixed as the staged
     MkDocs `docs/` directory, so there is no separate target path to resolve.
@@ -118,12 +118,17 @@ def load_plugin_docs_config(config_path: PathLike) -> PluginDocsConfig:
         base=resolved_config_path.parent,
     )
 
+    _validate_plugin_extension_config(raw_config)
     return PluginDocsConfig(
         config_path=resolved_config_path,
         project_root=project_root,
-        mkdocs_config=_resolve_path(raw_config.get("mkdocs_config", "mkdocs.yaml"), base=project_root),
         generated_root=_resolve_path(raw_config.get("generated_root", ".generated_docs"), base=project_root),
         plugin_docs_dir=_resolve_path(raw_config.get("plugin_docs_dir", "docs"), base=project_root),
+        extensions={
+            key: copy.deepcopy(value)
+            for key, value in raw_config.items()
+            if key not in {"project_root", "generated_root", "plugin_docs_dir"}
+        },
     )
 
 
@@ -149,7 +154,7 @@ def prepare_plugin_docs_site(
     resolved_config.generated_root.mkdir(parents=True, exist_ok=True)
 
     export_docs(resolved_config.generated_root)
-    _copy_mkdocs_config(resolved_config)
+    _write_staged_mkdocs_config(resolved_config)
     _copy_plugin_docs_dir(resolved_config)
 
     return resolved_config.generated_root
@@ -309,11 +314,165 @@ def _resolve_path(path: PathLike, *, base: Path) -> Path:
     return candidate.resolve()
 
 
-def _copy_mkdocs_config(config: PluginDocsConfig) -> None:
-    """Copy the plugin MkDocs config into the generated root."""
-    if not config.mkdocs_config.is_file():
-        raise FileNotFoundError(f"Plugin MkDocs config does not exist: {config.mkdocs_config}")
-    shutil.copy2(config.mkdocs_config, config.staged_mkdocs_config)
+class _TaggedScalar(str):
+    """String value that retains a YAML tag while configs are merged.
+
+    The core MkDocs config uses `!!python/name` tags for Material's emoji
+    extensions. Keeping the tag on a string lets PyYAML safely load, copy, and
+    write the config without importing arbitrary Python objects.
+    """
+
+    def __new__(cls, value: str, tag: str):
+        result = super().__new__(cls, value)
+        result.yaml_tag = tag
+        return result
+
+    def __getnewargs__(self):
+        """Give `deepcopy` both constructor arguments."""
+        return str(self), self.yaml_tag
+
+    @classmethod
+    def from_yaml(cls, loader, _tag_suffix, node):
+        """Load an otherwise unsupported YAML tag as a preserved string."""
+        return cls(loader.construct_scalar(node), node.tag)
+
+    @classmethod
+    def to_yaml(cls, dumper, value):
+        """Emit the YAML tag retained by a ``_TaggedScalar`` value."""
+        return dumper.represent_scalar(value.yaml_tag, str(value))
+
+
+class _MkdocsLoader(yaml.SafeLoader):
+    """Safe loader isolated for MkDocs YAML tag handling.
+
+    The core config uses `!!python/name` tags for Material extensions.
+    Registering the handler on this subclass lets us preserve those tags
+    without changing PyYAML's process-wide `SafeLoader` behavior.
+    """
+
+
+class _MkdocsDumper(yaml.SafeDumper):
+    """Safe dumper isolated for writing preserved MkDocs YAML tags.
+
+    This subclass keeps the custom `_TaggedScalar` representer local to
+    staged MkDocs configs instead of changing PyYAML's process-wide
+    `SafeDumper` behavior.
+    """
+
+
+_MkdocsLoader.add_multi_constructor("tag:yaml.org,2002:python/name:", _TaggedScalar.from_yaml)
+_MkdocsDumper.add_representer(_TaggedScalar, _TaggedScalar.to_yaml)
+
+
+_SUPPORTED_PLUGIN_FIELDS = {"nav", "gen_files", "extra", "site_name"}
+
+
+def _validate_plugin_extension_config(raw_config: Mapping[str, Any]) -> None:
+    """Validate the intentionally limited plugin MkDocs extension schema."""
+
+    # Keep the plugin contract deliberately small. Plugins contribute to the
+    # shared config instead of replacing core MkDocs behavior.
+    unsupported = set(raw_config) - {
+        "project_root",
+        "generated_root",
+        "plugin_docs_dir",
+        *_SUPPORTED_PLUGIN_FIELDS,
+    }
+
+    if unsupported:
+        raise ValueError(f"Unsupported plugin docs config fields: {', '.join(sorted(unsupported))}")
+
+    # Navigation is copied directly into the core nav, so it must have the
+    # list shape expected by MkDocs.
+    if "nav" in raw_config and not isinstance(raw_config["nav"], list):
+        raise ValueError("plugin docs 'nav' must be a list")
+
+    # Only script contributions are supported under gen_files. Each script is
+    # staged below docs/ and must therefore be a string path.
+    gen_files = raw_config.get("gen_files", {})
+    if not isinstance(gen_files, dict) or set(gen_files) - {"scripts"}:
+        raise ValueError("plugin docs 'gen_files' must contain only 'scripts'")
+    if "scripts" in gen_files and (
+        not isinstance(gen_files["scripts"], list) or not all(isinstance(item, str) for item in gen_files["scripts"])
+    ):
+        raise ValueError("plugin docs 'gen_files.scripts' must be a list of strings")
+
+    # Social links are appended to the core list. Other extra MkDocs settings
+    # are intentionally rejected in this first schema version.
+    extra = raw_config.get("extra", {})
+    if not isinstance(extra, dict) or set(extra) - {"social"}:
+        raise ValueError("plugin docs 'extra' must contain only 'social'")
+    if "social" in extra and (
+        not isinstance(extra["social"], list) or not all(isinstance(item, dict) for item in extra["social"])
+    ):
+        raise ValueError("plugin docs 'extra.social' must be a list of mappings")
+
+    if "site_name" in raw_config and not isinstance(raw_config["site_name"], str):
+        raise ValueError("plugin docs 'site_name' must be a string")
+
+
+def _load_yaml_mapping(path: Path) -> dict[str, Any]:
+    """Load a MkDocs YAML mapping while preserving supported custom tags."""
+    with path.open("r", encoding="utf-8") as stream:
+        value = yaml.load(stream, Loader=_MkdocsLoader) or {}
+    if not isinstance(value, dict):
+        raise ValueError(f"MkDocs config must be a YAML mapping: {path}")
+    return value
+
+
+def merge_mkdocs_config(core_config: Mapping[str, Any], plugin_config: Mapping[str, Any]) -> dict[str, Any]:
+    """Return a combined MkDocs config without mutating either input.
+
+    Plugin documentation extends the packaged core site rather than defining
+    a second MkDocs project. Core settings are preserved, while supported
+    plugin contributions are applied as follows:
+
+    * `site_name` replaces the core title when supplied.
+    * `nav` entries are appended after the core navigation.
+    * `gen_files.scripts` are appended to the core `gen-files` plugin.
+    * `extra.social` entries are appended to the core social links.
+
+    Unsupported fields are rejected before the merge occurs.
+    """
+
+    _validate_plugin_extension_config(plugin_config)
+    merged = copy.deepcopy(dict(core_config))
+
+    if "site_name" in plugin_config:
+        merged["site_name"] = plugin_config["site_name"]
+
+    if "nav" in plugin_config:
+        merged.setdefault("nav", []).extend(copy.deepcopy(plugin_config["nav"]))
+
+    scripts = plugin_config.get("gen_files", {}).get("scripts", [])
+
+    if scripts:
+        plugins = merged.setdefault("plugins", [])
+        gen_files = next((item for item in plugins if isinstance(item, dict) and "gen-files" in item), None)
+
+        if gen_files is None:
+            gen_files = {"gen-files": {"scripts": []}}
+            plugins.append(gen_files)
+
+        gen_files["gen-files"].setdefault("scripts", []).extend(copy.deepcopy(scripts))
+
+    social = plugin_config.get("extra", {}).get("social", [])
+
+    if social:
+        merged.setdefault("extra", {}).setdefault("social", []).extend(copy.deepcopy(social))
+
+    return merged
+
+
+def _write_staged_mkdocs_config(config: PluginDocsConfig) -> None:
+    """Merge plugin extensions and write the staged MkDocs config."""
+
+    core_config = _load_yaml_mapping(config.staged_mkdocs_config)
+    merged_config = merge_mkdocs_config(core_config, config.extensions)
+    config.staged_mkdocs_config.write_text(
+        yaml.dump(merged_config, Dumper=_MkdocsDumper, sort_keys=False),
+        encoding="utf-8",
+    )
 
 
 def _validate_plugin_docs_config(config: PluginDocsConfig) -> None:
