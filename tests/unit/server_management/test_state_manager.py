@@ -599,6 +599,63 @@ def test_is_process_running_propagates_unexpected_exceptions(
         mgr._is_process_running(1)
 
 
+def test_pid_matches_started_at_returns_true_when_times_align(
+    monkeypatch: MonkeyPatch, server_management_testing_dir: Path
+):
+    """_pid_matches_started_at should accept the recorded process when start times match."""
+    state_file = (
+        server_management_testing_dir / "test_pid_matches_started_at_returns_true_when_times_align" / "state.json"
+    )
+    mgr = ServerStateManager(state_file=state_file)
+
+    class FakeProc:
+        def create_time(self) -> float:
+            return datetime(2026, 7, 15, 14, 29, 31).timestamp()
+
+    monkeypatch.setattr(sm.psutil, "Process", lambda pid: FakeProc())
+
+    assert mgr._pid_matches_started_at(12345, "2026-07-15T14:29:31") is True
+
+
+def test_pid_matches_started_at_returns_false_when_times_do_not_align(
+    monkeypatch: MonkeyPatch, server_management_testing_dir: Path
+):
+    """_pid_matches_started_at should reject a reused PID when start times differ."""
+    state_file = (
+        server_management_testing_dir
+        / "test_pid_matches_started_at_returns_false_when_times_do_not_align"
+        / "state.json"
+    )
+    mgr = ServerStateManager(state_file=state_file)
+
+    class FakeProc:
+        def create_time(self) -> float:
+            return datetime(2026, 9, 8, 15, 0, 0).timestamp()
+
+    monkeypatch.setattr(sm.psutil, "Process", lambda pid: FakeProc())
+
+    assert mgr._pid_matches_started_at(12345, "2026-07-15T14:29:31") is False
+
+
+def test_pid_matches_started_at_returns_true_when_create_time_is_unavailable(
+    monkeypatch: MonkeyPatch, server_management_testing_dir: Path
+):
+    """_pid_matches_started_at should not reject a process when create_time cannot be inspected."""
+    state_file = (
+        server_management_testing_dir
+        / "test_pid_matches_started_at_returns_true_when_create_time_is_unavailable"
+        / "state.json"
+    )
+    mgr = ServerStateManager(state_file=state_file)
+
+    class FakeProc:
+        pass
+
+    monkeypatch.setattr(sm.psutil, "Process", lambda pid: FakeProc())
+
+    assert mgr._pid_matches_started_at(12345, "2026-07-15T14:29:31") is True
+
+
 # -------------------------------------------
 # ---------- _is_port_in_use tests ----------
 # -------------------------------------------
@@ -1186,6 +1243,7 @@ def test_get_servers_sets_running_when_pid_running_and_port_healthy_and_saves_wh
     monkeypatch.setattr(ServerStateManager, "_load_state", lambda self: servers)
 
     monkeypatch.setattr(ServerStateManager, "_is_process_running", lambda self, pid: True)
+    monkeypatch.setattr(ServerStateManager, "_pid_matches_started_at", lambda self, pid, started_at: True)
 
     health_calls = []
     monkeypatch.setattr(
@@ -1237,6 +1295,7 @@ def test_get_servers_sets_unhealthy_when_pid_running_but_port_unhealthy(
     monkeypatch.setattr(ServerStateManager, "_lock_state", lambda self: fake_lock_state())
     monkeypatch.setattr(ServerStateManager, "_load_state", lambda self: servers)
     monkeypatch.setattr(ServerStateManager, "_is_process_running", lambda self, pid: True)
+    monkeypatch.setattr(ServerStateManager, "_pid_matches_started_at", lambda self, pid, started_at: True)
     monkeypatch.setattr(ServerStateManager, "_is_port_in_use", lambda self, host, port, timeout=2: 111)
 
     save_calls = []
@@ -1280,6 +1339,7 @@ def test_get_servers_sets_running_when_pid_running_and_no_port(
     monkeypatch.setattr(ServerStateManager, "_lock_state", lambda self: fake_lock_state())
     monkeypatch.setattr(ServerStateManager, "_load_state", lambda self: servers)
     monkeypatch.setattr(ServerStateManager, "_is_process_running", lambda self, pid: True)
+    monkeypatch.setattr(ServerStateManager, "_pid_matches_started_at", lambda self, pid, started_at: True)
 
     health_calls = []
     monkeypatch.setattr(
@@ -1332,6 +1392,47 @@ def test_get_servers_sets_stopped_and_clears_pid_when_process_not_running(
     monkeypatch.setattr(ServerStateManager, "_lock_state", lambda self: fake_lock_state())
     monkeypatch.setattr(ServerStateManager, "_load_state", lambda self: servers)
     monkeypatch.setattr(ServerStateManager, "_is_process_running", lambda self, pid: False)
+
+    save_calls = []
+    monkeypatch.setattr(ServerStateManager, "_save_state", lambda self, s: save_calls.append(s))
+
+    out = mgr.get_servers(validate=True)
+
+    assert out is servers
+    assert s1.status == ServerStatus.STOPPED
+    assert s1.pid is None
+    assert save_calls == [servers]
+
+
+def test_get_servers_clears_pid_when_running_pid_no_longer_matches_recorded_start(
+    monkeypatch: MonkeyPatch, server_management_testing_dir: Path
+):
+    """get_servers should clear stale state when a PID has been reused by another process."""
+    state_file = (
+        server_management_testing_dir
+        / "test_get_servers_clears_pid_when_running_pid_no_longer_matches_recorded_start"
+        / "state.json"
+    )
+    mgr = ServerStateManager(state_file=state_file)
+
+    @contextmanager
+    def fake_lock_state():
+        yield
+
+    s1 = SimpleNamespace(
+        name="s1",
+        pid=999,
+        port=8000,
+        host="127.0.0.1",
+        status=ServerStatus.UNHEALTHY,
+        started_at="2026-07-15T14:29:31",
+    )
+    servers = {"s1": s1}
+
+    monkeypatch.setattr(ServerStateManager, "_lock_state", lambda self: fake_lock_state())
+    monkeypatch.setattr(ServerStateManager, "_load_state", lambda self: servers)
+    monkeypatch.setattr(ServerStateManager, "_is_process_running", lambda self, pid: True)
+    monkeypatch.setattr(ServerStateManager, "_pid_matches_started_at", lambda self, pid, started_at: False)
 
     save_calls = []
     monkeypatch.setattr(ServerStateManager, "_save_state", lambda self, s: save_calls.append(s))

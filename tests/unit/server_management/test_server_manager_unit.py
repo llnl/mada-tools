@@ -1426,13 +1426,14 @@ def test_stop_server_cmdline_safety_check_mismatch_skips_and_cleans_state(
     assert any("doesn't appear to be server 'myserver'" in msg for msg in warnings)
 
 
-def test_stop_server_cmdline_access_denied_is_ignored_and_still_terminates(
+def test_stop_server_cmdline_access_denied_skips_shutdown_to_avoid_wrong_process(
     server_info: ServerInfo,
     monkeypatch: MonkeyPatch,
+    caplog: LogCaptureFixture,
 ):
     """
-    If cmdline() raises AccessDenied/NoSuchProcess, the safety check is skipped (pass),
-    and stop_server should proceed to terminate the process.
+    If cmdline() raises AccessDenied, stop_server should avoid terminating an
+    unverifiable process.
 
     Args:
         server_info (ServerInfo):
@@ -1445,16 +1446,45 @@ def test_stop_server_cmdline_access_denied_is_ignored_and_still_terminates(
 
     proc = MagicMock()
     proc.cmdline.side_effect = psutil.AccessDenied(pid=server_info.pid)
-    proc.wait.return_value = None  # graceful exit
 
     monkeypatch.setattr(psutil, "Process", lambda pid: proc)
 
+    manager.state_manager._pid_matches_started_at.return_value = True
+    caplog.set_level(logging.WARNING)
+
     result = manager.stop_server("myserver", server_info, timeout=10)
 
-    assert result is True
-    proc.terminate.assert_called_once()
-    proc.wait.assert_called_once_with(timeout=10)
+    assert result is False
+    proc.terminate.assert_not_called()
+    manager.state_manager.remove_server.assert_not_called()
+
+    warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("Cannot verify that PID" in msg for msg in warnings)
+
+
+def test_stop_server_pid_start_time_mismatch_cleans_stale_state(
+    server_info: ServerInfo,
+    monkeypatch: MonkeyPatch,
+    caplog: LogCaptureFixture,
+):
+    """stop_server should remove stale state instead of terminating a reused PID."""
+    manager = ServerManager(state_file=None)
+    manager.state_manager = MagicMock()
+    manager.state_manager._pid_matches_started_at.return_value = False
+
+    proc = MagicMock()
+    monkeypatch.setattr(psutil, "Process", lambda pid: proc)
+
+    caplog.set_level(logging.WARNING)
+
+    result = manager.stop_server("myserver", server_info, timeout=10)
+
+    assert result is False
+    proc.terminate.assert_not_called()
     manager.state_manager.remove_server.assert_called_once_with("myserver")
+
+    warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("no longer matches the recorded process" in msg for msg in warnings)
 
 
 def test_stop_server_graceful_shutdown_success_removes_state_returns_true(
@@ -1486,6 +1516,7 @@ def test_stop_server_graceful_shutdown_success_removes_state_returns_true(
     proc.wait.return_value = None
 
     monkeypatch.setattr(psutil, "Process", lambda pid: proc)
+    manager.state_manager._pid_matches_started_at.return_value = True
 
     caplog.set_level(logging.INFO)
 
@@ -1543,6 +1574,7 @@ def test_stop_server_timeout_then_force_kill_children_and_parent(
         return proc_for_term if proc_calls["n"] == 1 else parent
 
     monkeypatch.setattr(psutil, "Process", proc_ctor)
+    manager.state_manager._pid_matches_started_at.return_value = True
 
     caplog.set_level(logging.WARNING)
 
@@ -1597,6 +1629,7 @@ def test_stop_server_timeout_force_kill_no_such_process_still_cleans_state_retur
         raise psutil.NoSuchProcess(pid)
 
     monkeypatch.setattr(psutil, "Process", proc_ctor)
+    manager.state_manager._pid_matches_started_at.return_value = True
 
     caplog.set_level(logging.INFO)
 
@@ -1634,6 +1667,7 @@ def test_stop_server_no_such_process_during_terminate_cleans_state_returns_true(
     proc.terminate.side_effect = psutil.NoSuchProcess(server_info.pid)
 
     monkeypatch.setattr(psutil, "Process", lambda pid: proc)
+    manager.state_manager._pid_matches_started_at.return_value = True
 
     caplog.set_level(logging.INFO)
 
@@ -1671,6 +1705,7 @@ def test_stop_server_access_denied_during_terminate_returns_false_no_cleanup(
     proc.terminate.side_effect = psutil.AccessDenied(pid=server_info.pid)
 
     monkeypatch.setattr(psutil, "Process", lambda pid: proc)
+    manager.state_manager._pid_matches_started_at.return_value = True
 
     caplog.set_level(logging.ERROR)
 
@@ -1708,6 +1743,7 @@ def test_stop_server_unexpected_exception_returns_false_no_cleanup(
     proc.terminate.side_effect = RuntimeError("unexpected")
 
     monkeypatch.setattr(psutil, "Process", lambda pid: proc)
+    manager.state_manager._pid_matches_started_at.return_value = True
 
     caplog.set_level(logging.ERROR)
 
