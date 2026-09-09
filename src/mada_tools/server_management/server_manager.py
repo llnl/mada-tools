@@ -367,6 +367,11 @@ class ServerManager:
             LOG.error(f"Access denied when accessing server '{name}' (PID {pid})")
             return False
 
+        if not self.state_manager._pid_matches_started_at(pid, server_info.started_at):
+            LOG.warning(f"PID {pid} no longer matches the recorded process for server '{name}', removing stale state")
+            self.state_manager.remove_server(name)
+            return False
+
         # Check if this is actually our server process (safety check)
         try:
             # You could verify process name/cmdline matches expected server
@@ -375,8 +380,16 @@ class ServerManager:
                 LOG.warning(f"PID {pid} doesn't appear to be server '{name}', skipping")
                 self.state_manager.remove_server(name)
                 return False
-        except (psutil.AccessDenied, psutil.NoSuchProcess):
-            pass  # Process might have died, continue with cleanup
+        except psutil.NoSuchProcess:
+            LOG.info(f"Server '{name}' process already terminated")
+            self.state_manager.remove_server(name)
+            return True
+        except psutil.AccessDenied:
+            LOG.warning(
+                f"Cannot verify that PID {pid} belongs to server '{name}', skipping shutdown to avoid "
+                "terminating the wrong process"
+            )
+            return False
 
         # Attempt graceful shutdown
         try:
