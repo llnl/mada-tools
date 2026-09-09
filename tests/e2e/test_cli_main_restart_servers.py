@@ -193,6 +193,10 @@ def test_main_restart_servers_restarts_all_configured_servers(
         fake_is_port_in_use,
     )
     monkeypatch.setattr(
+        "mada_tools.server_management.state_manager.ServerStateManager._pid_matches_started_at",
+        lambda self, pid, started_at: True,
+    )
+    monkeypatch.setattr(
         "mada_tools.server_management.server_manager.subprocess.Popen",
         fake_popen,
     )
@@ -306,6 +310,10 @@ def test_main_restart_servers_only_restarts_requested_server(
         fake_is_port_in_use,
     )
     monkeypatch.setattr(
+        "mada_tools.server_management.state_manager.ServerStateManager._pid_matches_started_at",
+        lambda self, pid, started_at: True,
+    )
+    monkeypatch.setattr(
         "mada_tools.server_management.server_manager.subprocess.Popen",
         fake_popen,
     )
@@ -369,6 +377,10 @@ def test_main_restart_servers_starts_fresh_when_server_is_not_already_running(
     monkeypatch.setattr(
         "mada_tools.server_management.state_manager.ServerStateManager._is_process_running",
         lambda self, pid: False,
+    )
+    monkeypatch.setattr(
+        "mada_tools.server_management.state_manager.ServerStateManager._pid_matches_started_at",
+        lambda self, pid, started_at: True,
     )
 
     port_check_counts = {"count": 0}
@@ -513,6 +525,10 @@ def test_main_restart_servers_exits_with_error_when_restarted_server_port_is_in_
     monkeypatch.setattr(
         "mada_tools.server_management.state_manager.ServerStateManager._is_port_in_use",
         lambda self, host, port: 0,
+    )
+    monkeypatch.setattr(
+        "mada_tools.server_management.state_manager.ServerStateManager._pid_matches_started_at",
+        lambda self, pid, started_at: True,
     )
 
     monkeypatch.setattr(

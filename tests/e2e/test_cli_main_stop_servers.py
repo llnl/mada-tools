@@ -379,6 +379,10 @@ def test_main_stop_servers_gracefully_handles_server_that_is_already_gone(
         "mada_tools.server_management.state_manager.ServerStateManager._is_process_running",
         lambda self, pid: True,
     )
+    monkeypatch.setattr(
+        "mada_tools.server_management.state_manager.ServerStateManager._pid_matches_started_at",
+        lambda self, pid, started_at: True,
+    )
 
     def fake_process(pid):
         raise psutil.NoSuchProcess(pid)
@@ -439,6 +443,10 @@ def test_main_stop_servers_force_kills_process_after_timeout(
     monkeypatch.setattr(
         "mada_tools.server_management.state_manager.ServerStateManager._is_process_running",
         lambda self, pid: True,
+    )
+    monkeypatch.setattr(
+        "mada_tools.server_management.state_manager.ServerStateManager._pid_matches_started_at",
+        lambda self, pid, started_at: True,
     )
 
     child1 = DummyChildProcess(2001)

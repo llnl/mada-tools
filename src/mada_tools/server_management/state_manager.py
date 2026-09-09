@@ -225,6 +225,38 @@ class ServerStateManager:
         except (psutil.NoSuchProcess, psutil.AccessDenied, ProcessLookupError):
             return False
 
+    def _pid_matches_started_at(self, pid: int, started_at: Optional[str], tolerance_seconds: int = 60) -> bool:
+        """
+        Check whether a PID still refers to the process recorded in state.
+
+        Args:
+            pid: Process ID to validate.
+            started_at: Recorded ISO start timestamp for the server process.
+            tolerance_seconds: Allowed time delta between recorded and actual start times.
+
+        Returns:
+            bool: True when the PID's process start time matches the recorded timestamp.
+        """
+        if not started_at:
+            return True
+
+        try:
+            recorded_start = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+            if recorded_start.tzinfo is not None:
+                recorded_start = recorded_start.astimezone().replace(tzinfo=None)
+
+            process = psutil.Process(pid)
+            create_time = process.create_time
+            actual_start = datetime.fromtimestamp(create_time())
+        except ValueError:
+            return True
+        except AttributeError:
+            return True
+        except (psutil.NoSuchProcess, psutil.AccessDenied, ProcessLookupError):
+            return True
+
+        return abs((actual_start - recorded_start).total_seconds()) <= tolerance_seconds
+
     def _is_port_in_use(self, host: str, port: int, timeout: int = 1, retries: int = 10, delay: int = 1) -> int | bool:
         """
         Check whether a TCP service is already listening on the given host and port.
@@ -338,6 +370,17 @@ class ServerStateManager:
 
             for _, server_info in servers.items():
                 if server_info.pid and self._is_process_running(server_info.pid):
+                    if not self._pid_matches_started_at(server_info.pid, getattr(server_info, "started_at", None)):
+                        LOG.info(
+                            f"PID {server_info.pid} for server '{server_info.name}' no longer matches the "
+                            "recorded process start time, clearing stale state"
+                        )
+                        if server_info.status != ServerStatus.STOPPED or server_info.pid is not None:
+                            server_info.status = ServerStatus.STOPPED
+                            server_info.pid = None
+                            changed = True
+                        continue
+
                     # Process is running, check health if we have port info
                     if server_info.port:
                         if self._is_port_in_use(server_info.host, server_info.port) == 0:

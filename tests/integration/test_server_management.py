@@ -580,6 +580,11 @@ def test_state_manager_validation_updates_running_and_unhealthy_statuses(
         "_is_port_in_use",
         lambda host, port: 0 if port == 7001 else 111,
     )
+    monkeypatch.setattr(
+        state_manager,
+        "_pid_matches_started_at",
+        lambda pid, started_at: True,
+    )
 
     servers = state_manager.get_servers(validate=True)
 
