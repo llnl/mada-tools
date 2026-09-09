@@ -245,9 +245,15 @@ class ServerStateManager:
             if recorded_start.tzinfo is not None:
                 recorded_start = recorded_start.astimezone().replace(tzinfo=None)
 
-            actual_start = datetime.fromtimestamp(psutil.Process(pid).create_time())
-        except (ValueError, psutil.NoSuchProcess, psutil.AccessDenied, ProcessLookupError):
-            return False
+            process = psutil.Process(pid)
+            create_time = process.create_time
+            actual_start = datetime.fromtimestamp(create_time())
+        except ValueError:
+            return True
+        except AttributeError:
+            return True
+        except (psutil.NoSuchProcess, psutil.AccessDenied, ProcessLookupError):
+            return True
 
         return abs((actual_start - recorded_start).total_seconds()) <= tolerance_seconds
 
