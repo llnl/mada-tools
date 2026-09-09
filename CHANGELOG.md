@@ -12,6 +12,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - Kept available MCP server discovery working when an optional server dependency is missing
+- Cleared stale Windows server state when recorded PIDs were reused by unrelated processes
+- Prevented `mada-tools stop-servers` from attempting to terminate unverifiable processes when process metadata access is denied
 
 ## 0.2.0 - 2026-08-24
 
