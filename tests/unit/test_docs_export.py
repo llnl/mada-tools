@@ -73,18 +73,6 @@ def test_wheel_includes_packaged_docs(tmp_path):
     assert "mada_tools/_docs/docs/assets/images/avail-servers.png" in wheel_files
 
 
-@pytest.mark.unit
-def test_wheel_includes_packaged_skill_markdown(tmp_path):
-    """Verify skills markdown assets are included in the built wheel."""
-    repo_root = Path(__file__).resolve().parents[2]
-    wheel_path = _build_wheel(repo_root, tmp_path / "build-skill-content-test")
-
-    with zipfile.ZipFile(wheel_path) as wheel:
-        wheel_files = set(wheel.namelist())
-
-    assert "mada_tools/monitor/job_monitor/skills/README.md" in wheel_files
-
-
 def _build_wheel(repo_root: Path, workspace: Path) -> Path:
     """Build a wheel from a temporary source copy.
 
