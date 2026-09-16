@@ -8,13 +8,13 @@ import types
 from _pytest.logging import LogCaptureFixture
 from _pytest.monkeypatch import MonkeyPatch
 
+import mada_tools.extensions.registry as registry_mod
 from mada_tools.extensions.manifest import (
     DirectCommandRegistration,
     ExtensionManifest,
     MCPServerRegistration,
     SkillRegistration,
 )
-import mada_tools.extensions.registry as registry_mod
 from mada_tools.extensions.registry import ExtensionRegistry
 
 
@@ -457,7 +457,9 @@ def test_validate_extension_manifest_allows_skill_only_extensions(monkeypatch: M
     assert registry._validate_extension_manifest(manifest)
 
 
-def test_validate_skill_registration_rejects_non_resource_style_paths(monkeypatch: MonkeyPatch, caplog: LogCaptureFixture):
+def test_validate_skill_registration_rejects_non_resource_style_paths(
+    monkeypatch: MonkeyPatch, caplog: LogCaptureFixture
+):
     """Verify that skill registrations reject invalid package resource paths."""
     registry = ExtensionRegistry()
     monkeypatch.setattr(

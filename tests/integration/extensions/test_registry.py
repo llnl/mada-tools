@@ -7,13 +7,13 @@ import types
 
 from _pytest.monkeypatch import MonkeyPatch
 
+import mada_tools.extensions.registry as registry_mod
 from mada_tools.extensions.manifest import (
     DirectCommandRegistration,
     ExtensionManifest,
     MCPServerRegistration,
     SkillRegistration,
 )
-import mada_tools.extensions.registry as registry_mod
 from mada_tools.extensions.registry import ExtensionRegistry
 
 
@@ -206,9 +206,7 @@ def test_registry_discovers_skills_and_direct_commands_from_manifests(monkeypatc
             display_name="Example Extension",
             version="1.0.0",
             provider_package="example_pkg",
-            mcp_servers=(
-                MCPServerRegistration("alpha", "example_pkg.alpha.server", "example_pkg"),
-            ),
+            mcp_servers=(MCPServerRegistration("alpha", "example_pkg.alpha.server", "example_pkg"),),
             skills=(
                 SkillRegistration(
                     "diagnose_job_failures",
@@ -216,9 +214,7 @@ def test_registry_discovers_skills_and_direct_commands_from_manifests(monkeypatc
                     "monitor/job_monitor/skills/diagnose_job_failures.md",
                 ),
             ),
-            direct_commands=(
-                DirectCommandRegistration("job_monitor", "example_pkg.direct:register", "example_pkg"),
-            ),
+            direct_commands=(DirectCommandRegistration("job_monitor", "example_pkg.direct:register", "example_pkg"),),
         )
 
     fake_entry_points = FakeSelectableEntryPoints(
