@@ -5,6 +5,7 @@
 Tests for the `shared/base_server.py` module.
 """
 
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -177,6 +178,27 @@ class TestRunTool:
             ToolExecutionError, match=r"Tool execution failed at .*test_base_server.py:.* in tool_impl: boom"
         ):
             await server.run_tool(tool_impl, background=False)
+
+    async def test_run_tool_returns_background_descriptor_when_requested(self, server: BaseMCPServer):
+        """It returns a task descriptor JSON payload for background execution."""
+
+        def tool_impl():
+            return True, "payload"
+
+        task_payload = json.loads(await server.run_tool(tool_impl, background=True))
+
+        assert task_payload["status"] == "running"
+        assert task_payload["tool_name"] == "tool_impl"
+        assert task_payload["task_id"].startswith("tool-task-")
+
+        for _ in range(20):
+            task_result = server._task_runtime.get_task(task_payload["task_id"])
+            if task_result["status"] != "running":
+                break
+            await asyncio.sleep(0.01)
+
+        assert task_result["status"] == "completed"
+        assert task_result["result"] == "payload"
 
 
 class TestLoadConfig:
