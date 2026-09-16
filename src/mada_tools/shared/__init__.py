@@ -6,9 +6,11 @@
 from mada_tools.shared.base_server import BaseMCPServer
 from mada_tools.shared.env import get_env_var
 from mada_tools.shared.exceptions import MCPServerError, PortInUseError, TemplateContextError, ToolExecutionError
+from mada_tools.shared.task_runtime import BackgroundTaskRuntime
 
 __all__ = [
     "BaseMCPServer",
+    "BackgroundTaskRuntime",
     "get_env_var",
     "MCPServerError",
     "PortInUseError",
