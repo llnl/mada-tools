@@ -91,7 +91,7 @@ mada_tools = "mada_tools.extensions.builtins:get_extension_manifest"
 where = ["src"]
 
 [tool.setuptools.package-data]
-mada_tools = ["_docs/*", "_docs/**/*"]
+mada_tools = ["_docs/*", "_docs/**/*", "**/skills/*.md", "**/skills/**/*.md"]
 
 [tool.setuptools.exclude-package-data]
 mada_tools = ["_docs/**/__pycache__/*", "_docs/**/*.py[cod]"]
