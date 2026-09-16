@@ -1,10 +1,10 @@
 # Copyright 2026, Lawrence Livermore National Security, LLC and MADA contributors
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Built-in extension manifest for MCP servers shipped with MADA.
+"""Built-in extension manifest for capability surfaces shipped with MADA.
 
 This module exposes the manifest factory used by the core `mada_tools`
-package to register its built-in MCP servers through the shared extension
+package to register its built-in capability surfaces through the shared extension
 discovery path.
 """
 
@@ -18,7 +18,7 @@ def get_extension_manifest() -> ExtensionManifest:
 
     Returns:
         ExtensionManifest:
-            Manifest describing MCP servers provided directly by `mada_tools`.
+            Manifest describing built-in surfaces provided directly by `mada_tools`.
     """
     try:
         package_version = version("mada_tools")
@@ -61,4 +61,6 @@ def get_extension_manifest() -> ExtensionManifest:
                 package="mada_tools",
             ),
         ),
+        skills=(),
+        direct_commands=(),
     )

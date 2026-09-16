@@ -4,20 +4,17 @@
 """Base MCP server class for common functionality."""
 
 import argparse
-import asyncio
 import json
 import logging
 import os
-import threading
 import traceback
 from abc import ABC
-from datetime import datetime
-from itertools import count
 from typing import Any, Callable, Dict, Optional
 
 from fastmcp import FastMCP
 
 from .exceptions import ToolExecutionError
+from .task_runtime import BackgroundTaskRuntime
 
 LOG = logging.getLogger(__name__)
 
@@ -39,9 +36,7 @@ class BaseMCPServer(ABC):
         self.mcp = None
         # OAuth configuration (set during run_with_args)
         self.oauth_enabled = False
-        self._tool_task_lock = threading.Lock()
-        self._tool_task_counter = count(1)
-        self._tool_tasks: Dict[str, Dict[str, Any]] = {}
+        self._task_runtime = BackgroundTaskRuntime(task_prefix="tool-task")
 
     def parse_args(self) -> argparse.Namespace:
         """Parse command line arguments."""
@@ -179,95 +174,74 @@ class BaseMCPServer(ABC):
             raise ValueError(f"Unsupported transport: {transport}")
 
     def _register_base_tools(self):
-        """Register tools shared by all MADA MCP servers."""
+        """Register tools shared by all MADA MCP servers.
+
+        Returns:
+            None:
+                This method registers tools as a side effect.
+        """
 
         @self.mcp.tool()
         async def get_background_task_result(task_id: str) -> str:
-            """
-            Get the status and result for a background tool task.
+            """Get the status and result for a background tool task.
 
             Args:
-                task_id: Task id returned by a background tool call.
+                task_id (str):
+                    Task id returned by a background tool call.
 
             Returns:
-                JSON describing the task status, result, or error.
+                str:
+                    JSON describing the task status, result, or error.
             """
-            with self._tool_task_lock:
-                task_info = self._tool_tasks.get(task_id)
-                if task_info is None:
-                    return json.dumps(
-                        {
-                            "task_id": task_id,
-                            "status": "not_found",
-                            "message": "Background task not found.",
-                        },
-                        indent=2,
-                    )
-                return json.dumps(task_info, default=str, indent=2)
+            return json.dumps(self._format_tool_task_info(self._task_runtime.get_task(task_id)), default=str, indent=2)
 
     async def run_tool(self, func: Callable, *args, background: bool = True, **kwargs) -> Any:
-        """
-        Execute a tool and return either a background task descriptor or its payload.
+        """Execute a tool and return either a background descriptor or payload.
 
         Args:
-            func: The function/method to execute.
-            background: Whether to run the tool in the background. Defaults to True.
+            func (Callable):
+                The function or bound method to execute.
+            *args (Any):
+                Positional arguments passed to `func`.
+            background (bool):
+                Whether to run the tool in the background. Defaults to `True`.
+            **kwargs (Any):
+                Keyword arguments passed to `func`.
 
         Returns:
-            A JSON task descriptor when running in the background, otherwise the normalized tool payload.
+            Any:
+                A JSON task descriptor when running in the background,
+                otherwise the normalized tool payload.
         """
-        if not background:
-            return await asyncio.to_thread(self._execute_tool, func, *args, **kwargs)
-
-        with self._tool_task_lock:
-            task_id = f"tool-task-{next(self._tool_task_counter)}"
-            tool_name = getattr(func, "__name__", repr(func))
-            submitted_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
-            self._tool_tasks[task_id] = {
-                "task_id": task_id,
-                "tool_name": tool_name,
-                "status": "running",
-                "submitted_at": submitted_at,
-                "completed_at": None,
-                "result": None,
-                "error": None,
-            }
-        task = asyncio.create_task(asyncio.to_thread(self._execute_tool, func, *args, **kwargs))
-
-        def _save_background_result(done_task):
-            completed_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
-            if done_task.cancelled():
-                with self._tool_task_lock:
-                    self._tool_tasks[task_id]["status"] = "cancelled"
-                    self._tool_tasks[task_id]["completed_at"] = completed_at
-                    self._tool_tasks[task_id]["error"] = "Background tool was cancelled."
-                LOG.error(f"Background tool {tool_name} ({task_id}) was cancelled")
-            else:
-                error = done_task.exception()
-                if error is not None:
-                    with self._tool_task_lock:
-                        self._tool_tasks[task_id]["status"] = "failed"
-                        self._tool_tasks[task_id]["completed_at"] = completed_at
-                        self._tool_tasks[task_id]["error"] = str(error)
-                    LOG.error(f"Background tool {tool_name} ({task_id}) failed: {error}")
-                else:
-                    with self._tool_task_lock:
-                        self._tool_tasks[task_id]["status"] = "completed"
-                        self._tool_tasks[task_id]["completed_at"] = completed_at
-                        self._tool_tasks[task_id]["result"] = done_task.result()
-                    LOG.info(f"Background tool {tool_name} ({task_id}) completed")
-
-        task.add_done_callback(_save_background_result)
-        return json.dumps(
-            {
-                "task_id": task_id,
-                "tool_name": tool_name,
-                "status": "running",
-                "submitted_at": submitted_at,
-                "message": "Tool started in background.",
-            },
-            indent=2,
+        result = await self._task_runtime.run(
+            self._execute_tool,
+            func,
+            *args,
+            background=background,
+            task_name=getattr(func, "__name__", repr(func)),
+            **kwargs,
         )
+        if background:
+            return json.dumps(self._format_tool_task_info(result), default=str, indent=2)
+        return result
+
+    def _format_tool_task_info(self, task_info: Dict[str, Any]) -> Dict[str, Any]:
+        """Adapt shared task-runtime payloads to the MCP server tool contract.
+
+        Args:
+            task_info (Dict[str, Any]):
+                Shared task-runtime payload to adapt for MCP tool responses.
+
+        Returns:
+            Dict[str, Any]:
+                Copy of the task payload using the historical `tool_name` field
+                expected by MCP clients.
+        """
+        formatted = dict(task_info)
+        task_name = formatted.pop("task_name", None)
+        if task_name is not None:
+            formatted["tool_name"] = task_name
+        return formatted
 
     def _execute_tool(self, func: Callable, *args, **kwargs) -> Any:
         """

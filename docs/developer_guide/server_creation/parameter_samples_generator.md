@@ -545,7 +545,7 @@ class DeckSimHelper:
             param_file="parameter_samples.txt",
         )
 
-        run_info: dict[str, list[dict[str, Any]]] = {"runs":[]}
+        run_info: dict[str, list[dict[str, Any]]] = {"runs": []}
         for run_instance, run_configuration in zip(output_result.run_instances, run_configurations):
             staged_deck = self._stage_input_deck(
                 input_deck_path=input_deck_path,

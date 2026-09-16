@@ -6,9 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Support for FastMCP 4.0 and MCP 2.0
+- Extension manifest support for skills and direct commands
 
 ### Changed
 - Updated installation docs to describe package installation from PyPI and optional server discovery behavior
+- Moved background task execution into a shared runtime and extended extension discovery to cover skills and direct commands
 
 ### Fixed
 - Kept available MCP server discovery working when an optional server dependency is missing

@@ -7,7 +7,13 @@ import types
 
 from _pytest.monkeypatch import MonkeyPatch
 
-from mada_tools.extensions.manifest import ExtensionManifest, MCPServerRegistration
+import mada_tools.extensions.registry as registry_mod
+from mada_tools.extensions.manifest import (
+    DirectCommandRegistration,
+    ExtensionManifest,
+    MCPServerRegistration,
+    SkillRegistration,
+)
 from mada_tools.extensions.registry import ExtensionRegistry
 
 
@@ -54,6 +60,20 @@ class FakeSelectableEntryPoints:
             list: Entry points for the requested group.
         """
         return self.groups.get(group, [])
+
+
+class FakeResource:
+    """Simple resource tree stub for package-data validation tests."""
+
+    def __init__(self, files, parts=()):
+        self._files = files
+        self._parts = parts
+
+    def joinpath(self, part):
+        return FakeResource(self._files, self._parts + (part,))
+
+    def is_file(self):
+        return "/".join(self._parts) in self._files
 
 
 def test_registry_discovers_manifest_extensions_from_entry_points(monkeypatch: MonkeyPatch):
@@ -176,3 +196,56 @@ def test_registry_prefers_manifest_extensions_over_legacy_from_same_provider(mon
     assert set(indexed.keys()) == {"alpha", "beta"}
     assert indexed["alpha"].module_path == "dual_pkg.alpha.server"
     assert indexed["beta"].module_path == "dual_pkg.beta.server"
+
+
+def test_registry_discovers_skills_and_direct_commands_from_manifests(monkeypatch: MonkeyPatch):
+    """Verify the registry indexes all three manifest surface types."""
+
+    def get_extension_manifest() -> ExtensionManifest:
+        return ExtensionManifest(
+            display_name="Example Extension",
+            version="1.0.0",
+            provider_package="example_pkg",
+            mcp_servers=(MCPServerRegistration("alpha", "example_pkg.alpha.server", "example_pkg"),),
+            skills=(
+                SkillRegistration(
+                    "diagnose_job_failures",
+                    "example_pkg",
+                    "monitor/job_monitor/skills/diagnose_job_failures.md",
+                ),
+            ),
+            direct_commands=(DirectCommandRegistration("job_monitor", "example_pkg.direct:register", "example_pkg"),),
+        )
+
+    fake_entry_points = FakeSelectableEntryPoints(
+        {
+            "mada_tools.extensions": [
+                FakeEntryPoint(
+                    "example_pkg",
+                    "example_pkg.extension:get_extension_manifest",
+                    loaded=get_extension_manifest,
+                    dist_name="example_pkg",
+                )
+            ]
+        }
+    )
+
+    def import_module(module_path):
+        if module_path == "example_pkg.direct":
+            return types.SimpleNamespace(register=lambda: None)
+        return types.SimpleNamespace(main=lambda: None)
+
+    monkeypatch.setattr("importlib.metadata.entry_points", lambda: fake_entry_points)
+    monkeypatch.setattr(registry_mod.importlib, "import_module", import_module)
+    monkeypatch.setattr(
+        registry_mod.resources,
+        "files",
+        lambda package: FakeResource({"monitor/job_monitor/skills/diagnose_job_failures.md"}),
+    )
+
+    registry = ExtensionRegistry()
+
+    assert [skill.name for skill in registry.get_available_skills()] == ["diagnose_job_failures"]
+    assert [command.name for command in registry.get_available_direct_commands()] == ["job_monitor"]
+    assert registry.get_skill_index()["diagnose_job_failures"].package == "example_pkg"
+    assert registry.get_direct_command_index()["job_monitor"].callable_path == "example_pkg.direct:register"

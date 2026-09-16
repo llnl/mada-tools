@@ -8,7 +8,13 @@ import types
 from _pytest.logging import LogCaptureFixture
 from _pytest.monkeypatch import MonkeyPatch
 
-from mada_tools.extensions.manifest import ExtensionManifest, MCPServerRegistration
+import mada_tools.extensions.registry as registry_mod
+from mada_tools.extensions.manifest import (
+    DirectCommandRegistration,
+    ExtensionManifest,
+    MCPServerRegistration,
+    SkillRegistration,
+)
 from mada_tools.extensions.registry import ExtensionRegistry
 
 
@@ -36,12 +42,31 @@ class FakeSelectableEntryPoints(list):
         return []
 
 
-def make_manifest(provider_package: str, *servers: MCPServerRegistration) -> ExtensionManifest:
+class FakeResource:
+    def __init__(self, files, parts=()):
+        self._files = files
+        self._parts = parts
+
+    def joinpath(self, part):
+        return FakeResource(self._files, self._parts + (part,))
+
+    def is_file(self):
+        return "/".join(self._parts) in self._files
+
+
+def make_manifest(
+    provider_package: str,
+    *servers: MCPServerRegistration,
+    skills=(),
+    direct_commands=(),
+) -> ExtensionManifest:
     return ExtensionManifest(
         display_name=f"{provider_package} display",
         version="1.0.0",
         provider_package=provider_package,
         mcp_servers=servers,
+        skills=tuple(skills),
+        direct_commands=tuple(direct_commands),
     )
 
 
@@ -91,6 +116,59 @@ def test_get_mcp_server_index_keeps_first_server_on_name_collision(monkeypatch: 
     assert any("Plugin server name collision for 'shared'" in record.message for record in caplog.records)
 
 
+def test_get_available_skills_returns_sorted_registrations(monkeypatch: MonkeyPatch):
+    """Verify that available skill registrations are returned in package/name order."""
+    registry = ExtensionRegistry()
+    monkeypatch.setattr(
+        registry,
+        "discover_extensions",
+        lambda: [
+            make_manifest(
+                "pkg_b",
+                skills=(SkillRegistration("zeta", "pkg_b", "monitor/skills/zeta.md"),),
+            ),
+            make_manifest(
+                "pkg_a",
+                skills=(
+                    SkillRegistration("beta", "pkg_a", "scheduler/skills/beta.md"),
+                    SkillRegistration("alpha", "pkg_a", "scheduler/skills/alpha.md"),
+                ),
+            ),
+        ],
+    )
+
+    discovered = registry.get_available_skills()
+
+    assert [(skill.package, skill.name) for skill in discovered] == [
+        ("pkg_a", "alpha"),
+        ("pkg_a", "beta"),
+        ("pkg_b", "zeta"),
+    ]
+
+
+def test_get_direct_command_index_keeps_first_registration_on_name_collision(
+    monkeypatch: MonkeyPatch, caplog: LogCaptureFixture
+):
+    """Verify that direct-command name collisions keep the first discovered registration."""
+    registry = ExtensionRegistry()
+    first = DirectCommandRegistration("shared", "first_pkg.direct:register", "first_pkg")
+    second = DirectCommandRegistration("shared", "second_pkg.direct:register", "second_pkg")
+    monkeypatch.setattr(
+        registry,
+        "discover_extensions",
+        lambda: [
+            make_manifest("first_pkg", direct_commands=(first,)),
+            make_manifest("second_pkg", direct_commands=(second,)),
+        ],
+    )
+
+    with caplog.at_level("WARNING"):
+        discovered = registry.get_direct_command_index()
+
+    assert discovered == {"shared": first}
+    assert any("Plugin direct command name collision for 'shared'" in record.message for record in caplog.records)
+
+
 def test_discover_manifest_extensions_discovers_valid_manifest(monkeypatch: MonkeyPatch):
     """Verify that valid manifest entry points are discovered successfully."""
     registry = ExtensionRegistry()
@@ -105,8 +183,14 @@ def test_discover_manifest_extensions_discovers_valid_manifest(monkeypatch: Monk
         lambda group: entry_points if group == "mada_tools.extensions" else [],
     )
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.importlib.import_module",
+        registry_mod.importlib,
+        "import_module",
         lambda module_path: types.SimpleNamespace(main=lambda: None),
+    )
+    monkeypatch.setattr(
+        registry_mod.resources,
+        "files",
+        lambda package: FakeResource(set()),
     )
 
     discovered = registry._discover_manifest_extensions()
@@ -136,7 +220,12 @@ def test_discover_manifest_extensions_keeps_servers_when_one_dependency_is_missi
         "_load_entry_points",
         lambda group: entry_points if group == "mada_tools.extensions" else [],
     )
-    monkeypatch.setattr("mada_tools.extensions.registry.importlib.import_module", import_module)
+    monkeypatch.setattr(registry_mod.importlib, "import_module", import_module)
+    monkeypatch.setattr(
+        registry_mod.resources,
+        "files",
+        lambda package: FakeResource(set()),
+    )
 
     with caplog.at_level("WARNING"):
         discovered = registry._discover_manifest_extensions()
@@ -162,15 +251,21 @@ def test_discover_manifest_extensions_omits_manifest_when_all_servers_are_unavai
         lambda group: entry_points if group == "mada_tools.extensions" else [],
     )
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.importlib.import_module",
+        registry_mod.importlib,
+        "import_module",
         lambda module_path: (_ for _ in ()).throw(ModuleNotFoundError("missing dependency")),
+    )
+    monkeypatch.setattr(
+        registry_mod.resources,
+        "files",
+        lambda package: FakeResource(set()),
     )
 
     with caplog.at_level("WARNING"):
         discovered = registry._discover_manifest_extensions()
 
     assert discovered == []
-    assert any("has no usable MCP server registrations" in record.message for record in caplog.records)
+    assert any("has no usable extension registrations" in record.message for record in caplog.records)
 
 
 def test_flux_import_failure_does_not_hide_other_builtin_servers(monkeypatch: MonkeyPatch, caplog: LogCaptureFixture):
@@ -199,7 +294,12 @@ def test_flux_import_failure_does_not_hide_other_builtin_servers(monkeypatch: Mo
             else []
         ),
     )
-    monkeypatch.setattr("mada_tools.extensions.registry.importlib.import_module", import_module)
+    monkeypatch.setattr(registry_mod.importlib, "import_module", import_module)
+    monkeypatch.setattr(
+        registry_mod.resources,
+        "files",
+        lambda package: FakeResource(set()),
+    )
 
     with caplog.at_level("WARNING"):
         servers = registry.get_available_mcp_servers()
@@ -227,8 +327,14 @@ def test_discover_manifest_extensions_skips_duplicate_provider_packages(
         lambda group: entry_points if group == "mada_tools.extensions" else [],
     )
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.importlib.import_module",
+        registry_mod.importlib,
+        "import_module",
         lambda module_path: types.SimpleNamespace(main=lambda: None),
+    )
+    monkeypatch.setattr(
+        registry_mod.resources,
+        "files",
+        lambda package: FakeResource(set()),
     )
 
     with caplog.at_level("WARNING"):
@@ -295,8 +401,14 @@ def test_validate_extension_manifest_rejects_duplicate_server_names(
     """Verify that duplicate server names within one manifest are rejected."""
     registry = ExtensionRegistry()
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.importlib.import_module",
+        registry_mod.importlib,
+        "import_module",
         lambda module_path: types.SimpleNamespace(main=lambda: None),
+    )
+    monkeypatch.setattr(
+        registry_mod.resources,
+        "files",
+        lambda package: FakeResource(set()),
     )
     manifest = make_manifest(
         "provider_pkg",
@@ -327,6 +439,96 @@ def test_validate_mcp_server_registration_rejects_module_without_main(
     assert any("does not expose callable main()" in record.message for record in caplog.records)
 
 
+def test_validate_extension_manifest_allows_skill_only_extensions(monkeypatch: MonkeyPatch):
+    """Verify that manifests can contribute only skills without MCP servers."""
+    registry = ExtensionRegistry()
+    monkeypatch.setattr(
+        registry_mod.resources,
+        "files",
+        lambda package: FakeResource({"monitor/job_monitor/skills/diagnose.md"}),
+    )
+    manifest = ExtensionManifest(
+        display_name="skills only",
+        version="1.0.0",
+        provider_package="provider_pkg",
+        skills=(SkillRegistration("diagnose", "provider_pkg", "monitor/job_monitor/skills/diagnose.md"),),
+    )
+
+    assert registry._validate_extension_manifest(manifest)
+
+
+def test_validate_skill_registration_rejects_non_resource_style_paths(
+    monkeypatch: MonkeyPatch, caplog: LogCaptureFixture
+):
+    """Verify that skill registrations reject invalid package resource paths."""
+    registry = ExtensionRegistry()
+    monkeypatch.setattr(
+        registry_mod.resources,
+        "files",
+        lambda package: FakeResource(set()),
+    )
+
+    with caplog.at_level("WARNING"):
+        is_valid = registry._validate_skill_registration(
+            SkillRegistration("diagnose", "provider_pkg", "..\\skills\\diagnose.txt")
+        )
+
+    assert not is_valid
+    assert any("must use '/' package resource separators" in record.message for record in caplog.records)
+
+
+def test_validate_skill_registration_rejects_missing_resource(monkeypatch: MonkeyPatch, caplog: LogCaptureFixture):
+    """Verify that skill registrations must resolve to a packaged markdown file."""
+    registry = ExtensionRegistry()
+    monkeypatch.setattr(
+        registry_mod.resources,
+        "files",
+        lambda package: FakeResource(set()),
+    )
+
+    with caplog.at_level("WARNING"):
+        is_valid = registry._validate_skill_registration(
+            SkillRegistration("diagnose", "provider_pkg", "monitor/job_monitor/skills/diagnose.md")
+        )
+
+    assert not is_valid
+    assert any("was not found in package" in record.message for record in caplog.records)
+
+
+def test_validate_direct_command_registration_rejects_non_callable_target(
+    monkeypatch: MonkeyPatch, caplog: LogCaptureFixture
+):
+    """Verify that direct-command registrations require a callable import target."""
+    registry = ExtensionRegistry()
+    monkeypatch.setattr(
+        registry_mod.importlib,
+        "import_module",
+        lambda module_path: object(),
+    )
+
+    with caplog.at_level("WARNING"):
+        is_valid = registry._validate_direct_command_registration(
+            DirectCommandRegistration("job_monitor", "provider.direct:register", "provider_pkg")
+        )
+
+    assert not is_valid
+    assert any("does not expose callable register()" in record.message for record in caplog.records)
+
+
+def test_validate_direct_command_registration_accepts_callable_target(monkeypatch: MonkeyPatch):
+    """Verify that direct-command registrations accept importable callable targets."""
+    registry = ExtensionRegistry()
+    monkeypatch.setattr(
+        registry_mod.importlib,
+        "import_module",
+        lambda module_path: types.SimpleNamespace(register=lambda: None),
+    )
+
+    assert registry._validate_direct_command_registration(
+        DirectCommandRegistration("job_monitor", "provider.direct:register", "provider_pkg")
+    )
+
+
 def test_discover_legacy_server_extensions_groups_by_provider_and_skips_manifest_server_names(monkeypatch: MonkeyPatch):
     """Verify that legacy servers are grouped by provider and skipped only on manifest name collisions."""
     registry = ExtensionRegistry()
@@ -340,8 +542,14 @@ def test_discover_legacy_server_extensions_groups_by_provider_and_skips_manifest
         lambda group: entry_points if group == "mada_tools.servers" else [],
     )
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.importlib.import_module",
+        registry_mod.importlib,
+        "import_module",
         lambda module_path: types.SimpleNamespace(main=lambda: None),
+    )
+    monkeypatch.setattr(
+        registry_mod.resources,
+        "files",
+        lambda package: FakeResource(set()),
     )
 
     discovered = registry._discover_legacy_server_extensions(existing_server_names={"legacy_a"})
@@ -361,8 +569,14 @@ def test_discover_legacy_server_extensions_uses_unknown_when_dist_name_missing(m
         lambda group: entry_points if group == "mada_tools.servers" else [],
     )
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.importlib.import_module",
+        registry_mod.importlib,
+        "import_module",
         lambda module_path: types.SimpleNamespace(main=lambda: None),
+    )
+    monkeypatch.setattr(
+        registry_mod.resources,
+        "files",
+        lambda package: FakeResource(set()),
     )
 
     discovered = registry._discover_legacy_server_extensions(existing_server_names=set())
@@ -387,8 +601,14 @@ def test_discover_legacy_server_extensions_keeps_non_colliding_legacy_servers_fr
         lambda group: entry_points if group == "mada_tools.servers" else [],
     )
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.importlib.import_module",
+        registry_mod.importlib,
+        "import_module",
         lambda module_path: types.SimpleNamespace(main=lambda: None),
+    )
+    monkeypatch.setattr(
+        registry_mod.resources,
+        "files",
+        lambda package: FakeResource(set()),
     )
 
     discovered = registry._discover_legacy_server_extensions(existing_server_names={"alpha"})

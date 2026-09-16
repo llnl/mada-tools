@@ -5,22 +5,29 @@
 
 This module provides the `ExtensionRegistry`, which is responsible for loading
 manifest factories, adapting legacy MCP server entry points, validating server
-modules, and returning the final set of available MCP server registrations.
+modules, and returning the final set of available extension registrations.
 """
 
 import importlib
 import logging
 from collections import defaultdict
 from dataclasses import replace
+from importlib import resources
+from pathlib import PurePosixPath
 from typing import Any, Dict, List, Optional
 
-from mada_tools.extensions.manifest import ExtensionManifest, MCPServerRegistration
+from mada_tools.extensions.manifest import (
+    DirectCommandRegistration,
+    ExtensionManifest,
+    MCPServerRegistration,
+    SkillRegistration,
+)
 
 LOG = logging.getLogger(__name__)
 
 
 class ExtensionRegistry:
-    """Discover extension manifests and expose validated MCP server registrations.
+    """Discover extension manifests and expose validated extension registrations.
 
     Methods:
         discover_extensions:
@@ -29,6 +36,14 @@ class ExtensionRegistry:
             Return validated MCP server registrations as a sorted list.
         get_mcp_server_index:
             Return validated MCP server registrations keyed by server name.
+        get_available_skills:
+            Return validated skill registrations as a sorted list.
+        get_skill_index:
+            Return validated skill registrations keyed by skill name.
+        get_available_direct_commands:
+            Return validated direct-command registrations as a sorted list.
+        get_direct_command_index:
+            Return validated direct-command registrations keyed by name.
     """
 
     def discover_extensions(self) -> List[ExtensionManifest]:
@@ -67,19 +82,91 @@ class ExtensionRegistry:
             Dict[str, MCPServerRegistration]:
                 Mapping of server names to validated MCP server registrations.
         """
-        available: Dict[str, MCPServerRegistration] = {}
+        return self._index_surface_registrations(
+            surface_attr="mcp_servers",
+            collision_label="server",
+        )
+
+    def get_available_skills(self) -> List[SkillRegistration]:
+        """Return validated skill registrations.
+
+        Returns:
+            List[SkillRegistration]:
+                Skill registrations sorted by provider package and skill name.
+        """
+        return sorted(
+            self.get_skill_index().values(),
+            key=lambda skill: (skill.package.lower(), skill.name.lower()),
+        )
+
+    def get_skill_index(self) -> Dict[str, SkillRegistration]:
+        """Return validated skills indexed by skill name.
+
+        Returns:
+            Dict[str, SkillRegistration]:
+                Mapping of skill names to validated skill registrations.
+        """
+        return self._index_surface_registrations(
+            surface_attr="skills",
+            collision_label="skill",
+        )
+
+    def get_available_direct_commands(self) -> List[DirectCommandRegistration]:
+        """Return validated direct-command registrations.
+
+        Returns:
+            List[DirectCommandRegistration]:
+                Direct-command registrations sorted by provider package and
+                name.
+        """
+        return sorted(
+            self.get_direct_command_index().values(),
+            key=lambda command: (command.package.lower(), command.name.lower()),
+        )
+
+    def get_direct_command_index(self) -> Dict[str, DirectCommandRegistration]:
+        """Return validated direct commands indexed by command name.
+
+        Returns:
+            Dict[str, DirectCommandRegistration]:
+                Mapping of command names to validated direct-command
+                registrations.
+        """
+        return self._index_surface_registrations(
+            surface_attr="direct_commands",
+            collision_label="direct command",
+        )
+
+    def _index_surface_registrations(self, surface_attr: str, collision_label: str) -> Dict[str, Any]:
+        """Build an index for one validated registration surface.
+
+        Args:
+            surface_attr (str):
+                Name of the manifest attribute that stores the registrations to
+                index.
+            collision_label (str):
+                Human-readable surface label used in warning logs.
+
+        Returns:
+            Dict[str, Any]:
+                Mapping of registration names to the first discovered validated
+                registration for that name.
+        """
+        available: Dict[str, Any] = {}
 
         for manifest in self.discover_extensions():
-            for server in manifest.mcp_servers:
-                if server.name in available:
+            for registration in getattr(manifest, surface_attr):
+                if registration.name in available:
                     LOG.warning(
-                        "Plugin server name collision for '%s', already discovered. Skipping server from package '%s'.",
-                        server.name,
+                        "Plugin %s name collision for '%s', already discovered. Skipping %s from package '%s'.",
+                        collision_label,
+                        registration.name,
+                        collision_label,
                         manifest.provider_package,
                     )
                     continue
 
-                available[server.name] = server
+                available[registration.name] = registration
 
         return available
 
@@ -245,7 +332,7 @@ class ExtensionRegistry:
         return manifest
 
     def _validate_extension_manifest(self, manifest: ExtensionManifest) -> bool:
-        """Validate one manifest and its registered MCP servers.
+        """Validate one manifest and its registered extension surfaces.
 
         Args:
             manifest (ExtensionManifest):
@@ -259,12 +346,21 @@ class ExtensionRegistry:
         return self._validated_extension_manifest(manifest) is not None
 
     def _validated_extension_manifest(self, manifest: ExtensionManifest) -> Optional[ExtensionManifest]:
-        """Return a manifest containing only usable server registrations.
+        """Return a manifest containing only usable extension registrations.
 
         Manifest metadata and duplicate registrations remain all-or-nothing,
-        but an unavailable server is an optional capability.  This distinction
-        lets one extension contribute its other servers when an optional
-        dependency (for example ``flux-python``) is not installed.
+        but an unavailable surface is treated as optional. This lets one
+        extension contribute its other surfaces when an optional dependency is
+        unavailable.
+
+        Args:
+            manifest (ExtensionManifest):
+                Manifest to validate and normalize.
+
+        Returns:
+            Optional[ExtensionManifest]:
+                A copy of the manifest containing only usable registrations, or
+                `None` when the manifest is invalid.
         """
         if not manifest.provider_package:
             LOG.warning("Encountered extension manifest with empty provider_package")
@@ -278,36 +374,112 @@ class ExtensionRegistry:
             LOG.warning("Extension '%s' has malformed mcp_servers", manifest.provider_package)
             return None
 
-        seen_server_names: set[str] = set()
-        usable_servers: list[MCPServerRegistration] = []
-        for server in manifest.mcp_servers:
-            if not isinstance(server, MCPServerRegistration):
-                LOG.warning(
-                    "Extension '%s' contains an invalid MCP server registration; skipping manifest",
-                    manifest.provider_package,
-                )
-                return None
+        if not isinstance(manifest.skills, tuple):
+            LOG.warning("Extension '%s' has malformed skills", manifest.provider_package)
+            return None
 
-            if server.name in seen_server_names:
-                LOG.warning(
-                    "Extension '%s' registers duplicate MCP server name '%s'",
-                    manifest.provider_package,
-                    server.name,
-                )
-                return None
-            seen_server_names.add(server.name)
+        if not isinstance(manifest.direct_commands, tuple):
+            LOG.warning("Extension '%s' has malformed direct_commands", manifest.provider_package)
+            return None
 
-            if self._validate_mcp_server_registration(server):
-                usable_servers.append(server)
+        usable_servers = self._validated_registrations(
+            provider_package=manifest.provider_package,
+            registrations=manifest.mcp_servers,
+            expected_type=MCPServerRegistration,
+            registration_label="MCP server",
+            validator=self._validate_mcp_server_registration,
+        )
+        if usable_servers is None:
+            return None
 
-        if not usable_servers:
+        usable_skills = self._validated_registrations(
+            provider_package=manifest.provider_package,
+            registrations=manifest.skills,
+            expected_type=SkillRegistration,
+            registration_label="skill",
+            validator=self._validate_skill_registration,
+        )
+        if usable_skills is None:
+            return None
+
+        usable_direct_commands = self._validated_registrations(
+            provider_package=manifest.provider_package,
+            registrations=manifest.direct_commands,
+            expected_type=DirectCommandRegistration,
+            registration_label="direct command",
+            validator=self._validate_direct_command_registration,
+        )
+        if usable_direct_commands is None:
+            return None
+
+        if not usable_servers and not usable_skills and not usable_direct_commands:
             LOG.warning(
-                "Extension '%s' has no usable MCP server registrations",
+                "Extension '%s' has no usable extension registrations",
                 manifest.provider_package,
             )
             return None
 
-        return replace(manifest, mcp_servers=tuple(usable_servers))
+        return replace(
+            manifest,
+            mcp_servers=tuple(usable_servers),
+            skills=tuple(usable_skills),
+            direct_commands=tuple(usable_direct_commands),
+        )
+
+    def _validated_registrations(
+        self,
+        *,
+        provider_package: str,
+        registrations: tuple[Any, ...],
+        expected_type: type,
+        registration_label: str,
+        validator: Any,
+    ) -> list[Any] | None:
+        """Validate one typed registration collection from a manifest.
+
+        Args:
+            provider_package (str):
+                Provider package that owns the registration set.
+            registrations (tuple[Any, ...]):
+                Registration objects to validate.
+            expected_type (type):
+                Registration dataclass type expected in the collection.
+            registration_label (str):
+                Human-readable label used in validation logs.
+            validator (Any):
+                Callable that determines whether an individual registration is
+                usable.
+
+        Returns:
+            list[Any] | None:
+                The usable registrations from the collection, or `None` when
+                the manifest should be rejected entirely.
+        """
+        seen_names: set[str] = set()
+        usable_registrations: list[Any] = []
+        for registration in registrations:
+            if not isinstance(registration, expected_type):
+                LOG.warning(
+                    "Extension '%s' contains an invalid %s registration; skipping manifest",
+                    provider_package,
+                    registration_label,
+                )
+                return None
+
+            if registration.name in seen_names:
+                LOG.warning(
+                    "Extension '%s' registers duplicate %s name '%s'",
+                    provider_package,
+                    registration_label,
+                    registration.name,
+                )
+                return None
+            seen_names.add(registration.name)
+
+            if validator(registration):
+                usable_registrations.append(registration)
+
+        return usable_registrations
 
     def _validate_mcp_server_registration(self, server: MCPServerRegistration) -> bool:
         """Validate one MCP server registration, including runtime importability.
@@ -348,6 +520,114 @@ class ExtensionRegistry:
                 "Server module '%s' for '%s' does not expose callable main()",
                 server.module_path,
                 server.name,
+            )
+            return False
+
+        return True
+
+    def _validate_skill_registration(self, skill: SkillRegistration) -> bool:
+        """Validate one packaged skill registration.
+
+        Args:
+            skill (SkillRegistration):
+                Skill registration to validate.
+
+        Returns:
+            bool:
+                `True` when the registration is usable, otherwise `False`.
+        """
+        if not skill.name:
+            LOG.warning("Encountered skill registration with empty name")
+            return False
+
+        if not skill.package:
+            LOG.warning("Skill '%s' is missing package", skill.name)
+            return False
+
+        if not skill.skill_path:
+            LOG.warning("Skill '%s' is missing skill_path", skill.name)
+            return False
+
+        if "\\" in skill.skill_path:
+            LOG.warning("Skill '%s' must use '/' package resource separators in skill_path", skill.name)
+            return False
+
+        skill_path = PurePosixPath(skill.skill_path)
+        if skill_path.is_absolute() or ".." in skill_path.parts or skill_path.suffix.lower() != ".md":
+            LOG.warning("Skill '%s' has invalid skill_path '%s'", skill.name, skill.skill_path)
+            return False
+
+        if "skills" not in skill_path.parts:
+            LOG.warning("Skill '%s' must point at a resource inside a skills/ directory", skill.name)
+            return False
+
+        try:
+            resource = resources.files(skill.package)
+            for part in skill_path.parts:
+                resource = resource.joinpath(part)
+        except Exception as e:
+            LOG.warning("Could not inspect package resources for skill '%s' in '%s': %s", skill.name, skill.package, e)
+            return False
+
+        if not resource.is_file():
+            LOG.warning(
+                "Skill '%s' resource '%s' was not found in package '%s'",
+                skill.name,
+                skill.skill_path,
+                skill.package,
+            )
+            return False
+
+        return True
+
+    def _validate_direct_command_registration(self, command: DirectCommandRegistration) -> bool:
+        """Validate one direct-command registration.
+
+        Args:
+            command (DirectCommandRegistration):
+                Direct-command registration to validate.
+
+        Returns:
+            bool:
+                `True` when the registration is usable, otherwise `False`.
+        """
+        if not command.name:
+            LOG.warning("Encountered direct command registration with empty name")
+            return False
+
+        if not command.callable_path:
+            LOG.warning("Direct command '%s' is missing callable_path", command.name)
+            return False
+
+        if not command.package:
+            LOG.warning("Direct command '%s' is missing package", command.name)
+            return False
+
+        module_path, separator, callable_name = command.callable_path.partition(":")
+        if not separator or not module_path or not callable_name:
+            LOG.warning(
+                "Direct command '%s' must define callable_path as 'module.path:callable_name'",
+                command.name,
+            )
+            return False
+
+        try:
+            mod = importlib.import_module(module_path)
+        except Exception as e:
+            LOG.warning(
+                "Could not import direct command module for '%s' from '%s': %s",
+                command.name,
+                module_path,
+                e,
+            )
+            return False
+
+        if not hasattr(mod, callable_name) or not callable(getattr(mod, callable_name)):
+            LOG.warning(
+                "Direct command module '%s' for '%s' does not expose callable %s()",
+                module_path,
+                command.name,
+                callable_name,
             )
             return False
 
