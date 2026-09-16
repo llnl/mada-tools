@@ -14,6 +14,7 @@ from mada_tools.extensions.manifest import (
     MCPServerRegistration,
     SkillRegistration,
 )
+import mada_tools.extensions.registry as registry_mod
 from mada_tools.extensions.registry import ExtensionRegistry
 
 
@@ -182,11 +183,13 @@ def test_discover_manifest_extensions_discovers_valid_manifest(monkeypatch: Monk
         lambda group: entry_points if group == "mada_tools.extensions" else [],
     )
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.importlib.import_module",
+        registry_mod.importlib,
+        "import_module",
         lambda module_path: types.SimpleNamespace(main=lambda: None),
     )
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.resources.files",
+        registry_mod.resources,
+        "files",
         lambda package: FakeResource(set()),
     )
 
@@ -217,9 +220,10 @@ def test_discover_manifest_extensions_keeps_servers_when_one_dependency_is_missi
         "_load_entry_points",
         lambda group: entry_points if group == "mada_tools.extensions" else [],
     )
-    monkeypatch.setattr("mada_tools.extensions.registry.importlib.import_module", import_module)
+    monkeypatch.setattr(registry_mod.importlib, "import_module", import_module)
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.resources.files",
+        registry_mod.resources,
+        "files",
         lambda package: FakeResource(set()),
     )
 
@@ -247,11 +251,13 @@ def test_discover_manifest_extensions_omits_manifest_when_all_servers_are_unavai
         lambda group: entry_points if group == "mada_tools.extensions" else [],
     )
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.importlib.import_module",
+        registry_mod.importlib,
+        "import_module",
         lambda module_path: (_ for _ in ()).throw(ModuleNotFoundError("missing dependency")),
     )
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.resources.files",
+        registry_mod.resources,
+        "files",
         lambda package: FakeResource(set()),
     )
 
@@ -288,9 +294,10 @@ def test_flux_import_failure_does_not_hide_other_builtin_servers(monkeypatch: Mo
             else []
         ),
     )
-    monkeypatch.setattr("mada_tools.extensions.registry.importlib.import_module", import_module)
+    monkeypatch.setattr(registry_mod.importlib, "import_module", import_module)
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.resources.files",
+        registry_mod.resources,
+        "files",
         lambda package: FakeResource(set()),
     )
 
@@ -320,11 +327,13 @@ def test_discover_manifest_extensions_skips_duplicate_provider_packages(
         lambda group: entry_points if group == "mada_tools.extensions" else [],
     )
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.importlib.import_module",
+        registry_mod.importlib,
+        "import_module",
         lambda module_path: types.SimpleNamespace(main=lambda: None),
     )
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.resources.files",
+        registry_mod.resources,
+        "files",
         lambda package: FakeResource(set()),
     )
 
@@ -392,11 +401,13 @@ def test_validate_extension_manifest_rejects_duplicate_server_names(
     """Verify that duplicate server names within one manifest are rejected."""
     registry = ExtensionRegistry()
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.importlib.import_module",
+        registry_mod.importlib,
+        "import_module",
         lambda module_path: types.SimpleNamespace(main=lambda: None),
     )
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.resources.files",
+        registry_mod.resources,
+        "files",
         lambda package: FakeResource(set()),
     )
     manifest = make_manifest(
@@ -432,7 +443,8 @@ def test_validate_extension_manifest_allows_skill_only_extensions(monkeypatch: M
     """Verify that manifests can contribute only skills without MCP servers."""
     registry = ExtensionRegistry()
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.resources.files",
+        registry_mod.resources,
+        "files",
         lambda package: FakeResource({"monitor/job_monitor/skills/diagnose.md"}),
     )
     manifest = ExtensionManifest(
@@ -449,7 +461,8 @@ def test_validate_skill_registration_rejects_non_resource_style_paths(monkeypatc
     """Verify that skill registrations reject invalid package resource paths."""
     registry = ExtensionRegistry()
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.resources.files",
+        registry_mod.resources,
+        "files",
         lambda package: FakeResource(set()),
     )
 
@@ -466,7 +479,8 @@ def test_validate_skill_registration_rejects_missing_resource(monkeypatch: Monke
     """Verify that skill registrations must resolve to a packaged markdown file."""
     registry = ExtensionRegistry()
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.resources.files",
+        registry_mod.resources,
+        "files",
         lambda package: FakeResource(set()),
     )
 
@@ -485,7 +499,8 @@ def test_validate_direct_command_registration_rejects_non_callable_target(
     """Verify that direct-command registrations require a callable import target."""
     registry = ExtensionRegistry()
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.importlib.import_module",
+        registry_mod.importlib,
+        "import_module",
         lambda module_path: object(),
     )
 
@@ -502,7 +517,8 @@ def test_validate_direct_command_registration_accepts_callable_target(monkeypatc
     """Verify that direct-command registrations accept importable callable targets."""
     registry = ExtensionRegistry()
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.importlib.import_module",
+        registry_mod.importlib,
+        "import_module",
         lambda module_path: types.SimpleNamespace(register=lambda: None),
     )
 
@@ -524,11 +540,13 @@ def test_discover_legacy_server_extensions_groups_by_provider_and_skips_manifest
         lambda group: entry_points if group == "mada_tools.servers" else [],
     )
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.importlib.import_module",
+        registry_mod.importlib,
+        "import_module",
         lambda module_path: types.SimpleNamespace(main=lambda: None),
     )
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.resources.files",
+        registry_mod.resources,
+        "files",
         lambda package: FakeResource(set()),
     )
 
@@ -549,11 +567,13 @@ def test_discover_legacy_server_extensions_uses_unknown_when_dist_name_missing(m
         lambda group: entry_points if group == "mada_tools.servers" else [],
     )
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.importlib.import_module",
+        registry_mod.importlib,
+        "import_module",
         lambda module_path: types.SimpleNamespace(main=lambda: None),
     )
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.resources.files",
+        registry_mod.resources,
+        "files",
         lambda package: FakeResource(set()),
     )
 
@@ -579,11 +599,13 @@ def test_discover_legacy_server_extensions_keeps_non_colliding_legacy_servers_fr
         lambda group: entry_points if group == "mada_tools.servers" else [],
     )
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.importlib.import_module",
+        registry_mod.importlib,
+        "import_module",
         lambda module_path: types.SimpleNamespace(main=lambda: None),
     )
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.resources.files",
+        registry_mod.resources,
+        "files",
         lambda package: FakeResource(set()),
     )
 

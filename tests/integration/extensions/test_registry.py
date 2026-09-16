@@ -13,6 +13,7 @@ from mada_tools.extensions.manifest import (
     MCPServerRegistration,
     SkillRegistration,
 )
+import mada_tools.extensions.registry as registry_mod
 from mada_tools.extensions.registry import ExtensionRegistry
 
 
@@ -239,9 +240,10 @@ def test_registry_discovers_skills_and_direct_commands_from_manifests(monkeypatc
         return types.SimpleNamespace(main=lambda: None)
 
     monkeypatch.setattr("importlib.metadata.entry_points", lambda: fake_entry_points)
-    monkeypatch.setattr("mada_tools.extensions.registry.importlib.import_module", import_module)
+    monkeypatch.setattr(registry_mod.importlib, "import_module", import_module)
     monkeypatch.setattr(
-        "mada_tools.extensions.registry.resources.files",
+        registry_mod.resources,
+        "files",
         lambda package: FakeResource({"monitor/job_monitor/skills/diagnose_job_failures.md"}),
     )
 
