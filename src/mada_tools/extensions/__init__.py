@@ -8,19 +8,26 @@ registering MADA functionality through extension manifests.
 
 Modules:
     manifest:
-        Dataclasses describing extension manifests and MCP server registrations.
+        Dataclasses describing extension manifests and extension registrations.
     registry:
         Discovery and validation utilities for manifest-based and legacy
         extension registrations.
     builtins:
-        Built-in extension manifest factory for MCP servers shipped with MADA.
+        Built-in extension manifest factory for surfaces shipped with MADA.
 """
 
-from mada_tools.extensions.manifest import ExtensionManifest, MCPServerRegistration
+from mada_tools.extensions.manifest import (
+    DirectCommandRegistration,
+    ExtensionManifest,
+    MCPServerRegistration,
+    SkillRegistration,
+)
 from mada_tools.extensions.registry import ExtensionRegistry
 
 __all__ = [
+    "DirectCommandRegistration",
     "ExtensionManifest",
     "ExtensionRegistry",
     "MCPServerRegistration",
+    "SkillRegistration",
 ]

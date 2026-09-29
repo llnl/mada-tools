@@ -1,16 +1,21 @@
 # Copyright 2026, Lawrence Livermore National Security, LLC and MADA contributors
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Built-in extension manifest for MCP servers shipped with MADA.
+"""Built-in extension manifest for capability surfaces shipped with MADA.
 
 This module exposes the manifest factory used by the core `mada_tools`
-package to register its built-in MCP servers through the shared extension
+package to register its built-in capability surfaces through the shared extension
 discovery path.
 """
 
 from importlib.metadata import PackageNotFoundError, version
 
-from mada_tools.extensions.manifest import ExtensionManifest, MCPServerRegistration
+from mada_tools.extensions.manifest import (
+    DirectCommandRegistration,
+    ExtensionManifest,
+    MCPServerRegistration,
+    SkillRegistration,
+)
 
 
 def get_extension_manifest() -> ExtensionManifest:
@@ -18,7 +23,7 @@ def get_extension_manifest() -> ExtensionManifest:
 
     Returns:
         ExtensionManifest:
-            Manifest describing MCP servers provided directly by `mada_tools`.
+            Manifest describing built-in surfaces provided directly by `mada_tools`.
     """
     try:
         package_version = version("mada_tools")
@@ -58,6 +63,20 @@ def get_extension_manifest() -> ExtensionManifest:
             MCPServerRegistration(
                 name="maestro_command_executor",
                 module_path="mada_tools.workflow.weave.maestro.server",
+                package="mada_tools",
+            ),
+        ),
+        skills=(
+            SkillRegistration(
+                name="diagnose_job_failures",
+                package="mada_tools",
+                skill_path="monitor/job_monitor/skills/diagnose_job_failures.md",
+            ),
+        ),
+        direct_commands=(
+            DirectCommandRegistration(
+                name="job_monitor",
+                callable_path="mada_tools.monitor.job_monitor.direct:JobMonitorDirectCmd",
                 package="mada_tools",
             ),
         ),

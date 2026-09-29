@@ -15,16 +15,16 @@ import traceback
 from argparse import ArgumentParser, Namespace, RawDescriptionHelpFormatter
 
 from mada_tools import VERSION
-from mada_tools.cli import ALL_COMMANDS, LEVEL_MAP, setup_logging
+from mada_tools.cli import LEVEL_MAP, get_all_cli_commands, setup_logging
 from mada_tools.cli.ascii_art import BANNER
 
 
 def parse_args() -> Namespace:
-    """
-    Set up the command-line argument parser for the Merlin package.
+    """Set up the command-line argument parser for the `mada-tools` CLI.
 
     Returns:
-        An `ArgumentParser` object with every parser defined in Merlin's codebase.
+        Namespace: Parsed CLI arguments after built-in and extension-provided
+        commands have been registered.
     """
     parser = ArgumentParser(
         prog="mada-tools",
@@ -48,20 +48,18 @@ def parse_args() -> Namespace:
     )
     subparsers = parser.add_subparsers(dest="subparsers", required=True)
 
-    for command in ALL_COMMANDS:
+    for command in get_all_cli_commands():
         command.add_parser(subparsers)
 
     return parser.parse_args()
 
 
 def main():
-    """
-    Entry point for the MADA tools command-line interface (CLI) operations.
+    """Run the `mada-tools` command-line interface.
 
-    This function sets up the argument parser, handles command-line arguments,
-    initializes logging, and executes the appropriate function based on the
-    provided command. It ensures that the user receives error handling for any
-    exceptions that may occur during command execution.
+    This function parses arguments, configures logging, dispatches the selected
+    command, and exits with status code `1` when command execution raises an
+    exception.
     """
     # Parse arguments from the user
     args = parse_args()

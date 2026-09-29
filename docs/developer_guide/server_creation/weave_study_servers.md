@@ -149,8 +149,7 @@ If a method named `_prep_<template_stem>` exists on the server, it will be used 
 
 For example, a template named `baseline.yaml` will look for:
 ```python
-def _prep_baseline(self, overrides):
-    ...
+def _prep_baseline(self, overrides): ...
 ```
 You can then register all templates in a directory like this:
 ```python

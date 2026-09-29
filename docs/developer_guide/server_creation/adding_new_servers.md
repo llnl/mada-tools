@@ -44,18 +44,17 @@ class MyServerHelper:
             return False, "value must not be empty"
         return True, f"processed {value}"
 
+
 class MyNewMCPServer(BaseMCPServer):
     def __init__(self):
-        super().__init__(
-            server_name="my_new_server",
-            description="MCP Server for My New Functionality"
-        )
+        super().__init__(server_name="my_new_server", description="MCP Server for My New Functionality")
         self.helper = MyServerHelper()
 
     def _register_tools(self):
         @self.mcp.tool()
         def my_cool_tool(value: str) -> str:
             return self.run_tool(self.helper.my_cool_tool, value)
+
 
 if __name__ == "__main__":
     my_server = MyNewMCPServer()

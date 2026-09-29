@@ -30,9 +30,11 @@ _COMMAND_EXPORTS = {
     "AvailableServersCmd": ("mada_tools.cli.commands.available_servers", "AvailableServersCmd"),
     "ExportDocsCmd": ("mada_tools.cli.commands.export_docs", "ExportDocsCmd"),
     "RestartServersCmd": ("mada_tools.cli.commands.restart_servers", "RestartServersCmd"),
+    "RunDirectTaskCmd": ("mada_tools.cli.commands.run_direct_task", "RunDirectTaskCmd"),
     "ServersStatusCmd": ("mada_tools.cli.commands.servers_status", "ServersStatusCmd"),
     "StartServersCmd": ("mada_tools.cli.commands.start_servers", "StartServersCmd"),
     "StopServersCmd": ("mada_tools.cli.commands.stop_servers", "StopServersCmd"),
+    "TaskResultCmd": ("mada_tools.cli.commands.task_result", "TaskResultCmd"),
 }
 
 
@@ -48,12 +50,18 @@ def __getattr__(name):
             __getattr__("AvailableServersCmd")(),
             __getattr__("ExportDocsCmd")(),
             __getattr__("RestartServersCmd")(),
+            __getattr__("RunDirectTaskCmd")(),
             __getattr__("ServersStatusCmd")(),
             __getattr__("StartServersCmd")(),
             __getattr__("StopServersCmd")(),
+            __getattr__("TaskResultCmd")(),
         ]
         globals()[name] = commands
         return commands
+
+    if name == "get_all_cli_commands":
+        globals()[name] = get_all_cli_commands
+        return get_all_cli_commands
 
     if name in _COMMAND_EXPORTS:
         module_name, attribute_name = _COMMAND_EXPORTS[name]
@@ -64,12 +72,35 @@ def __getattr__(name):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
+def get_all_cli_commands():
+    """Return all built-in and extension-provided CLI command objects.
+
+    Returns:
+        list: CLI command objects that can register themselves on the main
+        parser.
+    """
+    from mada_tools.extensions import ExtensionRegistry
+    from mada_tools.shared.direct_cli import load_direct_commands
+
+    # Load all built-in commands.
+    commands = list(__getattr__("ALL_COMMANDS"))
+
+    # Load all extension-provided commands.
+    for registration in ExtensionRegistry().get_available_direct_commands():
+        commands.extend(load_direct_commands(registration.callable_path))
+
+    return commands
+
+
 __all__ = [
     "ALL_COMMANDS",
+    "get_all_cli_commands",
     "AvailableServersCmd",
     "ExportDocsCmd",
     "RestartServersCmd",
+    "RunDirectTaskCmd",
     "ServersStatusCmd",
     "StartServersCmd",
     "StopServersCmd",
+    "TaskResultCmd",
 ]

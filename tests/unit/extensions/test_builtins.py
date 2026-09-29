@@ -53,6 +53,17 @@ def test_get_extension_manifest_contains_expected_module_paths():
     }
 
 
+def test_get_extension_manifest_contains_job_monitor_skill_and_direct_command():
+    """Verify that the built-in manifest exposes the job-monitor extension surfaces."""
+    manifest = get_extension_manifest()
+
+    assert [skill.name for skill in manifest.skills] == ["diagnose_job_failures"]
+    assert manifest.skills[0].skill_path == "monitor/job_monitor/skills/diagnose_job_failures.md"
+
+    assert [command.name for command in manifest.direct_commands] == ["job_monitor"]
+    assert manifest.direct_commands[0].callable_path == "mada_tools.monitor.job_monitor.direct:JobMonitorDirectCmd"
+
+
 def test_get_extension_manifest_uses_unknown_when_version_lookup_fails(monkeypatch: MonkeyPatch):
     """Verify that version lookup falls back to `unknown` when package metadata is unavailable."""
 

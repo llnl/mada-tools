@@ -35,6 +35,11 @@ def __getattr__(name):
 
         return ALL_COMMANDS
 
+    if name == "get_all_cli_commands":
+        from mada_tools.cli.commands import get_all_cli_commands
+
+        return get_all_cli_commands
+
     if name == "BANNER":
         from mada_tools.cli.ascii_art import BANNER
 
@@ -47,6 +52,7 @@ __all__ = [
     "set_log_level",
     "setup_logging",
     "ALL_COMMANDS",
+    "get_all_cli_commands",
     "BANNER",
     "LEVEL_MAP",
 ]
