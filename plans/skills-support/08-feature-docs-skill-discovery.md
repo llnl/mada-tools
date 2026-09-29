@@ -15,7 +15,8 @@ This branch should be based on `feature/skills-support` after the architecture b
 1. User documentation explains the difference between MCP servers, direct commands, and packaged skills.
 2. Developer documentation explains the new capability layout and extension registration model.
 3. Plugin authors have documentation for adding skill files and direct commands through the extension system.
-4. The README and docs landing pages no longer mention skills abstractly without implementation guidance.
+4. Developer-facing skill files exist for common extension-author workflows such as creating MCP servers, packaged skills, and direct CLI invocations.
+5. The README and docs landing pages no longer mention skills abstractly without implementation guidance.
 
 ## Primary Files Likely To Change
 
@@ -26,6 +27,7 @@ This branch should be based on `feature/skills-support` after the architecture b
 - `docs/developer_guide/architecture.md`
 - `docs/developer_guide/server_creation/adding_new_servers.md`
 - `docs/developer_guide/server_creation/extensions.md`
+- skill markdown files under an appropriate docs or packaged-skills location, if that becomes the preferred delivery format
 - additional new docs pages as needed
 
 ## Implementation Tasks
@@ -54,13 +56,20 @@ src/mada_tools/<domain>/<capability>/
 ```
 
 4. Update extension/plugin author guidance.
-   - Explain manifest registration for skills and direct commands.
-   - Explain packaging of skill markdown assets.
-   - Explain how plugin repositories should mirror the same capability pattern.
+    - Explain manifest registration for skills and direct commands.
+    - Explain packaging of skill markdown assets.
+    - Explain how plugin repositories should mirror the same capability pattern.
 
-5. Document background task behavior for direct invocation if the CLI exposes it.
+5. Add developer-facing skill files for common authoring workflows.
+   - Include at least:
+     - creating a new MCP server
+     - creating and packaging a skill markdown asset
+     - creating a new direct CLI invocation backed by the extension system
+   - Keep the skill content aligned with the implemented architecture and real file/layout conventions.
 
-6. Update command examples and any supported-capability tables that need to mention direct/skill-backed usage.
+6. Document background task behavior for direct invocation if the CLI exposes it.
+
+7. Update command examples and any supported-capability tables that need to mention direct/skill-backed usage.
 
 ## Design Constraints
 
@@ -73,6 +82,7 @@ src/mada_tools/<domain>/<capability>/
 1. The docs tell a coherent story for users and plugin authors.
 2. The README and docs index no longer imply skill support without explaining how it works.
 3. The developer docs provide enough guidance for future capability authors to follow the new pattern.
+4. The developer-facing skill files give authors a practical starting point for the most common extension workflows.
 
 ## Out Of Scope
 
