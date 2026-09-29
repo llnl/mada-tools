@@ -10,7 +10,12 @@ discovery path.
 
 from importlib.metadata import PackageNotFoundError, version
 
-from mada_tools.extensions.manifest import ExtensionManifest, MCPServerRegistration
+from mada_tools.extensions.manifest import (
+    DirectCommandRegistration,
+    ExtensionManifest,
+    MCPServerRegistration,
+    SkillRegistration,
+)
 
 
 def get_extension_manifest() -> ExtensionManifest:
@@ -61,6 +66,18 @@ def get_extension_manifest() -> ExtensionManifest:
                 package="mada_tools",
             ),
         ),
-        skills=(),
-        direct_commands=(),
+        skills=(
+            SkillRegistration(
+                name="diagnose_job_failures",
+                package="mada_tools",
+                skill_path="monitor/job_monitor/skills/diagnose_job_failures.md",
+            ),
+        ),
+        direct_commands=(
+            DirectCommandRegistration(
+                name="job_monitor",
+                callable_path="mada_tools.monitor.job_monitor.direct:JobMonitorDirectCmd",
+                package="mada_tools",
+            ),
+        ),
     )

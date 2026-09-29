@@ -8,9 +8,11 @@ Provides log utilities, failure pattern detection, and the JobMonitorServer.
 Modules:
     failure_patterns: Defines known failure signatures and maps them to structured classifications.
     log_utils: Utilities for reading logs, extracting tails, combining multiple logs, and classifying failures.
+    direct: Implements the direct CLI adapter used by extension-discovered command registration.
     server: Implements the JobMonitorServer MCP interface and exposes summarize_status and related tools.
 """
 
+from .direct import JobMonitorDirectAdapter
 from .failure_patterns import FAILURE_PATTERNS, UNCLASSIFIED_FAILURE
 from .log_utils import classify_failure, combine_logs, read_log, tail_log
 from .server import JobMonitorServer
@@ -23,4 +25,5 @@ __all__ = [
     "combine_logs",
     "FAILURE_PATTERNS",
     "UNCLASSIFIED_FAILURE",
+    "JobMonitorDirectAdapter",
 ]
