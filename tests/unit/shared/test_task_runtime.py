@@ -72,3 +72,31 @@ def test_background_task_runtime_reports_missing_task_ids():
         "status": "not_found",
         "message": "Background task not found.",
     }
+
+
+@pytest.mark.asyncio
+async def test_background_task_runtime_accepts_explicit_task_ids_and_publishes_task_updates():
+    """Verify explicit task ids and state callbacks work for non-MCP callers."""
+    published = []
+    runtime = BackgroundTaskRuntime(task_prefix="job", task_state_callback=published.append)
+
+    task_info = await runtime.run(
+        lambda: "payload",
+        background=True,
+        task_name="demo",
+        task_id="job-explicit",
+    )
+
+    assert task_info["task_id"] == "job-explicit"
+    assert published[0]["task_id"] == "job-explicit"
+    assert published[0]["status"] == "running"
+
+    for _ in range(20):
+        result = runtime.get_task(task_info["task_id"])
+        if result["status"] != "running":
+            break
+        await asyncio.sleep(0.01)
+
+    assert published[-1]["task_id"] == "job-explicit"
+    assert published[-1]["status"] == "completed"
+    assert published[-1]["result"] == "payload"

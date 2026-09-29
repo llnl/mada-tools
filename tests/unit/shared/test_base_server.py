@@ -164,7 +164,7 @@ class TestRunTool:
 
         with pytest.raises(
             ToolExecutionError,
-            match=r"Tool execution failed at .*base_server.py:\d+ in _execute_tool: explicit failure",
+            match=r"Tool execution failed at .*tool_execution.py:\d+ in execute_tool_contract: explicit failure",
         ):
             await server.run_tool(tool_impl, background=False)
 
