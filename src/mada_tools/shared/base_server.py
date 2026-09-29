@@ -7,7 +7,6 @@ import argparse
 import json
 import logging
 import os
-import traceback
 from abc import ABC
 from typing import Any, Callable, Dict, Optional
 
@@ -15,6 +14,7 @@ from fastmcp import FastMCP
 
 from .exceptions import ToolExecutionError
 from .task_runtime import BackgroundTaskRuntime
+from .tool_execution import execute_tool_contract
 
 LOG = logging.getLogger(__name__)
 
@@ -214,11 +214,12 @@ class BaseMCPServer(ABC):
                 otherwise the normalized tool payload.
         """
         result = await self._task_runtime.run(
-            self._execute_tool,
+            execute_tool_contract,
             func,
             *args,
             background=background,
             task_name=getattr(func, "__name__", repr(func)),
+            error_type=ToolExecutionError,
             **kwargs,
         )
         if background:
@@ -242,27 +243,3 @@ class BaseMCPServer(ABC):
         if task_name is not None:
             formatted["tool_name"] = task_name
         return formatted
-
-    def _execute_tool(self, func: Callable, *args, **kwargs) -> Any:
-        """
-        Helper function to run a tool and handle errors.
-
-        Args:
-        func: The function/method to execute.
-        background: Whether to run the tool in the background. Defaults to True.
-
-        Returns:
-        The successful payload returned by the tool.
-
-        Raises:
-        ToolExecutionError: If the tool execution fails.
-        """
-        try:
-            success, payload = func(*args, **kwargs)
-            if success:
-                return payload
-            else:
-                raise ToolExecutionError(str(payload))
-        except Exception as e:
-            last = traceback.extract_tb(e.__traceback__)[-1]
-            raise ToolExecutionError(f"Tool execution failed at {last.filename}:{last.lineno} in {last.name}: {e}")
